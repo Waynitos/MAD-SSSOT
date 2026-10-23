@@ -111,6 +111,18 @@ Every new system, tool, workflow, or AI integration rolled into this framework m
 - Ask *"what happens when this breaks?"* before asking *"does this work?"*
 - Never adopt a system under a "suck it up and see" rollout — the cost of failure always exceeds the cost of proper testing
 
+### Forked MAD vs Manual MAD — Documented Tradeoff
+
+When running MAD inside Claude Projects using the orchestrator skill, agents are spawned as forks of the parent session rather than opened as fully independent fresh sessions. This means the parent session has processed each prior output before constructing the next agent's prompt — one layer of context anchoring exists.
+
+**This is accepted for Phase 1.** In practice, fork agents demonstrate genuine critical independence — the DA finds real weaknesses, the SSA synthesises honestly. A form of MAD that actually gets used beats a purer form that creates friction and gets skipped.
+
+**For highest-stakes decisions** — major capital commitments, irreversible system cutovers, go/no-go on mission-critical migrations — manual three-separate-sessions MAD remains the gold standard. Run those manually when the stakes demand it.
+
+**Phase 2** (standalone app backend) will restore full isolation via independent API calls with no shared session context.
+
+---
+
 ### Principle 08
 **We don't just Test if it Works — We Test if it Breaks.**
 
