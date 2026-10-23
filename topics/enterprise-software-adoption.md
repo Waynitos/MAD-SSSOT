@@ -58,6 +58,16 @@ Build the strongest honest case for the proposed adoption:
 - Is there a validated data migration test — not a sample migration, but a full migration of production data followed by a reconciliation audit?
 - What is the backup and rollback plan if data corruption is discovered post-cutover?
 
+### Test case adequacy
+
+> *"We don't just Test the Software — We Test the Tester That Tests the Software."*
+
+A test suite is only as good as the people who designed it. The edge cases live with the operators — not with IT, not with the vendor.
+- Who wrote the test cases — the migration vendor, IT, or the people who use the system daily?
+- Do the test cases cover your highest-risk integrations and largest real-world data — or representative samples?
+- Do the test cases include failure conditions (half-completed operations, connection drops, concurrent users)?
+- Were any of the test cases written or reviewed by end users — or only by the team doing the migration?
+
 ### People and process
 - What is the training plan and who bears the productivity loss during the learning curve?
 - What tribal knowledge exists in the current system that is not formally documented — and will it survive the migration?

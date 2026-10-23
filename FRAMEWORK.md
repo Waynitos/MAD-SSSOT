@@ -114,6 +114,11 @@ Every new system, tool, workflow, or AI integration rolled into this framework m
 ### Principle 08
 **We don't just Test if it Works — We Test if it Breaks.**
 
+### Principle 09
+**We don't just Test the Software — We Test the Tester That Tests the Software.**
+
+Who wrote the test cases matters as much as what the test cases say. A test suite designed by the implementation team, the vendor, or IT management — without the people who live in the system daily — is not a test suite. It is a checklist of things the testers already knew how to do. The edge cases live with the operators. Find them before go-live does.
+
 ### The M-Files Lesson
 A five-character filename suffix broke a system-wide rollout because the design team wasn't in the test group. One conversation would have caught it. **Test with the people who know the edges.**
 
