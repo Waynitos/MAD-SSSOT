@@ -115,7 +115,7 @@ New System ░░░░░░░░░░░░░░░░░░░░░░░
 ---
 
 ## Checklist
-→ checklists/enterprise-software-adoption.md (to be created)
+→ checklists/enterprise-software-adoption.md
 
 ## Environment note
 Always state: the platform being evaluated, current system being replaced, version numbers of both, number of concurrent users, peak transaction/file volumes, and which third-party integrations must survive the migration.
