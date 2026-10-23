@@ -41,6 +41,11 @@ SSA must include residual uncertainties and next-best alternatives.
 - Ecosystem lock-in risks
 - Resale / repairability
 
+## Source Quality & Recency
+- Are key specs confirmed in recent (< 6 months) independent reviews?
+- Are battery/AI/connectivity claims corroborated across multiple non-manufacturer sources?
+- Has the product received significant firmware or software updates since the most-cited reviews?
+
 ## Horizon & Upcoming Alternatives
 - Known or rumored next-generation devices
 - Expected release windows, confirmed vs rumored
