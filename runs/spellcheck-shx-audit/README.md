@@ -57,3 +57,8 @@ This MAD run audited both paths for correctness and completeness.
 | `AA-output.md` | Advocate: strongest case for the current two-path architecture |
 | `DA-output.md` | Devil's Advocate: nine structural weaknesses with evidence |
 | `SSA-output.md` | Synthesizer: tested verdict + copy-paste-ready code fixes for all six issues |
+
+## Patched script
+
+`scripts/spellcheck/SpellCheckOCR_Fallback_patched.py` — fixes 1–3 and 5 applied directly.
+Fixes 4 and 6 target `SpellCheckPDF_Word.py` (main script); code snippets are in `SSA-output.md`.
