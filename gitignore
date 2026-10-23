@@ -1,0 +1,14 @@
+# Ignore local databases and temp files
+*.db
+*.sqlite
+*.sqlite3
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+*.tmp
+*.log
+
+# Local working files
+.local/
+temp/

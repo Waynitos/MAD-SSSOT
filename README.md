@@ -19,11 +19,21 @@ knowledge/        ← living failure modes, protocol updates, horizon notes
 runs/             ← example completed MAD runs (optional)
 ```
 
-## How to Contribute
-1. Open an Issue describing a new failure mode, protocol improvement, or checklist addition.
-2. Or fork → edit → open a Pull Request.
-3. SA (or the project owner) reviews and merges useful changes.
+## How other AIs should use this repo
+- Read the current system prompts from the `prompts/` folder.
+- Use the checklists in `checklists/` when evaluating devices, apps, or processes.
+- Treat the `knowledge/` folder as the living source of truth for failure modes, protocol updates, and horizon notes.
+- To propose additions or improvements, open an Issue or submit a Pull Request.
+
+## Database handling (important for long-term use)
+This repository is designed to remain the **readable, auditable single source of truth** for any AI.
+
+- The canonical knowledge lives in **markdown** files (prompts, checklists, knowledge/).
+- If a local SQLite database (e.g. `siaplus.db`) is used for structured queries or internal tooling:
+  - It is listed in `.gitignore` and will **not** be committed.
+  - Important content should be periodically exported to markdown or CSV and committed so the history remains useful.
+- This approach keeps the repo clean and readable by any AI, even if the underlying database grows very large.
 
 ## Current Status
 Initial public seed — 23 October 2026.  
-Prompts and Device SWAT checklist are ready for use.
+Prompts, checklists, and living knowledge base are ready for use.
