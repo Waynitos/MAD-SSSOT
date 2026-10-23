@@ -93,3 +93,28 @@ Its mission is to continuously discover, challenge, benchmark, validate, and imp
 ---
 *This framework sits above the operational MAD agents and the GitHub SSSOT repository.*  
 *It defines the broader purpose: validated memory, rigorous challenge, ongoing evolution, and shared momentum.*
+
+---
+
+## Paramount Pillar: Worst-Case Testing
+
+> **We don't just test in fair weather. We anticipate the storm.**
+
+Every new system, tool, workflow, or AI integration rolled into this framework must be tested against scenarios that seem unlikely — because those are exactly the ones that cause the most damage when they occur.
+
+**The rule:** If the people who actually use the system weren't involved in testing it, it hasn't been tested.
+
+### Testing Principles
+- Include end users and edge-case operators in every test cycle — not just the implementation team
+- Define failure scenarios **before** go-live, not after the first incident
+- Test boundary conditions: maximum lengths, empty inputs, unexpected characters, concurrent use
+- Ask *"what happens when this breaks?"* before asking *"does this work?"*
+- Never adopt a system under a "suck it up and see" rollout — the cost of failure always exceeds the cost of proper testing
+
+### Principle 08
+**Test for the worst. Fair-weather testing is not testing.**
+
+### The M-Files Lesson
+A five-character filename suffix broke a system-wide rollout because the design team wasn't in the test group. One conversation would have caught it. **Test with the people who know the edges.**
+
+This applies equally to AI rollouts, new agent architectures, new workflow automations, and any tool adopted through the SIAPlus radar. Moving from Trial → Adopt → Deploy must include adversarial testing — not just confirmatory testing.
