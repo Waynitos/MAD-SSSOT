@@ -112,7 +112,7 @@ Every new system, tool, workflow, or AI integration rolled into this framework m
 - Never adopt a system under a "suck it up and see" rollout — the cost of failure always exceeds the cost of proper testing
 
 ### Principle 08
-**Test for the worst. Fair-weather testing is not testing.**
+**We don't just Test if it Works — We Test if it Breaks.**
 
 ### The M-Files Lesson
 A five-character filename suffix broke a system-wide rollout because the design team wasn't in the test group. One conversation would have caught it. **Test with the people who know the edges.**
