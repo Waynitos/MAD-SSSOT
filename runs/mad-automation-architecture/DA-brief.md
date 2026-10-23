@@ -28,6 +28,12 @@ The AA agent has built the case for fully automating a MAD (Multi-Agent Debate) 
 - Open-source orchestration (CrewAI, AutoGen, LangGraph, n8n): what is the real maintenance burden? These frameworks move fast and break things between versions.
 - Vendor lock-in: if the whole MAD stack is built on one provider's API and they change pricing, limits, or model behaviour, what's the fallback?
 
+### The phone constraint
+- A local Python script doesn't run on a phone. Any solution that requires a PC to be on and running fails the user's actual requirement.
+- Hosted solutions (n8n cloud, a deployed API, a web app) solve the phone problem but introduce new ones: who hosts it, who maintains it, what happens when it goes down?
+- Claude Projects (where this conversation lives) can run agents — but can the user reliably trigger a multi-step MAD cycle from a phone via Claude Projects without the same copy-paste problem recurring?
+- What is the actual mobile experience of every proposed solution — not the desktop experience ported to a small screen?
+
 ### The UX illusion
 - "Zero friction" is harder than it looks. What are all the ways a "set and forget" system creates NEW friction — failed runs with no feedback, results delivered when the user isn't ready, no way to steer mid-run?
 - Push notifications and async delivery solve the waiting problem but introduce a new one: context-switching back into a result when you've moved on. How does the UX handle that?

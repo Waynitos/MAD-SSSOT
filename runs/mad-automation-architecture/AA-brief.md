@@ -16,6 +16,7 @@ Build the strongest case for how the MAD (Multi-Agent Debate) workflow — AA �
 - The user wants to run multiple MAD scenarios simultaneously (code audit, product research, flight search, etc.) without babysitting any of them.
 - Eventually: these MAD cycles should power apps and services in the background — the user never sees the prompt machinery.
 - Platform context: The user is technical (Python, PowerShell, JavaScript, AutoIt) and can deploy simple backends. Budget is not the primary constraint — elegance, reliability, and zero-friction UX are.
+- **Critical UX constraint:** The solution must work from a phone — not just a desktop. The user wants to fire off MAD scenarios while away from their desk and receive results wherever they are. Any solution that only runs locally on a PC fails this requirement.
 
 **Build the strongest case for:**
 1. What is technically possible TODAY for automating multi-agent AI workflows at this scale?
@@ -24,5 +25,6 @@ Build the strongest case for how the MAD (Multi-Agent Debate) workflow — AA �
 4. What are the most elegant UX patterns for "set it and forget it" multi-agent runs? (Push notifications, shared dashboard, email digest, artifact that auto-updates?)
 5. What open-source orchestration frameworks (LangGraph, CrewAI, AutoGen, Dify, n8n, etc.) are best suited to this pattern?
 6. What is the minimum viable implementation that removes ALL manual relay steps?
+7. What architectures work equally well from a phone browser as from a desktop — no app install required, no local script to run?
 
 **Subject:** Automating the MAD multi-agent workflow so the user sets a subject, hits Go, and receives a synthesised AA+DA+SSA result with zero manual steps — while being able to run multiple scenarios in parallel.
