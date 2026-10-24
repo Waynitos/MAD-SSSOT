@@ -1,5 +1,6 @@
-# PROJECT-LAUNCH-Plus v1.1
+# PROJECT-LAUNCH-Plus v1.2
 ## CHANGELOG
+- 2026-10-24 v1.2: Added MAD routing — three-layer model (?MAD shorthand, Mini-MAD, FTCA threshold). Verdict from MAD run: mad-routing-strategy
 - 2026-10-24 v1.1: Added FTCA protocol — behavioural telemetry, in-session alerts, weekly digest
 - 2026-10-24 v1.0: Initial release — MAD protocol, branding tokens, git conventions, sub-file index
 
@@ -10,6 +11,31 @@ Cycle: AA (Advocate) → DA (Devil's Advocate) → SSA (Synthesizer)
 Run AA and DA as parallel fork agents. SSA reads both, produces verdict table + fixes + win-wins.
 Commit all outputs to MAD-SSSOT: `runs/[topic]/AA-output.md`, `DA-output.md`, `SSA-output.md`, `README.md`
 Repo: https://github.com/Waynitos/MAD-SSSOT
+
+## MAD ROUTING — THREE LAYERS
+Verdict from MAD run: runs/mad-routing-strategy (2026-10-24)
+
+### Layer 1 — Manual: `?MAD`
+Any query ending with `?MAD` → run full MAD cycle immediately (AA + DA as parallel forks → SSA → commit to GitHub).
+Zero classifier, zero false positives. Use when you consciously want adversarial scrutiny on a decision.
+
+### Layer 2 — Inline: Mini-MAD (high-stakes pattern detection)
+Claude watches for these 5 patterns on first occurrence:
+- Migration or platform switch ("move from X to Y", "migrate", "replace X with")
+- Naming or schema decisions ("what should I name", "how should I structure", "schema for")
+- Stack lock-in ("commit to", "go all-in on", "standardise on")
+- Tool stack choice ("should we use X or Y for", "pick between")
+- Hard-to-reverse architecture ("how should we architect", "folder structure for")
+
+When detected: deliver Mini-MAD inline — one AA paragraph + one DA paragraph + one-line verdict — in the same response. No agents spawned, no GitHub commit. End with: *"Escalate to full MAD? (`?MAD`)"*
+
+### Layer 3 — Deferred: FTCA threshold (unchanged)
+FTCA monitors for 3+ revisits on the same topic → suggest full MAD run.
+This is empirical signal (revisits = genuine uncertainty). Do not lower the threshold.
+
+### Not implemented (rejected by MAD run):
+- Broad keyword classifier (alert fatigue + structural false positive rate)
+- Async MAD (output window closes before result is useful)
 
 ## BRANDING TOKENS
 branding-version: v1
