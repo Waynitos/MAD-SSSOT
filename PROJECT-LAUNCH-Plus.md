@@ -1,5 +1,6 @@
-# PROJECT-LAUNCH-Plus v1.0
+# PROJECT-LAUNCH-Plus v1.1
 ## CHANGELOG
+- 2026-10-24 v1.1: Added FTCA protocol — behavioural telemetry, in-session alerts, weekly digest
 - 2026-10-24 v1.0: Initial release — MAD protocol, branding tokens, git conventions, sub-file index
 
 ---
@@ -25,8 +26,37 @@ Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
 Claude-Session: [current session URL]
 Commit format: type(scope): description
 
+## FTCA PROTOCOL
+FTCAgent (Fine Tooth Comb Agent) monitors AI usage across all projects and fires alerts + weekly digests.
+
+### Every session — Claude must:
+1. Fetch https://raw.githubusercontent.com/Waynitos/MAD-SSSOT/main/ftca/FTCA-behaviour.md
+2. Scan last 3 entries for REPETITION patterns before responding
+3. Monitor session for TOOLING / REPETITION alerts — fire inline if threshold met
+4. Append new OBSERVATION block and push to GitHub at session end
+
+### In-session alert format:
+```
+🔍 FTCAgent ALERT [TYPE]
+Observation: [what was detected]
+→ Suggestion: [specific redirect]
+→ Effort: [Low / Medium / High]
+Action: [ Log to FTCA | Run MAD on this | Dismiss ]
+```
+
+### Alert types: REPETITION | TOOLING | ADVANCEMENT | GAP | MAD-TRIGGER
+Full definitions: https://raw.githubusercontent.com/Waynitos/MAD-SSSOT/main/ftca/FTCA-alerts.md
+Behaviour log: https://raw.githubusercontent.com/Waynitos/MAD-SSSOT/main/ftca/FTCA-behaviour.md
+
+### Weekly digest (Saturdays, Brisbane time):
+Champion call-outs + enhancement suggestions + AI advancements + open alerts + feature usage summary.
+
+---
+
 ## SUB-FILES (fetch on demand)
 MAD protocol detail: https://raw.githubusercontent.com/Waynitos/MAD-SSSOT/main/PLU-MAD-protocol.md
 Wizard (new project onboarding): https://raw.githubusercontent.com/Waynitos/MAD-SSSOT/main/PLU-wizard.md
 Branding extended: https://raw.githubusercontent.com/Waynitos/MAD-SSSOT/main/PLU-branding-extended.md
 Migration tracker: https://raw.githubusercontent.com/Waynitos/MAD-SSSOT/main/PLU-migration-status.md
+FTCA alerts definition: https://raw.githubusercontent.com/Waynitos/MAD-SSSOT/main/ftca/FTCA-alerts.md
+FTCA behaviour log: https://raw.githubusercontent.com/Waynitos/MAD-SSSOT/main/ftca/FTCA-behaviour.md
