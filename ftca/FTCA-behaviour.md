@@ -32,3 +32,12 @@ alerts-fired: —
 tools-used: WebFetch, memory_write, memory_read, Bash, Write, add_repo, git clone/push
 ai-apps-active: Claude (primary), Grok (parallel project noted)
 notes: FTCA architecture defined this session. Weekly digest + in-session alerts both active from next session. Push-to-GitHub pipeline established.
+
+## 2026-10-24 | Project: FTCAgent PROJECT (FTCA) | Session: Full build — FTCA + MAD routing
+features-used: Project memory, PLU fetch, GitHub push, git clone, fork agents (MAD AA/DA/SSA), Scheduled Tasks, WebFetch, Write, Edit, Bash, add_repo, register_repo_root
+features-observed-unused: Claude Design artifact, Artifact capabilities, morning brief skill, Claude in Chrome, Sheets artifact
+patterns-flagged: —
+alerts-fired: —
+tools-used: WebFetch, memory_write/read, Bash, Write, Edit, Agent (fork ×2), create_trigger, git push
+ai-apps-active: Claude (primary), Grok (parallel project noted)
+notes: Full FTCA architecture built and shipped. PLU updated to v1.2 with MAD routing (three-layer model). Weekly digest scheduled. MAD run on routing strategy completed — SSA verdict implemented same session. Repo push pipeline confirmed working.
