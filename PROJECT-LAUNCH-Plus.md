@@ -1,6 +1,7 @@
-# PROJECT-LAUNCH-Plus v1.2
+# PROJECT-LAUNCH-Plus v1.3
 ## CHANGELOG
-- 2026-10-24 v1.2: Added MAD routing — three-layer model (?MAD shorthand, Mini-MAD, FTCA threshold). Verdict from MAD run: mad-routing-strategy
+- 2026-10-24 v1.3: Renamed MAD trigger from ?MAD to RMAD — simpler to type and remember
+- 2026-10-24 v1.2: Added MAD routing — three-layer model (RMAD shorthand, Mini-MAD, FTCA threshold). Verdict from MAD run: mad-routing-strategy
 - 2026-10-24 v1.1: Added FTCA protocol — behavioural telemetry, in-session alerts, weekly digest
 - 2026-10-24 v1.0: Initial release — MAD protocol, branding tokens, git conventions, sub-file index
 
@@ -15,8 +16,8 @@ Repo: https://github.com/Waynitos/MAD-SSSOT
 ## MAD ROUTING — THREE LAYERS
 Verdict from MAD run: runs/mad-routing-strategy (2026-10-24)
 
-### Layer 1 — Manual: `?MAD`
-Any query ending with `?MAD` → run full MAD cycle immediately (AA + DA as parallel forks → SSA → commit to GitHub).
+### Layer 1 — Manual: `RMAD`
+Any query ending with `RMAD` → run full MAD cycle immediately (AA + DA as parallel forks → SSA → commit to GitHub).
 Zero classifier, zero false positives. Use when you consciously want adversarial scrutiny on a decision.
 
 ### Layer 2 — Inline: Mini-MAD (high-stakes pattern detection)
@@ -27,7 +28,7 @@ Claude watches for these 5 patterns on first occurrence:
 - Tool stack choice ("should we use X or Y for", "pick between")
 - Hard-to-reverse architecture ("how should we architect", "folder structure for")
 
-When detected: deliver Mini-MAD inline — one AA paragraph + one DA paragraph + one-line verdict — in the same response. No agents spawned, no GitHub commit. End with: *"Escalate to full MAD? (`?MAD`)"*
+When detected: deliver Mini-MAD inline — one AA paragraph + one DA paragraph + one-line verdict — in the same response. No agents spawned, no GitHub commit. End with: *"Escalate to full MAD? (`RMAD`)"*
 
 ### Layer 3 — Deferred: FTCA threshold (unchanged)
 FTCA monitors for 3+ revisits on the same topic → suggest full MAD run.
