@@ -1,33 +1,47 @@
-# Vault Cloud Migration — MAD Run
+# MAD Run: Autodesk Vault Professional — On-Premise to Cloud Migration
 
-**Status:** AA and DA briefs ready. SSA pending DA output.  
-**Initiated:** October 2026  
-**Topic type:** Enterprise Software Adoption  
-**Live case study:** Yes — active migration in progress at design department
+**Status: COMPLETE ✅**
+**Verdict: CONDITIONAL GO**
+**Run completed: October 2026**
 
-## How to Run This
+---
 
-1. **AA Agent** — open a fresh AI session, paste `AA-brief.md`, let it build the full case for migration
-2. **DA Agent** — open a separate fresh AI session (do NOT use the same session as AA), paste `DA-brief.md`, let it challenge every angle
-3. **SSA Agent** — open a third fresh session, paste both AA and DA outputs plus the SSA prompt from `prompts/ssa-prompt.md`, synthesise the final recommendation
+## Context
 
-## Critical Priority
+Engineering department running Autodesk Vault Professional with Inventor, AutoCAD Plant 3D, and AutoCAD — migrating from on-premise Windows Server to cloud-hosted VM (AWS/Azure). Full integration scope: Inventor (.iam/.ipt/.idw), Plant 3D (.xml/lock files/isos), AutoCAD (.dwg/.dxf/.dst), PDF, STEP/IGES, IFC, Excel BOM, DWF/DWFx.
 
-The **Plant 3D / Vault integration** is the highest-risk item in this migration. It must be in the first round of test cases — not an afterthought. See DA brief for the specific failure modes and test requirements.
+## Files in This Run
 
-## Files
+| File | Description |
+|---|---|
+| `AA-brief.md` | Original advocate brief (Friday 24 Oct) |
+| `DA-brief.md` | Original devil's advocate brief (Friday 24 Oct) |
+| `AA-output.md` | Full AA output — strongest case FOR migration |
+| `DA-output.md` | Full DA output — 13 critical failure modes identified |
+| `SSA-output.md` | **Synthesiser verdict — START HERE** |
 
-- `AA-brief.md` — Advocate Agent brief (build the case for migration)
-- `DA-brief.md` — Devil's Advocate brief (find every way it can fail)
-- `SSA-output.md` — to be created after DA run completes
+## Verdict Summary
 
-## What Makes This Case Study Valuable
+**CONDITIONAL GO** — migration is technically viable and Autodesk-supported. Not ready to execute today. Six named conditions must be met first.
 
-This is a real migration with real stakes. The DA brief captures:
-- A known, documented failure mode (Plant 3D check-in/check-out direction)  
-- Latency implications of cloud vs LAN for CAD file operations
-- File relationship integrity risks during migration
-- Questions to stress-test the adequacy of the test cases provided by IT
-- Rollback readiness assessment
+### The Six Conditions (must all be met before go-live)
+1. Latency measured and within threshold (≤40ms; if 40–70ms, AVFS required)
+2. Plant 3D test cases written and signed off by a Plant 3D operator
+3. Version compatibility matrix confirmed for every workstation
+4. Project.xml and working folder path remediation documented and tested
+5. Rollback procedure executed in test environment (not just documented)
+6. All checked-out files cleared before migration begins
 
-The MAD output from this run should be presented to management **before** go-live approval is given.
+### Highest Risk
+Plant 3D — particularly the check-in direction constraint under changed working folder paths, lock file race conditions under cloud latency, and project.xml hostname references.
+
+### Recommended Cutover Sequence
+AutoCAD first → Inventor → Plant 3D last
+
+## For Testers
+
+See `SSA-output.md` → "What Waynito Should Bring to Testing" — 8 priority test scenarios including the Plant 3D wrong-direction test, concurrent editing race condition, large assembly timing, and iLogic rule verification.
+
+---
+
+*MAD cycle run under the MAD Framework Architecture. See `runs/` for other topic runs.*
