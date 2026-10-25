@@ -74,9 +74,10 @@ danger:         #c0392b
 
 ### Typography
 
-font-display:   "Nunito", "Varela Round", sans-serif
-  /* Rounded geometric — matches phewphonics wordmark character; use for logos,
-     large headings, hero text. Load via Google Fonts: Nunito weight 700+800 */
+font-display:   "Bauhaus 93", "Nunito", "Varela Round", sans-serif
+  /* Bauhaus 93 — confirmed wordmark font for "phewphonics" lettering.
+     Not available on Google Fonts; use as installed system font or embed as woff2.
+     Fallback: Nunito 700+800 (Google Fonts) for web use where Bauhaus 93 unavailable */
 
 font-subtitle:  "Rajdhani", "Barlow Condensed", "Arial Narrow", sans-serif
   /* Tight spaced caps grotesque — matches "3D DESIGN STUDIO" subtitle treatment.
@@ -99,7 +100,8 @@ text-transform-subtitle: uppercase
 
 ### Logo
 
-logo-wordmark:          "phewphonics" lowercase, outline/inline stroke style, rounded letterforms
+logo-wordmark:          "phewphonics" lowercase — Bauhaus 93 font, outline/inline stroke style
+logo-assets:            https://github.com/Waynitos/MAD-SSSOT/tree/main/branding/phewphonics/
 logo-icon:              Satellite dish + shooting star — top-right of wordmark
 logo-subtitle:          "3D DESIGN STUDIO" — spaced caps, below wordmark right-aligned
 logo-colour-primary:    #4B2FA0 on white bg
