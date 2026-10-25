@@ -1,5 +1,6 @@
-# PROJECT-LAUNCH-Plus v1.3
+# PROJECT-LAUNCH-Plus v1.4
 ## CHANGELOG
+- 2026-10-25 v1.4: PLU-branding-extended.md created — full Phewphonics 3D Design Studio brand DNA (purple palette, Nunito/Rajdhani fonts, CSS custom properties, component specs, dark mode); PLU-wizard.md updated so all new BRANDING.md files reference the extended file
 - 2026-10-24 v1.3: Renamed MAD trigger from ?MAD to RMAD — simpler to type and remember
 - 2026-10-24 v1.2: Added MAD routing — three-layer model (RMAD shorthand, Mini-MAD, FTCA threshold). Verdict from MAD run: mad-routing-strategy
 - 2026-10-24 v1.1: Added FTCA protocol — behavioural telemetry, in-session alerts, weekly digest

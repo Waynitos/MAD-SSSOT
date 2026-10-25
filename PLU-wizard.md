@@ -67,8 +67,16 @@ If PROJECT-LAUNCH-Plus changelog shows a version newer than [date], flag it at s
 ```
 # [Project Name] — Branding
 Inherited from PROJECT-LAUNCH-Plus branding-version: v1
-(see PROJECT-CONFIG.md Overrides section for any project-specific changes)
+Extended brand DNA: https://raw.githubusercontent.com/Waynitos/MAD-SSSOT/main/PLU-branding-extended.md
 
+## Active brand
+(none — using Global Defaults from PLU-branding-extended.md)
+To activate a named brand, add to Overrides section:
+  Active brand: [Brand Name]
+  Fetch full spec: https://raw.githubusercontent.com/Waynitos/MAD-SSSOT/main/PLU-branding-extended.md
+  Apply: ## [Brand Name] block — all CSS custom properties and component specs
+
+## Global defaults (from PLU-branding-extended.md)
 primary: #1a1a1a | accent: #2563eb | success: #1a7a3c
 bg-light: #f8f7f4 | bg-dark: #141414
 font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif
