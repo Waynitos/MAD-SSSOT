@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<!--
+  PHEWPHONICS — Branded Pop-up / Modal Template
+  Source: MAD-SSSOT/stationery/phewphonics/templates/popup-flash.html
+  Tokens: PLU-branding-extended.md
+
+  USAGE (Claude instruction):
+  This template demonstrates a branded pop-up/modal overlay.
+  Embed the .pp-modal + .pp-overlay markup in a larger page,
+  or use this file as a standalone demo to verify brand rendering.
+
+  VARIABLES TO REPLACE:
+  {{POPUP_TITLE}}    — modal heading
+  {{POPUP_BODY}}     — body paragraph(s)
+  {{POPUP_CTA}}      — primary button label (e.g. "Got it", "Start Quiz")
+  {{POPUP_CANCEL}}   — secondary/cancel label (omit button to hide)
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{POPUP_TITLE}} — Phewphonics</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&family=Rajdhani:wght@600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --pp-primary:       #4B2FA0;
+    --pp-primary-dark:  #3A2280;
+    --pp-accent:        #7B5ED4;
+    --pp-white:         #FFFFFF;
+    --pp-dark:          #333333;
+    --pp-mid:           #666666;
+    --pp-light:         #CCCCCC;
+    --pp-bg:            #F5F5F7;
+    --pp-card:          #FFFFFF;
+    --pp-font-display:  'Nunito', sans-serif;
+    --pp-font-sub:      'Rajdhani', 'Arial Narrow', sans-serif;
+    --pp-font-body:     -apple-system, 'Nunito', sans-serif;
+    --pp-radius:        16px;
+    --pp-radius-pill:   999px;
+    --pp-shadow:        0 8px 40px rgba(75,47,160,0.22);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    min-height: 100vh;
+    background: var(--pp-bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--pp-font-body);
+    padding: 16px;
+  }
+
+  /* Demo page trigger */
+  .demo-trigger {
+    font-family: var(--pp-font-sub);
+    font-weight: 700;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    border: none;
+    border-radius: var(--pp-radius-pill);
+    padding: 12px 28px;
+    background: var(--pp-primary);
+    color: var(--pp-white);
+    cursor: pointer;
+    transition: background 0.18s;
+  }
+  .demo-trigger:hover { background: var(--pp-primary-dark); }
+
+  /* ── Overlay ── */
+  .pp-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(26,16,32,0.6);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    z-index: 1000;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.22s;
+  }
+  .pp-overlay.active {
+    opacity: 1;
+    pointer-events: all;
+  }
+
+  /* ── Modal ── */
+  .pp-modal {
+    background: var(--pp-card);
+    border-radius: var(--pp-radius);
+    box-shadow: var(--pp-shadow);
+    max-width: 440px;
+    width: 100%;
+    overflow: hidden;
+    transform: translateY(20px) scale(0.97);
+    transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .pp-overlay.active .pp-modal {
+    transform: translateY(0) scale(1);
+  }
+
+  /* Purple header band */
+  .modal-header {
+    background: var(--pp-primary);
+    padding: 20px 24px 16px;
+    position: relative;
+  }
+
+  .modal-eyebrow {
+    font-family: var(--pp-font-sub);
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: rgba(255,255,255,0.65);
+    margin-bottom: 6px;
+  }
+
+  .modal-title {
+    font-family: var(--pp-font-display);
+    font-weight: 800;
+    font-size: 1.3rem;
+    color: var(--pp-white);
+    line-height: 1.25;
+  }
+
+  .modal-close {
+    position: absolute;
+    top: 14px;
+    right: 16px;
+    background: rgba(255,255,255,0.15);
+    border: none;
+    border-radius: 50%;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: var(--pp-white);
+    font-size: 1rem;
+    line-height: 1;
+    transition: background 0.15s;
+  }
+  .modal-close:hover { background: rgba(255,255,255,0.25); }
+
+  /* Body */
+  .modal-body {
+    padding: 20px 24px;
+    font-size: 0.92rem;
+    line-height: 1.6;
+    color: var(--pp-dark);
+  }
+
+  .modal-body p + p { margin-top: 12px; }
+
+  /* Footer / actions */
+  .modal-footer {
+    padding: 0 24px 20px;
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
+
+  .btn {
+    font-family: var(--pp-font-sub);
+    font-weight: 700;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    border: none;
+    border-radius: var(--pp-radius-pill);
+    padding: 10px 22px;
+    cursor: pointer;
+    transition: background 0.18s, transform 0.1s;
+  }
+  .btn:active { transform: scale(0.97); }
+
+  .btn-primary {
+    background: var(--pp-primary);
+    color: var(--pp-white);
+  }
+  .btn-primary:hover { background: var(--pp-primary-dark); }
+
+  .btn-ghost {
+    background: transparent;
+    border: 2px solid var(--pp-light);
+    color: var(--pp-mid);
+  }
+  .btn-ghost:hover { border-color: var(--pp-primary); color: var(--pp-primary); }
+</style>
+</head>
+<body>
+
+<button class="demo-trigger" onclick="openModal()">Open Pop-up Demo</button>
+
+<!-- ── Modal markup (embed this in any page) ── -->
+<div class="pp-overlay" id="ppOverlay" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+  <div class="pp-modal">
+    <div class="modal-header">
+      <div class="modal-eyebrow">Phewphonics</div>
+      <div class="modal-title" id="modalTitle">{{POPUP_TITLE}}</div>
+      <button class="modal-close" onclick="closeModal()" aria-label="Close">✕</button>
+    </div>
+    <div class="modal-body">
+      <p>{{POPUP_BODY}}</p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal()">{{POPUP_CANCEL}}</button>
+      <button class="btn btn-primary" onclick="closeModal()">{{POPUP_CTA}}</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const overlay = document.getElementById('ppOverlay');
+
+  function openModal()  { overlay.classList.add('active'); }
+  function closeModal() { overlay.classList.remove('active'); }
+
+  overlay.addEventListener('click', e => { if (e.target === overlay) closeModal(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+</script>
+</body>
+</html>

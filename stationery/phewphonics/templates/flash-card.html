@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<!--
+  PHEWPHONICS — Flash Card Template
+  Source: MAD-SSSOT/stationery/phewphonics/templates/flash-card.html
+  Tokens: PLU-branding-extended.md
+
+  USAGE (Claude instruction):
+  Fetch this file. Inject CARD_QUESTION, CARD_ANSWER, CARD_CATEGORY, CARD_HINT.
+  Replace {{LOGO_URL}} with the raw GitHub logo URL or omit the img tag.
+  Publish as artifact. Do not redesign from scratch — the brand is already here.
+
+  VARIABLES TO REPLACE:
+  {{CARD_TITLE}}     — e.g. "BELL Language Quiz"
+  {{CARD_CATEGORY}}  — e.g. "Vocabulary · Level 2"
+  {{CARD_QUESTION}}  — the question or prompt
+  {{CARD_HINT}}      — optional hint (leave blank to hide)
+  {{CARD_ANSWER}}    — the answer revealed on flip
+  {{CARD_NOTE}}      — optional extra note / explanation on answer side
+  {{CARD_NUMBER}}    — e.g. "Card 1 of 12"
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{CARD_TITLE}}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&family=Rajdhani:wght@600;700&display=swap" rel="stylesheet">
+<style>
+  /* ── Brand Tokens ── */
+  :root {
+    --pp-primary:       #4B2FA0;
+    --pp-primary-dark:  #3A2280;
+    --pp-primary-light: #6B4FC8;
+    --pp-accent:        #7B5ED4;
+    --pp-white:         #FFFFFF;
+    --pp-dark:          #333333;
+    --pp-mid:           #666666;
+    --pp-light:         #CCCCCC;
+    --pp-bg:            #F5F5F7;
+    --pp-bg-dark:       #1A1020;
+    --pp-card:          #FFFFFF;
+    --pp-card-dark:     #2A1E40;
+    --pp-font-display:  'Nunito', 'Varela Round', sans-serif;
+    --pp-font-sub:      'Rajdhani', 'Barlow Condensed', 'Arial Narrow', sans-serif;
+    --pp-font-body:     -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Nunito', sans-serif;
+    --pp-radius:        12px;
+    --pp-radius-pill:   999px;
+    --pp-shadow:        0 4px 24px rgba(75,47,160,0.15);
+    --pp-gutter:        16px;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --pp-bg:   #1A1020;
+      --pp-card: #2A1E40;
+      --pp-dark: #FFFFFF;
+      --pp-mid:  #AAAAAA;
+      --pp-light: rgba(255,255,255,0.15);
+    }
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    min-height: 100vh;
+    background: var(--pp-bg);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--pp-font-body);
+    padding: 24px var(--pp-gutter);
+    gap: 20px;
+  }
+
+  /* ── Header ── */
+  .card-header {
+    text-align: center;
+    width: 100%;
+    max-width: 480px;
+  }
+  .card-title {
+    font-family: var(--pp-font-display);
+    font-weight: 800;
+    font-size: 1.1rem;
+    color: var(--pp-primary);
+    letter-spacing: 0.02em;
+  }
+  .card-category {
+    font-family: var(--pp-font-sub);
+    font-weight: 600;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--pp-mid);
+    margin-top: 4px;
+  }
+
+  /* ── Flip Card ── */
+  .scene {
+    width: 100%;
+    max-width: 480px;
+    height: 280px;
+    perspective: 800px;
+    cursor: pointer;
+  }
+
+  .card-inner {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    transform-style: preserve-3d;
+    transition: transform 0.55s cubic-bezier(0.4, 0, 0.2, 1);
+    border-radius: var(--pp-radius);
+  }
+
+  .scene.flipped .card-inner {
+    transform: rotateY(180deg);
+  }
+
+  .face {
+    position: absolute;
+    inset: 0;
+    border-radius: var(--pp-radius);
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 28px 24px;
+    box-shadow: var(--pp-shadow);
+  }
+
+  /* Question face */
+  .face-front {
+    background: var(--pp-card);
+    border: 1px solid var(--pp-light);
+  }
+
+  .face-front .face-label {
+    font-family: var(--pp-font-sub);
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--pp-accent);
+    margin-bottom: 16px;
+  }
+
+  .question-text {
+    font-family: var(--pp-font-display);
+    font-weight: 700;
+    font-size: clamp(1.2rem, 4vw, 1.8rem);
+    color: var(--pp-dark);
+    text-align: center;
+    line-height: 1.3;
+  }
+
+  .hint-text {
+    font-size: 0.8rem;
+    color: var(--pp-mid);
+    margin-top: 16px;
+    text-align: center;
+    font-style: italic;
+    display: none;
+  }
+  .hint-text.visible { display: block; }
+
+  /* Answer face */
+  .face-back {
+    background: var(--pp-primary);
+    transform: rotateY(180deg);
+  }
+
+  .face-back .face-label {
+    font-family: var(--pp-font-sub);
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: rgba(255,255,255,0.6);
+    margin-bottom: 16px;
+  }
+
+  .answer-text {
+    font-family: var(--pp-font-display);
+    font-weight: 800;
+    font-size: clamp(1.4rem, 5vw, 2.2rem);
+    color: var(--pp-white);
+    text-align: center;
+    line-height: 1.2;
+  }
+
+  .note-text {
+    font-size: 0.82rem;
+    color: rgba(255,255,255,0.75);
+    margin-top: 14px;
+    text-align: center;
+    line-height: 1.5;
+    max-width: 340px;
+  }
+
+  /* ── Controls ── */
+  .controls {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: center;
+    width: 100%;
+    max-width: 480px;
+  }
+
+  .btn {
+    font-family: var(--pp-font-sub);
+    font-weight: 700;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    border: none;
+    border-radius: var(--pp-radius-pill);
+    padding: 10px 22px;
+    cursor: pointer;
+    transition: background 0.18s, transform 0.12s;
+  }
+
+  .btn:active { transform: scale(0.97); }
+
+  .btn-primary {
+    background: var(--pp-primary);
+    color: var(--pp-white);
+  }
+  .btn-primary:hover { background: var(--pp-primary-dark); }
+
+  .btn-secondary {
+    background: transparent;
+    border: 2px solid var(--pp-primary);
+    color: var(--pp-primary);
+  }
+  .btn-secondary:hover { background: var(--pp-primary); color: var(--pp-white); }
+
+  /* ── Progress ── */
+  .progress {
+    font-family: var(--pp-font-sub);
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--pp-mid);
+  }
+
+  /* ── Footer byline ── */
+  .byline {
+    font-family: var(--pp-font-sub);
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--pp-accent);
+    opacity: 0.7;
+  }
+
+  /* ── Tap indicator ── */
+  .tap-indicator {
+    font-size: 0.72rem;
+    color: var(--pp-mid);
+    text-align: center;
+    opacity: 0.75;
+  }
+
+  @media (max-width: 480px) {
+    .scene { height: 240px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="card-header">
+  <div class="card-title">{{CARD_TITLE}}</div>
+  <div class="card-category">{{CARD_CATEGORY}}</div>
+</div>
+
+<div class="scene" id="scene" onclick="flipCard()" role="button" aria-label="Flash card — click to flip">
+  <div class="card-inner" id="cardInner">
+
+    <!-- Question side -->
+    <div class="face face-front">
+      <div class="face-label">Question</div>
+      <div class="question-text">{{CARD_QUESTION}}</div>
+      <div class="hint-text" id="hintText">💡 {{CARD_HINT}}</div>
+    </div>
+
+    <!-- Answer side -->
+    <div class="face face-back">
+      <div class="face-label">Answer</div>
+      <div class="answer-text">{{CARD_ANSWER}}</div>
+      <div class="note-text">{{CARD_NOTE}}</div>
+    </div>
+
+  </div>
+</div>
+
+<div class="tap-indicator">Tap card to flip</div>
+
+<div class="controls">
+  <button class="btn btn-secondary" onclick="showHint()">Hint</button>
+  <button class="btn btn-primary" onclick="flipCard()">Flip</button>
+  <button class="btn btn-secondary" onclick="resetCard()">Reset</button>
+</div>
+
+<div class="progress">{{CARD_NUMBER}}</div>
+<div class="byline">Sound Better? — Phewphonics</div>
+
+<script>
+  const scene    = document.getElementById('scene');
+  const hintText = document.getElementById('hintText');
+  let flipped = false;
+
+  function flipCard() {
+    flipped = !flipped;
+    scene.classList.toggle('flipped', flipped);
+  }
+
+  function showHint() {
+    hintText.classList.add('visible');
+  }
+
+  function resetCard() {
+    flipped = false;
+    scene.classList.remove('flipped');
+    hintText.classList.remove('visible');
+  }
+
+  // Keyboard: space or enter to flip, h for hint
+  document.addEventListener('keydown', e => {
+    if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); flipCard(); }
+    if (e.key === 'h' || e.key === 'H') showHint();
+    if (e.key === 'r' || e.key === 'R') resetCard();
+  });
+</script>
+</body>
+</html>

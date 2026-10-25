@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<!--
+  PHEWPHONICS — Letterhead Header Block (digital preview)
+  Source: MAD-SSSOT/stationery/phewphonics/templates/stationery-header.html
+  Tokens: PLU-branding-extended.md
+
+  NOTE: This is a DIGITAL PREVIEW template for on-screen approval.
+  It is NOT print-ready. For production print: see print-specs.md and
+  recreate in Adobe Illustrator or InDesign with CMYK colours, bleed marks,
+  and PDF/X-1a export.
+
+  VARIABLES TO REPLACE:
+  {{CONTACT_NAME}}   — name or company trading name for this version
+  {{CONTACT_EMAIL}}  — email address
+  {{CONTACT_WEB}}    — website
+  {{CONTACT_PHONE}}  — phone (optional — remove line if not needed)
+  {{CONTACT_CITY}}   — city/country
+  {{LOGO_URL}}       — raw GitHub URL of logo (replace with hosted URL or embed as base64)
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Letterhead Header — Phewphonics</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;800&family=Rajdhani:wght@600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --pp-primary:     #4B2FA0;
+    --pp-white:       #FFFFFF;
+    --pp-mid:         #666666;
+    --pp-light:       #E8E4F0;
+    --pp-font-display:'Nunito', sans-serif;
+    --pp-font-sub:    'Rajdhani', 'Arial Narrow', sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: #f0edf7;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 40px 16px;
+    font-family: var(--pp-font-sub);
+    min-height: 100vh;
+  }
+
+  /* A4 paper simulation */
+  .page {
+    width: 100%;
+    max-width: 794px;
+    background: #fff;
+    box-shadow: 0 4px 24px rgba(75,47,160,0.12);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+
+  /* ── Option A: Purple top band ── */
+  .header-band {
+    background: var(--pp-primary);
+    padding: 24px 40px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    flex-wrap: wrap;
+  }
+
+  .logo-block {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  /* Wordmark — fallback text if image unavailable */
+  .wordmark {
+    font-family: var(--pp-font-display);
+    font-weight: 800;
+    font-size: 1.6rem;
+    color: var(--pp-white);
+    letter-spacing: 0.04em;
+    line-height: 1;
+  }
+
+  .wordmark-logo {
+    height: 40px;
+    width: auto;
+    display: block;
+  }
+
+  .subtitle {
+    font-family: var(--pp-font-sub);
+    font-weight: 600;
+    font-size: 0.6rem;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    color: rgba(255,255,255,0.7);
+    margin-top: 4px;
+  }
+
+  .byline {
+    font-family: var(--pp-font-sub);
+    font-weight: 700;
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: rgba(255,255,255,0.55);
+    margin-top: 8px;
+  }
+
+  /* Contact block */
+  .contact-block {
+    text-align: right;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .contact-name {
+    font-family: var(--pp-font-display);
+    font-weight: 700;
+    font-size: 0.85rem;
+    color: var(--pp-white);
+  }
+
+  .contact-line {
+    font-family: var(--pp-font-sub);
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: rgba(255,255,255,0.72);
+  }
+
+  /* Rule below header */
+  .header-rule {
+    height: 3px;
+    background: linear-gradient(to right, var(--pp-primary), rgba(75,47,160,0.1));
+  }
+
+  /* Content area preview */
+  .body-area {
+    padding: 36px 40px 48px;
+    min-height: 200px;
+    border-bottom: 1px solid #eee;
+  }
+
+  .body-placeholder {
+    font-family: var(--pp-font-sub);
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: #ccc;
+    text-align: center;
+    margin-top: 60px;
+  }
+
+  /* Footer */
+  .footer-band {
+    padding: 10px 40px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  .footer-company {
+    font-family: var(--pp-font-sub);
+    font-size: 0.62rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--pp-mid);
+  }
+
+  .footer-byline {
+    font-family: var(--pp-font-sub);
+    font-size: 0.62rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--pp-primary);
+  }
+
+  /* Variant label */
+  .variant-label {
+    font-family: var(--pp-font-sub);
+    font-size: 0.6rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: rgba(255,255,255,0.4);
+    position: absolute;
+    top: 8px;
+    right: 10px;
+    font-size: 0.55rem;
+  }
+
+  .header-band { position: relative; }
+
+  @media (max-width: 600px) {
+    .header-band { padding: 20px 20px; }
+    .contact-block { text-align: left; }
+    .body-area { padding: 24px 20px 36px; }
+    .footer-band { padding: 10px 20px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="page">
+  <!-- ── Header Band ── -->
+  <div class="header-band">
+    <div class="variant-label">Option A · Purple Band</div>
+
+    <div class="logo-block">
+      <!-- If logo URL is available, use the img tag; otherwise the wordmark text shows -->
+      <img
+        class="wordmark-logo"
+        src="https://raw.githubusercontent.com/Waynitos/MAD-SSSOT/main/branding/phewphonics/logo-outline-black.jpg"
+        alt="Phewphonics"
+        onerror="this.style.display='none'; document.getElementById('wordmarkFallback').style.display='block';"
+      >
+      <span id="wordmarkFallback" class="wordmark" style="display:none;">phewphonics</span>
+      <div class="subtitle">3D Design Studio</div>
+      <div class="byline">SOUND BETTER?</div>
+    </div>
+
+    <div class="contact-block">
+      <div class="contact-name">{{CONTACT_NAME}}</div>
+      <div class="contact-line">{{CONTACT_EMAIL}}</div>
+      <div class="contact-line">{{CONTACT_WEB}}</div>
+      <div class="contact-line">{{CONTACT_PHONE}}</div>
+      <div class="contact-line">{{CONTACT_CITY}}</div>
+    </div>
+  </div>
+
+  <div class="header-rule"></div>
+
+  <!-- Body area -->
+  <div class="body-area">
+    <div class="body-placeholder">← Letter body goes here →</div>
+  </div>
+
+  <!-- Footer -->
+  <div class="footer-band">
+    <div class="footer-company">Phewphonics 3D Design Studio · {{CONTACT_CITY}}</div>
+    <div class="footer-byline">Sound Better?</div>
+  </div>
+</div>
+
+</body>
+</html>
