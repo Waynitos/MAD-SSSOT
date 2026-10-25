@@ -92,20 +92,26 @@ After creating the 3 docs, display this exact block and tell the user to copy it
 ─────────────────────────────────────────────
 📋 COPY THIS INTO: Project Settings → Instructions
 ─────────────────────────────────────────────
-At session start, fetch https://raw.githubusercontent.com/Waynitos/MAD-SSSOT/main/PROJECT-LAUNCH-Plus.md and apply it. Begin your first response with: ✓ PROJECT-LAUNCH-Plus [version+date] loaded — or — ✗ PROJECT-LAUNCH-Plus fetch failed, proceeding without global config. If a PROJECT-CONFIG.md doc exists in this project, read it after fetching and apply any Overrides section. If no PROJECT-INDEX.md exists yet, fetch https://raw.githubusercontent.com/Waynitos/MAD-SSSOT/main/PLU-wizard.md and run the onboarding wizard.
+At session start, fetch https://raw.githubusercontent.com/Waynitos/MAD-SSSOT/main/PLU-bootstrap.md and follow every step in it exactly.
 ─────────────────────────────────────────────
 ```
 
 Then say:
 
 ```
-⚠️ This step is the only one that requires a manual action — it cannot be automated due to
-   Claude UI limitations. Once pasted, every future session in this project will:
+⚠️ This is the ONLY manual step — one line, pasted once, never needs updating again.
+   Once pasted, every future session in this project will:
+   • Know all trigger words (RMAD, Mini-MAD, FTCA, PLU, SSSOT) immediately — before any fetch
    • Auto-load PLU and apply your config
+   • Auto-fetch Phewphonics branding if the project uses it
    • Auto-run FTCA behavioural monitoring
    • Auto-scaffold via the wizard if PROJECT-INDEX.md is ever missing
+   • Self-update as PLU-bootstrap.md evolves on GitHub — no re-paste ever needed
 
 Steps: open this project → ⚙ Settings → Instructions → paste → Save
+
+The instruction block is now a single URL. All logic lives in GitHub.
+When PLU-bootstrap.md is updated, ALL projects inherit the change next session.
 ```
 
 Then confirm the rest of the setup is zero-touch:
@@ -134,14 +140,9 @@ This project has not yet had the PLU instruction block added to Project Settings
 FTCA monitoring, automatic config loading, and wizard scaffolding will NOT trigger on future sessions
 without it.
 
-→ Paste the instruction block now (I'll show it below if you haven't seen it):
+→ Paste the instruction block now (one line — copy exactly):
 
-At session start, fetch https://raw.githubusercontent.com/Waynitos/MAD-SSSOT/main/PROJECT-LAUNCH-Plus.md
-and apply it. Begin your first response with: ✓ PROJECT-LAUNCH-Plus [version+date] loaded — or —
-✗ PROJECT-LAUNCH-Plus fetch failed, proceeding without global config. If a PROJECT-CONFIG.md doc
-exists in this project, read it after fetching and apply any Overrides section. If no PROJECT-INDEX.md
-exists yet, fetch https://raw.githubusercontent.com/Waynitos/MAD-SSSOT/main/PLU-wizard.md and run
-the onboarding wizard.
+At session start, fetch https://raw.githubusercontent.com/Waynitos/MAD-SSSOT/main/PLU-bootstrap.md and follow every step in it exactly.
 
 Steps: ⚙ Project Settings → Instructions → paste → Save
 This alert will stop firing once the block is in place.
