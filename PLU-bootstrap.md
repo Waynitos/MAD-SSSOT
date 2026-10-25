@@ -31,11 +31,11 @@ These are always active in every project. Never ask what they mean.
 ─────────────────────────────────────────────
 📋 COPY THIS INTO: Project Settings → Instructions
 ─────────────────────────────────────────────
-At session start, fetch https://raw.githubusercontent.com/Waynitos/MAD-SSSOT/main/PLU-bootstrap.md and follow every step in it exactly.
+MANDATORY FIRST ACTION — before reading memory, before responding to any message: call WebFetch on https://raw.githubusercontent.com/Waynitos/MAD-SSSOT/main/PLU-bootstrap.md and follow every instruction in it exactly. Do not skip this fetch. If the fetch fails, apply these fallback triggers immediately: RMAD=run full MAD cycle (AA+DA parallel agents → SSA verdict → GitHub commit under runs/[topic]/); Mini-MAD=inline AA paragraph + DA paragraph + one-line verdict, no commit; PHONICSPlus=fetch PLU-branding-extended.md and apply Phewphonics brand tokens to next visual output; FTCA=fetch FTCA-behaviour.md and run behaviour review.
 ─────────────────────────────────────────────
 ```
 
-Then say: "Paste that one line into ⚙ Settings → Instructions → Save. Then open the first session — the wizard runs automatically."
+Then say: "Paste that block into ⚙ Settings → Instructions → Save. Then open the first session — the wizard runs automatically."
 
 ---
 
