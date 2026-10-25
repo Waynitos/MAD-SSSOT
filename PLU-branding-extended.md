@@ -44,8 +44,10 @@ Panels/cards:   1px border card-border, 8px radius, 16px padding
 *(Override block — paste into any project's BRANDING.md Overrides section to activate)*
 
 brand:          Phewphonics 3D Design Studio
+byline:         "SOUND BETTER?"
 version:        1.0
 last-updated:   2026-10-25
+brand-soul:     https://raw.githubusercontent.com/Waynitos/MAD-SSSOT/main/branding/phewphonics/BRAND-SOUL.md
 
 ### Colour Palette
 
@@ -102,6 +104,9 @@ text-transform-subtitle: uppercase
 
 logo-wordmark:          "phewphonics" lowercase — Bauhaus 93 font, outline/inline stroke style
 logo-assets:            https://github.com/Waynitos/MAD-SSSOT/tree/main/branding/phewphonics/
+logo-note:              Current mark (satellite dish / speaker icon) is earmarked for redesign —
+                        it reads as consumer audio. Intent: project precision and outward transmission
+                        without volume-symbol shorthand. See BRAND-SOUL.md for full brief.
 logo-icon:              Satellite dish + shooting star — top-right of wordmark
 logo-subtitle:          "3D DESIGN STUDIO" — spaced caps, below wordmark right-aligned
 logo-colour-primary:    #4B2FA0 on white bg
