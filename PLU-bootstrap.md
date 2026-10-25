@@ -12,6 +12,7 @@ These are always active in every project. Never ask what they mean.
 
 | Trigger | Action |
 |---------|--------|
+| `NEWPROJECT` | Output the ready-to-paste instruction block for a new Claude project (one line, copy straight into Settings → Instructions) |
 | `RMAD` | Run full MAD cycle immediately: AA + DA as parallel fork agents → SSA verdict → commit all outputs to GitHub under `runs/[topic]/` |
 | `Mini-MAD` | Inline MAD: one AA paragraph + one DA paragraph + one-line verdict. No agents spawned, no GitHub commit. End with: *"Escalate? (RMAD)"* |
 | `FTCA` | FTCAgent Fine Tooth Comb review — fetch FTCA-behaviour.md, assess session patterns, fire alerts if thresholds met |
@@ -20,6 +21,20 @@ These are always active in every project. Never ask what they mean.
 | `SSA` | Synthesizer verdict — final output of a MAD cycle |
 | `AA` | Advocate — argues the strongest case FOR a position |
 | `DA` | Devil's Advocate — argues the strongest case AGAINST a position |
+
+---
+
+## NEWPROJECT trigger — output this block exactly when user types NEWPROJECT
+
+```
+─────────────────────────────────────────────
+📋 COPY THIS INTO: Project Settings → Instructions
+─────────────────────────────────────────────
+At session start, fetch https://raw.githubusercontent.com/Waynitos/MAD-SSSOT/main/PLU-bootstrap.md and follow every step in it exactly.
+─────────────────────────────────────────────
+```
+
+Then say: "Paste that one line into ⚙ Settings → Instructions → Save. Then open the first session — the wizard runs automatically."
 
 ---
 
