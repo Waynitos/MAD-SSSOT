@@ -16,6 +16,7 @@ These are always active in every project. Never ask what they mean.
 | `RMAD` | Run full MAD cycle immediately: AA + DA as parallel fork agents → SSA verdict → commit all outputs to GitHub under `runs/[topic]/` |
 | `Mini-MAD` | Inline MAD: one AA paragraph + one DA paragraph + one-line verdict. No agents spawned, no GitHub commit. End with: *"Escalate? (RMAD)"* |
 | `FTCA` | FTCAgent Fine Tooth Comb review — fetch FTCA-behaviour.md, assess session patterns, fire alerts if thresholds met |
+| `PHONICSPlus` | Apply full Phewphonics brand spec to the next visual output (popup, dashboard, layout, card, calculator — anything rendered). Fetch PLU-branding-extended.md if not already loaded this session, then build using all brand tokens. Use in any project regardless of its active branding. |
 | `PLU` | PROJECT-LAUNCH-Plus — the global config on GitHub that governs all projects |
 | `SSSOT` | Single Shared Source Of Truth — the MAD-SSSOT GitHub repo |
 | `SSA` | Synthesizer verdict — final output of a MAD cycle |
