@@ -72,12 +72,14 @@ html,body {{
   background:var(--bg); color:var(--fg);
   font-family:var(--font-body); font-size:12.5px; line-height:1.55;
   -webkit-print-color-adjust:exact; print-color-adjust:exact;
-  padding: 16mm 14mm;
+  padding: 0 14mm;
 }}
 .wrap {{ width:100%; }}
 
 /* ── cover ── */
-.cover {{ page-break-after:always; padding-bottom:28px; border-bottom:2px solid var(--border); }}
+/* MARGIN RULE: @page margin must be 0 so dark bg fills edge-to-edge.
+   Top/bottom inset via padding on .cover and .section. Left/right via body padding. */
+.cover {{ page-break-after:always; padding-top:16mm; padding-bottom:16mm; border-bottom:2px solid var(--border); }}
 .cover-logo {{ display:flex; align-items:center; gap:10px; margin-bottom:20px; }}
 .logo-badge {{
   width:36px;height:36px;border-radius:999px;
@@ -103,8 +105,8 @@ html,body {{
 }}
 
 /* ── section ── */
-.section {{ margin-bottom:28px; }}
-.page-break {{ page-break-before:always; padding-top:24px; }}
+.section {{ margin-bottom:28px; padding-top:16mm; padding-bottom:16mm; }}
+.page-break {{ page-break-before:always; }}
 .no-break {{ page-break-inside:avoid; }}
 .section-eyebrow {{ font-family:var(--font-sub);font-weight:600;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent-hi);margin-bottom:5px; }}
 .section-title {{ font-family:var(--font-disp);font-weight:800;font-size:19px;color:var(--fg);padding-bottom:9px;border-bottom:1px solid var(--border);margin-bottom:4px; }}

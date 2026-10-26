@@ -54,14 +54,16 @@ Pre-configured MAD briefs in the `topics/` folder:
 ## Repository Structure
 
 ```
-LAUNCH.md         ← start here to run a MAD session
-FRAMEWORK.md      ← the four-role framework and guiding principle
-AUTOMATION.md     ← governance: what commits directly, what needs a PR
-prompts/          ← AA, DA, SSA, SA system prompts
-topics/           ← pre-configured topic type briefs
-checklists/       ← evaluation checklists (Device SWAT Arsenal, etc.)
-knowledge/        ← living failure modes, protocol updates, horizon notes
-runs/             ← example completed MAD runs (optional)
+LAUNCH.md                                     ← start here to run a MAD session
+FRAMEWORK.md                                  ← the four-role framework and guiding principle
+AUTOMATION.md                                 ← governance: what commits directly, what needs a PR
+scripts/generate-mad-pdf.py                   ← PDF generator for any MAD run
+stationery/phewphonics/mad-pdf-layout-spec.md ← LOCKED PDF layout rules (read before touching margins)
+prompts/                                      ← AA, DA, SSA, SA system prompts
+topics/                                       ← pre-configured topic type briefs
+checklists/                                   ← evaluation checklists (Device SWAT Arsenal, etc.)
+knowledge/                                    ← living failure modes, protocol updates, horizon notes
+runs/                                         ← completed MAD runs — each includes PDF output
 ```
 
 ---
