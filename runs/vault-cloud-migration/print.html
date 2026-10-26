@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vault Cloud Migration — MAD Findings</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@700;800&family=Rajdhani:wght@600;700&family=Inter:wght@400;500;600&display=swap');
+
+:root {
+  --primary:   #4B2FA0;
+  --accent:    #7B5ED4;
+  --accent-hi: #9B82E8;
+  --bg:        #1A1020;
+  --bg-card:   #231730;
+  --bg-card2:  #2C1D3E;
+  --border:    rgba(123,94,212,0.3);
+  --border-hi: rgba(123,94,212,0.6);
+  --fg:        #F0EAF8;
+  --fg-sub:    #C8B8E8;
+  --fg-muted:  #9A88B8;
+  --go:        #2ECC71;
+  --go-bg:     rgba(46,204,113,0.15);
+  --warn:      #F39C12;
+  --warn-bg:   rgba(243,156,18,0.15);
+  --crit:      #E74C3C;
+  --crit-bg:   rgba(231,76,60,0.15);
+  --sig:       #E67E22;
+  --sig-bg:    rgba(230,126,34,0.15);
+  --font-disp: 'Nunito', Arial, sans-serif;
+  --font-sub:  'Rajdhani', Arial, sans-serif;
+  --font-body: 'Inter', Arial, sans-serif;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+@page {
+  size: A4;
+  margin: 16mm 14mm;
+}
+
+html, body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  line-height: 1.55;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+.page-wrap {
+  width: 100%;
+  padding: 0;
+}
+
+/* ── COVER ── */
+.cover {
+  padding-bottom: 28px;
+  border-bottom: 2px solid var(--border);
+  margin-bottom: 0;
+  page-break-after: always;
+}
+
+.cover-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+.logo-badge {
+  width: 38px; height: 38px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--primary), var(--accent));
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-disp); font-weight: 800; font-size: 15px; color: #fff;
+}
+.logo-text {
+  font-family: var(--font-sub); font-weight: 700; font-size: 12px;
+  letter-spacing: .1em; text-transform: uppercase; color: var(--fg-muted);
+}
+
+.cover-eyebrow {
+  font-family: var(--font-sub); font-weight: 600; font-size: 11px;
+  letter-spacing: .14em; text-transform: uppercase; color: var(--accent-hi);
+  margin-bottom: 10px;
+}
+
+.cover h1 {
+  font-family: var(--font-disp); font-weight: 800; font-size: 30px;
+  line-height: 1.15; color: var(--fg); margin-bottom: 12px;
+}
+.cover h1 span { color: var(--accent-hi); }
+
+.cover-sub {
+  color: var(--fg-sub); font-size: 14px; max-width: 640px; margin-bottom: 20px;
+}
+
+.verdict-chip {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 7px 18px; border-radius: 999px;
+  font-family: var(--font-sub); font-weight: 700; font-size: 13px;
+  letter-spacing: .07em; text-transform: uppercase;
+  background: var(--go-bg); border: 1.5px solid var(--go); color: var(--go);
+}
+.verdict-chip::before {
+  content: ""; width: 8px; height: 8px;
+  border-radius: 50%; background: var(--go);
+}
+
+.meta-row {
+  display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px;
+}
+.meta-pill {
+  font-family: var(--font-sub); font-weight: 600; font-size: 11px;
+  letter-spacing: .06em; text-transform: uppercase;
+  color: var(--fg-muted); border: 1px solid var(--border);
+  border-radius: 999px; padding: 3px 11px;
+}
+
+/* ── SECTION HEADINGS ── */
+.section {
+  margin-bottom: 28px;
+}
+
+.section-title {
+  font-family: var(--font-disp); font-weight: 800; font-size: 20px;
+  color: var(--fg); margin-bottom: 4px;
+  padding-bottom: 10px; border-bottom: 1px solid var(--border);
+}
+.section-eyebrow {
+  font-family: var(--font-sub); font-weight: 600; font-size: 10px;
+  letter-spacing: .14em; text-transform: uppercase; color: var(--accent-hi);
+  margin-bottom: 6px;
+}
+.section-sub {
+  color: var(--fg-muted); font-size: 12px; margin-bottom: 18px;
+  margin-top: 4px;
+}
+
+/* ── VERDICT BANNER ── */
+.verdict-banner {
+  background: linear-gradient(135deg, rgba(75,47,160,0.35), rgba(123,94,212,0.18));
+  border: 1.5px solid var(--border-hi);
+  border-radius: 14px; padding: 24px; margin-bottom: 22px;
+}
+.verdict-label {
+  font-family: var(--font-sub); font-weight: 700; font-size: 10px;
+  letter-spacing: .14em; text-transform: uppercase; color: var(--go); margin-bottom: 7px;
+}
+.verdict-title {
+  font-family: var(--font-disp); font-weight: 800; font-size: 22px;
+  color: var(--fg); margin-bottom: 10px;
+}
+.verdict-body { color: var(--fg-sub); font-size: 13px; line-height: 1.65; }
+
+/* ── RISK TILES ── */
+.risk-overview {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px;
+}
+.risk-tile {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 10px; padding: 16px; text-align: center;
+}
+.risk-count { font-family: var(--font-disp); font-weight: 800; font-size: 32px; line-height: 1; margin-bottom: 4px; }
+.risk-label { font-family: var(--font-sub); font-weight: 600; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
+
+/* ── AGREED POINTS ── */
+.agree-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; }
+.agree-item {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 8px; padding: 11px 14px;
+  display: flex; gap: 10px; align-items: flex-start; font-size: 12.5px;
+}
+.agree-icon { font-weight: 700; flex-shrink: 0; margin-top: 1px; }
+.agree-item strong { color: var(--fg); font-weight: 600; }
+.agree-item span { color: var(--fg-sub); }
+
+/* ── TABLE ── */
+.table-wrap {
+  overflow: hidden; border-radius: 10px;
+  border: 1px solid var(--border); margin-bottom: 12px;
+}
+table { width: 100%; border-collapse: collapse; font-size: 12px; }
+thead tr { background: var(--bg-card2); }
+th {
+  padding: 10px 13px; text-align: left;
+  font-family: var(--font-sub); font-weight: 700; font-size: 10px;
+  letter-spacing: .1em; text-transform: uppercase; color: var(--fg-muted);
+  white-space: nowrap;
+}
+td {
+  padding: 10px 13px; border-top: 1px solid var(--border);
+  color: var(--fg-sub); vertical-align: top;
+}
+
+.badge {
+  display: inline-block; padding: 2px 8px; border-radius: 999px;
+  font-family: var(--font-sub); font-weight: 700; font-size: 10px;
+  letter-spacing: .05em; text-transform: uppercase; white-space: nowrap;
+}
+.badge-crit { background: var(--crit-bg); color: var(--crit); border: 1px solid rgba(231,76,60,.35); }
+.badge-sig  { background: var(--sig-bg);  color: var(--sig);  border: 1px solid rgba(230,126,34,.35); }
+.badge-warn { background: var(--warn-bg); color: var(--warn); border: 1px solid rgba(243,156,18,.35); }
+.badge-all  { background: rgba(155,130,232,.15); color: var(--accent-hi); border: 1px solid rgba(155,130,232,.35); }
+
+/* ── CONDITIONS ── */
+.conditions-grid {
+  display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 20px;
+}
+.cond-card {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 10px; padding: 15px;
+  display: flex; gap: 12px; align-items: flex-start;
+}
+.cond-num {
+  width: 26px; height: 26px; border-radius: 999px;
+  background: linear-gradient(135deg, var(--primary), var(--accent));
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-disp); font-weight: 800; font-size: 12px;
+  color: #fff; flex-shrink: 0;
+}
+.cond-title {
+  font-family: var(--font-sub); font-weight: 700; font-size: 13px;
+  color: var(--fg); margin-bottom: 4px;
+}
+.cond-body { font-size: 11.5px; color: var(--fg-muted); line-height: 1.5; }
+
+/* ── SEQUENCE ── */
+.sequence { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; margin-bottom: 22px; }
+.seq-step {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-right: none; padding: 16px 14px; position: relative;
+}
+.seq-step:first-child { border-radius: 10px 0 0 10px; }
+.seq-step:last-child { border-right: 1px solid var(--border); border-radius: 0 10px 10px 0; }
+.seq-arrow {
+  position: absolute; right: -12px; top: 50%; transform: translateY(-50%);
+  width: 24px; height: 24px; background: var(--bg);
+  border: 1px solid var(--border-hi); border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; color: var(--accent-hi); z-index: 2;
+}
+.seq-step:last-child .seq-arrow { display: none; }
+.seq-num { font-family: var(--font-sub); font-weight: 700; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--fg-muted); margin-bottom: 5px; }
+.seq-app { font-family: var(--font-disp); font-weight: 800; font-size: 15px; color: var(--fg); margin-bottom: 4px; }
+.seq-note { font-size: 11px; color: var(--fg-muted); line-height: 1.4; }
+
+/* ── TRIGGERS ── */
+.trigger-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; }
+.trigger-item {
+  display: flex; gap: 10px; align-items: flex-start;
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-left: 3px solid var(--crit);
+  border-radius: 0 8px 8px 0; padding: 12px;
+}
+.trigger-icon {
+  width: 20px; height: 20px; border-radius: 50%; background: var(--crit-bg);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; flex-shrink: 0; color: var(--crit); font-weight: 700;
+}
+.trigger-text { font-size: 12.5px; color: var(--fg-sub); line-height: 1.5; }
+.trigger-text strong { color: var(--fg); font-weight: 600; }
+
+/* ── TEST CARDS ── */
+.test-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 20px; }
+.test-card {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 10px; padding: 14px;
+}
+.test-top { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
+.test-num { font-family: var(--font-disp); font-weight: 800; font-size: 20px; color: var(--accent); line-height: 1; }
+.test-title { font-family: var(--font-sub); font-weight: 700; font-size: 13px; color: var(--fg); margin-bottom: 5px; }
+.test-body { font-size: 11.5px; color: var(--fg-muted); line-height: 1.5; }
+
+/* ── FOOTER ── */
+.doc-footer {
+  margin-top: 40px; padding-top: 18px;
+  border-top: 1px solid var(--border);
+  display: flex; justify-content: space-between; align-items: center;
+  font-family: var(--font-sub); font-weight: 600; font-size: 11px;
+  letter-spacing: .06em; text-transform: uppercase; color: var(--fg-muted);
+}
+
+.page-break { page-break-before: always; padding-top: 24px; }
+.no-break { page-break-inside: avoid; }
+</style>
+</head>
+<body>
+<div class="page-wrap">
+
+<!-- ══════════════════ COVER ══════════════════ -->
+<div class="cover">
+  <div class="cover-logo">
+    <div class="logo-badge">PH</div>
+    <span class="logo-text">Phewphonics · MAD Framework</span>
+  </div>
+  <div class="cover-eyebrow">MAD Run — October 2026 · AA · DA · SSA</div>
+  <h1>Autodesk Vault<br><span>Cloud Migration</span> Findings</h1>
+  <p class="cover-sub">Multi-Agent Debate covering Inventor, Plant 3D, AutoCAD, PDF, STEP/IGES, IFC, and Excel BOM. Thirteen critical failure modes identified across all integration surfaces. Verdict synthesised from full AA and DA debate cycles.</p>
+  <div class="verdict-chip">Conditional Go</div>
+  <div class="meta-row">
+    <span class="meta-pill">Vault Professional</span>
+    <span class="meta-pill">On-Prem → Cloud</span>
+    <span class="meta-pill">AA · DA · SSA</span>
+    <span class="meta-pill">Plant 3D Highest Risk</span>
+    <span class="meta-pill">October 2026</span>
+  </div>
+</div>
+
+<!-- ══════════════════ 1. VERDICT ══════════════════ -->
+<div class="section">
+  <div class="section-eyebrow">Section 1</div>
+  <div class="section-title">SSA Verdict</div>
+  <div class="section-sub">Final synthesised output from the Multi-Agent Debate cycle</div>
+
+  <div class="verdict-banner no-break">
+    <div class="verdict-label">SSA Final Verdict</div>
+    <div class="verdict-title">Conditional Go — Six Conditions Must Be Met</div>
+    <p class="verdict-body">The migration is technically viable and Autodesk-supported. The Vault stack on a cloud VM is the same software as on physical hardware. All file formats are preserved through the SQL + file store migration. However, 13 critical failure modes exist that standard IT testing will not catch — nine specific to Plant 3D and Inventor workflows. Until six named conditions are satisfied, go-live carries unacceptable operational risk.</p>
+  </div>
+
+  <div class="risk-overview no-break">
+    <div class="risk-tile"><div class="risk-count" style="color:var(--crit)">13</div><div class="risk-label" style="color:var(--crit)">Critical Modes</div></div>
+    <div class="risk-tile"><div class="risk-count" style="color:var(--sig)">8</div><div class="risk-label" style="color:var(--sig)">Significant</div></div>
+    <div class="risk-tile"><div class="risk-count" style="color:var(--accent-hi)">6</div><div class="risk-label" style="color:var(--accent-hi)">Go Conditions</div></div>
+    <div class="risk-tile"><div class="risk-count" style="color:var(--fg-muted)">0</div><div class="risk-label" style="color:var(--fg-muted)">IT Tests Catch</div></div>
+  </div>
+
+  <div class="agree-list">
+    <div class="agree-item no-break"><span class="agree-icon" style="color:var(--go)">✓</span><span><strong>Technically possible</strong> — Vault Professional runs legitimately on cloud VMs (AWS + Azure), Autodesk-documented and supported</span></div>
+    <div class="agree-item no-break"><span class="agree-icon" style="color:var(--go)">✓</span><span><strong>All file formats preserved</strong> — SQL + file store migration maintains revision history, lifecycle states, BOM, and properties</span></div>
+    <div class="agree-item no-break"><span class="agree-icon" style="color:var(--go)">✓</span><span><strong>Plant 3D constraint unchanged</strong> — check-in direction constraint is a Plant 3D app behaviour; cloud doesn't worsen it technically</span></div>
+    <div class="agree-item no-break"><span class="agree-icon" style="color:var(--warn)">!</span><span><strong>IT test cases are insufficient</strong> — both AA and DA agree standard IT migration testing will miss the highest-risk scenarios</span></div>
+  </div>
+</div>
+
+<!-- ══════════════════ 2. FAILURE MODES ══════════════════ -->
+<div class="section page-break">
+  <div class="section-eyebrow">Section 2</div>
+  <div class="section-title">13 Critical Failure Modes</div>
+  <div class="section-sub">All identified by the DA agent. None are caught by standard IT migration testing.</div>
+
+  <div class="table-wrap no-break">
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Failure Mode</th>
+          <th>App</th>
+          <th>Rating</th>
+          <th>IT?</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td style="color:var(--fg-muted)">1.1</td><td style="color:var(--fg)">Check-in direction reversal triggered by path/UX change</td><td><span class="badge badge-warn">Plant 3D</span></td><td><span class="badge badge-crit">Critical</span></td><td style="color:var(--crit);font-weight:700">✗</td></tr>
+        <tr><td style="color:var(--fg-muted)">1.2</td><td style="color:var(--fg)">Project.xml hostname reference invalidation</td><td><span class="badge badge-warn">Plant 3D</span></td><td><span class="badge badge-crit">Critical</span></td><td style="color:var(--crit);font-weight:700">✗</td></tr>
+        <tr><td style="color:var(--fg-muted)">1.3</td><td style="color:var(--fg)">Lock file race condition under cloud latency</td><td><span class="badge badge-warn">Plant 3D</span></td><td><span class="badge badge-crit">Critical</span></td><td style="color:var(--crit);font-weight:700">✗</td></tr>
+        <tr><td style="color:var(--fg-muted)">2.1</td><td style="color:var(--fg)">300-part assembly open time at concurrent latency (21–42s added)</td><td><span class="badge badge-sig">Inventor</span></td><td><span class="badge badge-crit">Critical/Sig</span></td><td style="color:var(--crit);font-weight:700">✗</td></tr>
+        <tr><td style="color:var(--fg-muted)">2.2</td><td style="color:var(--fg)">iLogic Vault property reads returning null</td><td><span class="badge badge-sig">Inventor</span></td><td><span class="badge badge-crit">Critical</span></td><td style="color:var(--crit);font-weight:700">✗</td></tr>
+        <tr><td style="color:var(--fg-muted)">2.3</td><td style="color:var(--fg)">Vault add-in version mismatch — day-one outage for all users</td><td><span class="badge badge-all">All apps</span></td><td><span class="badge badge-crit">Critical</span></td><td style="color:var(--warn);font-weight:700">~</td></tr>
+        <tr><td style="color:var(--fg-muted)">5.2</td><td style="color:var(--fg)">SQL item number change breaking BOM history permanently</td><td><span class="badge badge-all">SQL</span></td><td><span class="badge badge-crit">Critical if occurs</span></td><td style="color:var(--crit);font-weight:700">✗</td></tr>
+        <tr><td style="color:var(--fg-muted)">6.1</td><td style="color:var(--fg)">SQL relationship graph corruption in staged migration</td><td><span class="badge badge-all">SQL</span></td><td><span class="badge badge-crit">Critical</span></td><td style="color:var(--crit);font-weight:700">✗</td></tr>
+        <tr><td style="color:var(--fg-muted)">6.2</td><td style="color:var(--fg)">SQL config still pointing to old server hostname</td><td><span class="badge badge-all">SQL</span></td><td><span class="badge badge-crit">Critical</span></td><td style="color:var(--crit);font-weight:700">✗</td></tr>
+        <tr><td style="color:var(--fg-muted)">6.3</td><td style="color:var(--fg)">Missing binary files for historical revisions</td><td><span class="badge badge-all">SQL</span></td><td><span class="badge badge-crit">Critical</span></td><td style="color:var(--crit);font-weight:700">✗</td></tr>
+        <tr><td style="color:var(--fg-muted)">7.1</td><td style="color:var(--fg)">Cumulative latency under concurrent peak load (60ms+)</td><td><span class="badge badge-sig">Inventor</span></td><td><span class="badge badge-crit">Critical ≥60ms</span></td><td style="color:var(--crit);font-weight:700">✗</td></tr>
+        <tr><td style="color:var(--fg-muted)">8.1</td><td style="color:var(--fg)">Rollback data loss — two weeks of work, untested procedure</td><td><span class="badge badge-all">All</span></td><td><span class="badge badge-crit">Critical</span></td><td style="color:var(--crit);font-weight:700">✗</td></tr>
+        <tr><td style="color:var(--fg-muted)">9.1</td><td style="color:var(--fg)">Test cases written without Plant 3D operator input</td><td><span class="badge badge-warn">Plant 3D</span></td><td><span class="badge badge-crit">Critical (meta)</span></td><td style="color:var(--crit);font-weight:700">✗</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div style="padding:11px 14px;background:var(--crit-bg);border:1px solid rgba(231,76,60,.3);border-radius:8px;font-size:11.5px;color:var(--fg-sub);">
+    <strong style="color:var(--crit)">Key:</strong> ✗ = IT test will not catch this &nbsp;|&nbsp; ~ = IT may catch with per-machine testing only
+  </div>
+</div>
+
+<!-- ══════════════════ 3. CONDITIONS ══════════════════ -->
+<div class="section page-break">
+  <div class="section-eyebrow">Section 3</div>
+  <div class="section-title">6 Go / No-Go Conditions</div>
+  <div class="section-sub">All six must be met before go-live. Binary — each is either satisfied or it is not.</div>
+
+  <div class="conditions-grid">
+    <div class="cond-card no-break">
+      <div class="cond-num">1</div>
+      <div>
+        <div class="cond-title">Latency Measured &amp; Within Threshold</div>
+        <div class="cond-body">Actual round-trip from every workstation through corporate proxy to cloud Vault. ≤40ms → Go. 40–70ms → AVFS cache required. &gt;70ms → escalate to leadership. Largest 3 assemblies timed with 10 concurrent users.</div>
+      </div>
+    </div>
+    <div class="cond-card no-break">
+      <div class="cond-num">2</div>
+      <div>
+        <div class="cond-title">Plant 3D Test Cases Signed Off by Operator</div>
+        <div class="cond-body">A Plant 3D daily user — not IT — must review and sign off the test case list. Must cover: check-in direction test, project.xml paths, lock file concurrency, isogen output, Data Manager connection, pipe spec catalog.</div>
+      </div>
+    </div>
+    <div class="cond-card no-break">
+      <div class="cond-num">3</div>
+      <div>
+        <div class="cond-title">Version Matrix Confirmed Per Workstation</div>
+        <div class="cond-body">Vault client add-in version documented for every machine. Cross-referenced against Autodesk's official compatibility matrix for the cloud server version. Written confirmation from cloud provider or VAR.</div>
+      </div>
+    </div>
+    <div class="cond-card no-break">
+      <div class="cond-num">4</div>
+      <div>
+        <div class="cond-title">Project.xml Path Remediation Documented &amp; Tested</div>
+        <div class="cond-body">Confirm whether working folder path changes. If yes: audit all Plant 3D project.xml files, document every edit required, execute remediation in test environment, confirm every project opens successfully.</div>
+      </div>
+    </div>
+    <div class="cond-card no-break">
+      <div class="cond-num">5</div>
+      <div>
+        <div class="cond-title">Rollback Procedure Executed in Test Environment</div>
+        <div class="cond-body">Run the rollback — not just document it. Confirm all files recoverable. Define maximum acceptable data loss window. Get engineering management sign-off in writing before migration proceeds.</div>
+      </div>
+    </div>
+    <div class="cond-card no-break">
+      <div class="cond-num">6</div>
+      <div>
+        <div class="cond-title">All Checked-Out Files Cleared</div>
+        <div class="cond-body">Audit every checked-out file across all users. Define resolution procedure for each engineer. Hard technical prerequisite — migration does not begin until all files are checked in.</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="padding:14px 16px;background:var(--bg-card);border:1.5px solid var(--border-hi);border-radius:10px;font-size:12.5px;color:var(--fg-sub);line-height:1.6;" class="no-break">
+    <strong style="color:var(--accent-hi)">Highest single risk:</strong> Condition 2 — Plant 3D test cases not authored by a Plant 3D operator. This is the meta-risk that causes all other risks to go undetected. If only one condition can be prioritised, it is this one.
+  </div>
+</div>
+
+<!-- ══════════════════ 4. CUTOVER ══════════════════ -->
+<div class="section page-break">
+  <div class="section-eyebrow">Section 4</div>
+  <div class="section-title">Strangler Fig Cutover Plan</div>
+  <div class="section-sub">Phase by application — lowest risk first, Plant 3D last. On-premise set to read-only at each phase.</div>
+
+  <div class="sequence no-break">
+    <div class="seq-step">
+      <div class="seq-num">Week 1–2</div>
+      <div class="seq-app">AutoCAD</div>
+      <div class="seq-note">Lowest risk. Fastest to verify xref resolution. Any path issues surface here at lowest cost.</div>
+      <div class="seq-arrow">→</div>
+    </div>
+    <div class="seq-step">
+      <div class="seq-num">Week 3–4</div>
+      <div class="seq-app">Inventor</div>
+      <div class="seq-note">Latency monitoring active. Assembly open times tracked. iLogic rules tested. AVFS in place if required.</div>
+      <div class="seq-arrow">→</div>
+    </div>
+    <div class="seq-step">
+      <div class="seq-num">Week 5–6</div>
+      <div class="seq-app">Plant 3D</div>
+      <div class="seq-note">All project.xml remediation complete. Plant 3D operator on-site day one. Lock file behaviour monitored.</div>
+      <div class="seq-arrow">→</div>
+    </div>
+    <div class="seq-step">
+      <div class="seq-num">Day 60+</div>
+      <div class="seq-app">Decommission</div>
+      <div class="seq-note">60 days after Plant 3D cutover with no open rollback issues.</div>
+    </div>
+  </div>
+
+  <div style="margin-top:28px">
+    <div style="font-family:var(--font-disp);font-weight:800;font-size:16px;color:var(--fg);margin-bottom:4px;padding-bottom:8px;border-bottom:1px solid var(--border)">Rollback Triggers</div>
+    <div style="font-size:12px;color:var(--fg-muted);margin-bottom:14px;margin-top:4px;">Pause and escalate immediately if any of these occur</div>
+  </div>
+
+  <div class="trigger-list">
+    <div class="trigger-item no-break"><div class="trigger-icon">!</div><div class="trigger-text"><strong>Plant 3D check-in fails for any user post-go-live</strong> — Pause Plant 3D cutover; investigate path/hostname before proceeding</div></div>
+    <div class="trigger-item no-break"><div class="trigger-icon">!</div><div class="trigger-text"><strong>Assembly open time &gt;90 seconds for any user</strong> — Activate AVFS evaluation immediately; do not proceed with Inventor cutover until resolved</div></div>
+    <div class="trigger-item no-break"><div class="trigger-icon">!</div><div class="trigger-text"><strong>Any Vault add-in reports "cannot connect to server"</strong> — Full stop; verify SQL hostname config and version matrix</div></div>
+    <div class="trigger-item no-break"><div class="trigger-icon">!</div><div class="trigger-text"><strong>Any SQL consistency check error post-migration</strong> — Full stop; resolve before any user check-ins</div></div>
+    <div class="trigger-item no-break"><div class="trigger-icon">!</div><div class="trigger-text"><strong>Historical revision opens with "file not found"</strong> — Log immediately; do not proceed with decommission until all instances resolved</div></div>
+    <div class="trigger-item no-break"><div class="trigger-icon">!</div><div class="trigger-text"><strong>Two concurrent Plant 3D check-ins to same file both succeed</strong> — Treat as critical data integrity event; audit both versions before further check-ins</div></div>
+  </div>
+</div>
+
+<!-- ══════════════════ 5. TEST SCENARIOS ══════════════════ -->
+<div class="section page-break">
+  <div class="section-eyebrow">Section 5</div>
+  <div class="section-title">8 Priority Test Scenarios</div>
+  <div class="section-sub">Run in this order. Run before go-live — not during. Document every deviation from on-premise behaviour.</div>
+
+  <div class="test-grid">
+    <div class="test-card no-break">
+      <div class="test-top"><div class="test-num">00</div><span class="badge badge-crit">Pre-test</span></div>
+      <div class="test-title">Version Matrix — Before Anything Else</div>
+      <div class="test-body">Confirm cloud Vault server version matches the Vault client add-in on your test machine. If they don't match — stop and escalate. A mismatch invalidates all subsequent test results.</div>
+    </div>
+    <div class="test-card no-break">
+      <div class="test-top"><div class="test-num">01</div><span class="badge badge-crit">Plant 3D</span></div>
+      <div class="test-title">Wrong-Direction Test</div>
+      <div class="test-body">Open a Plant 3D drawing from Vault Explorer (not from within Plant 3D). Edit it. Attempt to check in. Document exactly what happens — failure, success, or silent corruption.</div>
+    </div>
+    <div class="test-card no-break">
+      <div class="test-top"><div class="test-num">02</div><span class="badge badge-crit">Plant 3D</span></div>
+      <div class="test-title">Concurrent Editing Race</div>
+      <div class="test-body">Two users open the same P&ID simultaneously. Both edit and attempt to check in. Does the second user see the first user's lock file? What happens to the overwritten version?</div>
+    </div>
+    <div class="test-card no-break">
+      <div class="test-top"><div class="test-num">03</div><span class="badge badge-sig">Inventor</span></div>
+      <div class="test-title">Large Assembly Timing</div>
+      <div class="test-body">Open the three largest assemblies with 5–10 people simultaneously doing other Vault operations. Record time from click to fully loaded. Measure latency from each workstation separately.</div>
+    </div>
+    <div class="test-card no-break">
+      <div class="test-top"><div class="test-num">04</div><span class="badge badge-sig">Inventor</span></div>
+      <div class="test-title">iLogic Rule Execution</div>
+      <div class="test-body">Find drawings with iLogic rules reading Vault properties. Run each rule on the cloud system. Verify returned values match what Vault actually shows in the web client.</div>
+    </div>
+    <div class="test-card no-break">
+      <div class="test-top"><div class="test-num">05</div><span class="badge badge-warn">Plant 3D</span></div>
+      <div class="test-title">Isometric Generation Path</div>
+      <div class="test-body">Run isogen on a known P&ID. Confirm output appears in Vault under the correct revision. Compare content line-by-line against a known-good reference from the on-premise system.</div>
+    </div>
+    <div class="test-card no-break">
+      <div class="test-top"><div class="test-num">06</div><span class="badge badge-all">All</span></div>
+      <div class="test-title">Historical Revision Open</div>
+      <div class="test-body">Find drawings with 5+ revisions. Open each old revision from Vault history. Confirm all open — not just the latest. This is the binary file integrity test for the migration.</div>
+    </div>
+    <div class="test-card no-break">
+      <div class="test-top"><div class="test-num">07</div><span class="badge badge-sig">AutoCAD</span></div>
+      <div class="test-title">Sheet Set Batch Plot</div>
+      <div class="test-body">Locate all .dst sheet set files. Run batch plot on each. Confirm all sheets plot and output is correct. Silent path failures only surface during batch plot operations.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════ FOOTER ══════════════════ -->
+<div class="doc-footer">
+  <span>Phewphonics · MAD Framework · Confidential</span>
+  <span>MAD Run October 2026 · AA · DA · SSA</span>
+</div>
+
+</div>
+</body>
+</html>
