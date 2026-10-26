@@ -486,7 +486,7 @@ async def render_pdf(html_path, pdf_path):
         await page.wait_for_timeout(2000)
         await page.pdf(
             path=str(pdf_path), format="A4", print_background=True,
-            margin={"top":"0mm","bottom":"0mm","left":"0mm","right":"0mm"},
+            margin={"top":"16mm","bottom":"16mm","left":"14mm","right":"14mm"},
         )
         await browser.close()
 
