@@ -34,6 +34,10 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
+@page {
+  size: A4;
+  margin: 16mm 14mm;
+}
 
 html, body {
   background: var(--bg);
@@ -52,7 +56,7 @@ html, body {
 
 /* ── COVER ── */
 .cover {
-  padding-bottom: 20px;
+  padding-bottom: 28px;
   border-bottom: 2px solid var(--border);
   margin-bottom: 0;
   page-break-after: always;
@@ -62,7 +66,7 @@ html, body {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 16px;
+  margin-bottom: 20px;
 }
 .logo-badge {
   width: 38px; height: 38px;
@@ -152,8 +156,7 @@ html, body {
 
 /* ── RISK TILES ── */
 .risk-overview {
-  display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 20px;
-  max-width: 100%;
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px;
 }
 .risk-tile {
   background: var(--bg-card); border: 1px solid var(--border);
@@ -178,18 +181,17 @@ html, body {
   overflow: hidden; border-radius: 10px;
   border: 1px solid var(--border); margin-bottom: 12px;
 }
-table { width: 100%; border-collapse: collapse; font-size: 11.5px; table-layout: fixed; }
+table { width: 100%; border-collapse: collapse; font-size: 12px; }
 thead tr { background: var(--bg-card2); }
 th {
-  padding: 8px 10px; text-align: left;
+  padding: 10px 13px; text-align: left;
   font-family: var(--font-sub); font-weight: 700; font-size: 10px;
   letter-spacing: .1em; text-transform: uppercase; color: var(--fg-muted);
-  white-space: nowrap; overflow: hidden;
+  white-space: nowrap;
 }
 td {
-  padding: 8px 10px; border-top: 1px solid var(--border);
+  padding: 10px 13px; border-top: 1px solid var(--border);
   color: var(--fg-sub); vertical-align: top;
-  word-break: break-word; overflow-wrap: break-word;
 }
 
 .badge {
@@ -204,8 +206,7 @@ td {
 
 /* ── CONDITIONS ── */
 .conditions-grid {
-  display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 18px;
-  max-width: 100%;
+  display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 20px;
 }
 .cond-card {
   background: var(--bg-card); border: 1px solid var(--border);
@@ -226,7 +227,7 @@ td {
 .cond-body { font-size: 11.5px; color: var(--fg-muted); line-height: 1.5; }
 
 /* ── SEQUENCE ── */
-.sequence { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; margin-bottom: 20px; max-width: 100%; }
+.sequence { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; margin-bottom: 22px; }
 .seq-step {
   background: var(--bg-card); border: 1px solid var(--border);
   border-right: none; padding: 16px 14px; position: relative;
@@ -262,7 +263,7 @@ td {
 .trigger-text strong { color: var(--fg); font-weight: 600; }
 
 /* ── TEST CARDS ── */
-.test-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 18px; max-width: 100%; }
+.test-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 20px; }
 .test-card {
   background: var(--bg-card); border: 1px solid var(--border);
   border-radius: 10px; padding: 14px;

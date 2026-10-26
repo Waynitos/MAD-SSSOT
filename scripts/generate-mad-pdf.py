@@ -479,14 +479,12 @@ async def render_pdf(html_path, pdf_path):
     from playwright.async_api import async_playwright
     async with async_playwright() as p:
         browser = await p.chromium.launch()
-        # A4 at 96 dpi = 794px wide. Set viewport to match so layout
-        # doesn't reflow or clip when Playwright converts to PDF.
-        page = await browser.new_page(viewport={"width": 794, "height": 1123})
+        page = await browser.new_page()
         await page.goto(f"file://{html_path}", wait_until="networkidle", timeout=30000)
         await page.wait_for_timeout(2000)
         await page.pdf(
             path=str(pdf_path), format="A4", print_background=True,
-            margin={"top":"16mm","bottom":"16mm","left":"14mm","right":"14mm"},
+            margin={"top":"0mm","bottom":"0mm","left":"0mm","right":"0mm"},
         )
         await browser.close()
 
