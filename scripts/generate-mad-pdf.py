@@ -51,7 +51,7 @@ T = {
 BASE_CSS = """
 @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@700;800&family=Rajdhani:wght@600;700&family=Inter:wght@400;500;600&display=swap');
 
-@page {{ size: A4; margin: 16mm 14mm; }}
+@page {{ size: A4; margin: 0; }}
 *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
 
 :root {{
@@ -72,6 +72,7 @@ html,body {{
   background:var(--bg); color:var(--fg);
   font-family:var(--font-body); font-size:12.5px; line-height:1.55;
   -webkit-print-color-adjust:exact; print-color-adjust:exact;
+  padding: 16mm 14mm;
 }}
 .wrap {{ width:100%; }}
 
