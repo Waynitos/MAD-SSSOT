@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flight-Stress-Assassin-Plus — MAD Findings</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@700;800&family=Rajdhani:wght@600;700&family=Inter:wght@400;500;600&display=swap');
+
+:root {
+  --primary:   #4B2FA0;
+  --accent:    #7B5ED4;
+  --accent-hi: #9B82E8;
+  --bg:        #1A1020;
+  --bg-card:   #231730;
+  --bg-card2:  #2C1D3E;
+  --border:    rgba(123,94,212,0.3);
+  --border-hi: rgba(123,94,212,0.6);
+  --fg:        #F0EAF8;
+  --fg-sub:    #C8B8E8;
+  --fg-muted:  #9A88B8;
+  --go:        #2ECC71;
+  --go-bg:     rgba(46,204,113,0.15);
+  --warn:      #F39C12;
+  --warn-bg:   rgba(243,156,18,0.15);
+  --crit:      #E74C3C;
+  --crit-bg:   rgba(231,76,60,0.15);
+  --sig:       #E67E22;
+  --sig-bg:    rgba(230,126,34,0.15);
+  --font-disp: 'Nunito', Arial, sans-serif;
+  --font-sub:  'Rajdhani', Arial, sans-serif;
+  --font-body: 'Inter', Arial, sans-serif;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* LOCKED MARGIN RULES — see stationery/phewphonics/mad-pdf-layout-spec.md */
+@page { size: A4; margin: 0; }
+html, body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  line-height: 1.55;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+  padding: 0 14mm;
+}
+
+/* ── COVER ── */
+.cover {
+  padding-top: 16mm;
+  padding-bottom: 16mm;
+  border-bottom: 2px solid var(--border);
+  page-break-after: always;
+}
+.cover-logo { display:flex; align-items:center; gap:10px; margin-bottom:22px; }
+.logo-badge {
+  width:38px; height:38px; border-radius:999px;
+  background: linear-gradient(135deg, var(--primary), var(--accent));
+  display:flex; align-items:center; justify-content:center;
+  font-family:var(--font-disp); font-weight:800; font-size:15px; color:#fff;
+}
+.logo-text { font-family:var(--font-sub); font-weight:700; font-size:12px; letter-spacing:.1em; text-transform:uppercase; color:var(--fg-muted); }
+.cover-eyebrow { font-family:var(--font-sub); font-weight:600; font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--accent-hi); margin-bottom:10px; }
+.cover h1 { font-family:var(--font-disp); font-weight:800; font-size:30px; line-height:1.15; color:var(--fg); margin-bottom:12px; }
+.cover h1 span { color:var(--accent-hi); }
+.cover-sub { color:var(--fg-sub); font-size:13px; margin-bottom:20px; max-width:540px; line-height:1.6; }
+.verdict-chip {
+  display:inline-flex; align-items:center; gap:7px; padding:6px 16px; border-radius:999px;
+  font-family:var(--font-sub); font-weight:700; font-size:12px; letter-spacing:.07em; text-transform:uppercase;
+  background:var(--warn-bg); border:1.5px solid var(--warn); color:var(--warn);
+}
+.verdict-chip::before { content:""; width:7px; height:7px; border-radius:50%; background:var(--warn); }
+.meta-row { display:flex; gap:8px; flex-wrap:wrap; margin-top:16px; }
+.meta-pill {
+  font-family:var(--font-sub); font-weight:600; font-size:10px; letter-spacing:.05em; text-transform:uppercase;
+  color:var(--fg-muted); border:1px solid var(--border); border-radius:999px; padding:2px 9px; white-space:nowrap;
+}
+
+/* ── SECTIONS ── */
+.section { padding-top:16mm; padding-bottom:16mm; margin-bottom:0; }
+.page-break { page-break-before: always; }
+.no-break { page-break-inside: avoid; }
+.section-eyebrow { font-family:var(--font-sub); font-weight:600; font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:var(--accent-hi); margin-bottom:5px; }
+.section-title { font-family:var(--font-disp); font-weight:800; font-size:20px; color:var(--fg); margin-bottom:4px; padding-bottom:10px; border-bottom:1px solid var(--border); }
+.section-sub { color:var(--fg-muted); font-size:11px; margin-bottom:18px; margin-top:6px; }
+
+/* ── CARDS ── */
+.verdict-card {
+  background:var(--bg-card); border:1.5px solid var(--border-hi); border-radius:12px;
+  padding:18px 20px; margin-bottom:18px;
+}
+.verdict-card-label { font-family:var(--font-sub); font-weight:700; font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:var(--accent-hi); margin-bottom:8px; }
+.verdict-card-title { font-family:var(--font-disp); font-weight:800; font-size:17px; color:var(--fg); margin-bottom:10px; }
+.verdict-card-body { color:var(--fg-sub); font-size:12px; line-height:1.65; }
+
+/* ── STAT TILES ── */
+.stat-row { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:18px; }
+.stat-tile { background:var(--bg-card); border:1px solid var(--border); border-radius:10px; padding:14px 12px; text-align:center; }
+.stat-num { font-family:var(--font-disp); font-weight:800; font-size:24px; margin-bottom:4px; }
+.stat-label { font-family:var(--font-sub); font-weight:600; font-size:9px; letter-spacing:.1em; text-transform:uppercase; color:var(--fg-muted); }
+.num-warn { color:var(--warn); }
+.num-crit { color:var(--crit); }
+.num-go { color:var(--go); }
+.num-muted { color:var(--fg-muted); }
+
+/* ── DEBATE TABLE ── */
+.debate-table { width:100%; border-collapse:collapse; margin-bottom:18px; font-size:11.5px; }
+.debate-table th { font-family:var(--font-sub); font-weight:700; font-size:10px; letter-spacing:.1em; text-transform:uppercase; color:var(--fg-muted); padding:8px 10px; border-bottom:1px solid var(--border); text-align:left; }
+.debate-table td { padding:9px 10px; border-bottom:1px solid rgba(123,94,212,0.12); vertical-align:top; line-height:1.5; }
+.debate-table tr:last-child td { border-bottom:none; }
+.col-q { color:var(--fg); font-weight:500; width:28%; }
+.col-aa { color:#7BC8A4; width:24%; }
+.col-da { color:#E07070; width:24%; }
+.col-ssa { color:var(--fg-sub); width:24%; font-style:italic; }
+.badge { display:inline-block; border-radius:999px; padding:2px 8px; font-family:var(--font-sub); font-weight:700; font-size:9px; letter-spacing:.08em; text-transform:uppercase; }
+.badge-true { background:var(--go-bg); color:var(--go); border:1px solid var(--go); }
+.badge-partial { background:var(--warn-bg); color:var(--warn); border:1px solid var(--warn); }
+.badge-no { background:var(--crit-bg); color:var(--crit); border:1px solid var(--crit); }
+
+/* ── PHASE CARDS ── */
+.phase-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-bottom:18px; }
+.phase-card { background:var(--bg-card); border:1px solid var(--border); border-radius:10px; padding:14px; }
+.phase-num { font-family:var(--font-disp); font-weight:800; font-size:22px; color:var(--accent); margin-bottom:4px; }
+.phase-title { font-family:var(--font-sub); font-weight:700; font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--fg); margin-bottom:6px; }
+.phase-time { font-family:var(--font-sub); font-weight:600; font-size:10px; color:var(--accent-hi); margin-bottom:8px; }
+.phase-body { font-size:11px; color:var(--fg-sub); line-height:1.6; }
+
+/* ── FAILURE MODES ── */
+.fm-list { display:flex; flex-direction:column; gap:8px; margin-bottom:18px; }
+.fm-item { background:var(--bg-card); border-left:3px solid var(--crit); border-radius:0 8px 8px 0; padding:10px 14px; display:flex; gap:12px; align-items:flex-start; }
+.fm-num { font-family:var(--font-disp); font-weight:800; font-size:14px; color:var(--crit); min-width:22px; }
+.fm-text { font-size:11.5px; color:var(--fg-sub); line-height:1.55; }
+.fm-text strong { color:var(--fg); }
+
+/* ── ARCH DIAGRAM ── */
+.arch-block { background:var(--bg-card2); border:1px solid var(--border); border-radius:10px; padding:14px 16px; margin-bottom:18px; font-family:monospace; font-size:11px; color:var(--fg-sub); line-height:1.8; }
+.arch-block .hl { color:var(--accent-hi); font-weight:bold; }
+.arch-block .go { color:var(--go); }
+.arch-block .muted { color:var(--fg-muted); }
+
+/* ── DELIVERY TABLE ── */
+.delivery-table { width:100%; border-collapse:collapse; margin-bottom:14px; font-size:11.5px; }
+.delivery-table th { font-family:var(--font-sub); font-weight:700; font-size:10px; letter-spacing:.1em; text-transform:uppercase; color:var(--fg-muted); padding:8px 10px; border-bottom:1px solid var(--border); text-align:left; }
+.delivery-table td { padding:9px 10px; border-bottom:1px solid rgba(123,94,212,0.12); vertical-align:top; }
+.delivery-table tr:last-child td { border-bottom:none; }
+.tick { color:var(--go); font-weight:700; }
+.cross { color:var(--crit); font-weight:700; }
+
+/* ── AA/DA HIGHLIGHTS ── */
+.highlight-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:18px; }
+.highlight-card { background:var(--bg-card); border-radius:10px; padding:14px; }
+.highlight-card.aa { border-top:3px solid #7BC8A4; }
+.highlight-card.da { border-top:3px solid #E07070; }
+.highlight-label { font-family:var(--font-sub); font-weight:700; font-size:10px; letter-spacing:.1em; text-transform:uppercase; margin-bottom:8px; }
+.highlight-card.aa .highlight-label { color:#7BC8A4; }
+.highlight-card.da .highlight-label { color:#E07070; }
+.highlight-point { font-size:11px; color:var(--fg-sub); margin-bottom:6px; padding-left:10px; border-left:2px solid var(--border); line-height:1.5; }
+.highlight-point:last-child { margin-bottom:0; }
+</style>
+</head>
+<body>
+<div class="page-wrap">
+
+<!-- ═══════════ COVER ═══════════ -->
+<div class="cover">
+  <div class="cover-logo">
+    <div class="logo-badge">PH</div>
+    <div class="logo-text">Phewphonics · MAD Framework</div>
+  </div>
+  <div class="cover-eyebrow">MAD Run — October 2026 · AA · DA · SSA</div>
+  <h1>Flight-Stress-<br><span>Assassin-Plus</span> Findings</h1>
+  <div class="cover-sub">Multi-Agent Debate covering flight data aggregation architecture, API viability, bot-detection realities, ToS risk, and a phased build plan. Born from a real AI failure: bad advice to "wait for a sale" from an AI that couldn't access live flight data.</div>
+  <div class="verdict-chip">● Conditional Build — 3 Phases</div>
+  <div class="meta-row">
+    <span class="meta-pill">Flight Search</span>
+    <span class="meta-pill">AA · DA · SSA</span>
+    <span class="meta-pill">Amadeus API</span>
+    <span class="meta-pill">Claude-in-Chrome</span>
+    <span class="meta-pill">October 2026</span>
+  </div>
+</div>
+
+<!-- ═══════════ SECTION 1: SSA VERDICT ═══════════ -->
+<div class="section">
+  <div class="section-eyebrow">Section 1</div>
+  <div class="section-title">SSA Verdict</div>
+  <div class="section-sub">Final synthesised output from the Multi-Agent Debate cycle</div>
+
+  <div class="verdict-card">
+    <div class="verdict-card-label">SSA Final Verdict</div>
+    <div class="verdict-card-title">Conditional Build — Three-Phase Approach Required</div>
+    <div class="verdict-card-body">The goal of "never stress about flights again" is achievable — but not by building what you first imagine. The AA is right that the technical tools exist. The DA is right that full automation is a fragile, legally grey maintenance trap. Build a hybrid: legitimate APIs where data is clean, browser assist where it's not, and never pretend to do what only a human can do at booking time.</div>
+  </div>
+
+  <div class="stat-row">
+    <div class="stat-tile"><div class="stat-num num-go">3</div><div class="stat-label">Build Phases</div></div>
+    <div class="stat-tile"><div class="stat-num num-warn">7</div><div class="stat-label">Failure Modes</div></div>
+    <div class="stat-tile"><div class="stat-num num-crit">5</div><div class="stat-label">Critical Blockers</div></div>
+    <div class="stat-tile"><div class="stat-num num-muted">1</div><div class="stat-label">Day to MVP</div></div>
+  </div>
+
+  <div class="highlight-grid">
+    <div class="highlight-card aa">
+      <div class="highlight-label">AA — Top Wins</div>
+      <div class="highlight-point">Amadeus Self-Service API is free, production-grade, covers 400+ airlines — no scraping needed for full-service carriers</div>
+      <div class="highlight-point">Authenticated browser session bypasses bot detection entirely — use the user's own Chrome, not a headless bot</div>
+      <div class="highlight-point">Price calendar query finds cheapest day in a month automatically — core stress eliminator</div>
+      <div class="highlight-point">Phase 1 (tab launcher) can be built in one day with zero cost and zero legal risk</div>
+    </div>
+    <div class="highlight-card da">
+      <div class="highlight-label">DA — Top Risks</div>
+      <div class="highlight-point">Bot detection is industrial-grade — Cloudflare/PerimeterX fingerprints canvas, WebGL, TLS, mouse entropy — headless browsers detectable in seconds</div>
+      <div class="highlight-point">Low-cost carriers (Jetstar, AirAsia, Scoot) are NOT in GDS — the cheapest fares are structurally inaccessible via API</div>
+      <div class="highlight-point">Dynamic pricing: prices change every 30–90 seconds — any scraped price is a snapshot, never a guarantee</div>
+      <div class="highlight-point">Booking is always manual — tool eliminates search stress, not all stress</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ SECTION 2: DEBATE SCORECARD ═══════════ -->
+<div class="section page-break">
+  <div class="section-eyebrow">Section 2</div>
+  <div class="section-title">Debate Scorecard</div>
+  <div class="section-sub">AA vs DA — what the MAD cycle settled on each key question</div>
+
+  <table class="debate-table">
+    <thead>
+      <tr>
+        <th>Question</th>
+        <th>AA Said</th>
+        <th>DA Said</th>
+        <th>SSA Ruling</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="col-q">Can we get real flight data?</td>
+        <td class="col-aa">Yes — Amadeus API, SerpApi, 400+ airlines</td>
+        <td class="col-da">Amadeus misses LCCs; data goes stale in 30–90s</td>
+        <td class="col-ssa"><span class="badge badge-partial">Partial</span> Amadeus for full-service; Google Flights deep-link for LCCs</td>
+      </tr>
+      <tr>
+        <td class="col-q">Does authenticated browser automation work?</td>
+        <td class="col-aa">Yes — user's own session bypasses bot detection entirely</td>
+        <td class="col-da">Fragile on site updates; ToS violation risk; sessions expire with 2FA</td>
+        <td class="col-ssa"><span class="badge badge-partial">Sparingly</span> Claude-in-Chrome for LCC checks only — not as primary data pipeline</td>
+      </tr>
+      <tr>
+        <td class="col-q">Will this eliminate flight stress?</td>
+        <td class="col-aa">Yes — one query fans out to all sources</td>
+        <td class="col-da">Booking still manual; price still unverified until click-through</td>
+        <td class="col-ssa"><span class="badge badge-partial">Reframe</span> Eliminates search stress (80%). Booking stress remains (20%)</td>
+      </tr>
+      <tr>
+        <td class="col-q">Is full scraping legally safe?</td>
+        <td class="col-aa">With user's own session, minimal risk</td>
+        <td class="col-da">ToS explicitly prohibits; loyalty account ban risk; CFAA exposure</td>
+        <td class="col-ssa"><span class="badge badge-no">Stay Clean</span> Google Flights deep-link + Amadeus = zero ToS exposure</td>
+      </tr>
+      <tr>
+        <td class="col-q">Is Skyscanner API available?</td>
+        <td class="col-aa">Kiwi.com Tequila API as alternative</td>
+        <td class="col-da">Skyscanner API closed to new partners since 2019</td>
+        <td class="col-ssa"><span class="badge badge-no">Blocked</span> Use Amadeus + Travelpayouts instead; Kiwi Tequila where available</td>
+      </tr>
+      <tr>
+        <td class="col-q">Can LCC fares be aggregated?</td>
+        <td class="col-aa">Via Claude-in-Chrome authenticated session</td>
+        <td class="col-da">Jetstar/AirAsia/Scoot not in GDS; must scrape direct</td>
+        <td class="col-ssa"><span class="badge badge-partial">Manual Bridge</span> Google Flights deep-link covers most LCCs; Chrome automation as fallback</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ═══════════ SECTION 3: THREE-PHASE BUILD PLAN ═══════════ -->
+<div class="section page-break">
+  <div class="section-eyebrow">Section 3</div>
+  <div class="section-title">Three-Phase Build Plan</div>
+  <div class="section-sub">Build in this order. Phase 1 alone eliminates most search stress.</div>
+
+  <div class="phase-grid">
+    <div class="phase-card">
+      <div class="phase-num">01</div>
+      <div class="phase-title">The Launcher</div>
+      <div class="phase-time">Build time: 1 day · Cost: $0</div>
+      <div class="phase-body">Input form takes origin, destination, date range, stops, baggage, time windows, airlines. Generates pre-filtered deep-links for Google Flights, Skyscanner, Qantas, Virgin, Jetstar. One click opens all in parallel tabs. Zero scraping. Zero ToS risk. Zero maintenance. Eliminates re-entering the same data into five sites every time.</div>
+    </div>
+    <div class="phase-card">
+      <div class="phase-num">02</div>
+      <div class="phase-title">The Intelligence Layer</div>
+      <div class="phase-time">Build time: 1 week · Cost: $0/month (free tier)</div>
+      <div class="phase-body">Amadeus Self-Service API adds: cheapest day in a date range, price trend signal (is today high or low vs 90 days?), seat availability alerts, threshold price notifications. Dashboard shows all active searches and alerts in one view. Covers full-service carriers (Qantas, Emirates, Singapore, Virgin). LCCs handled by Phase 1 launcher.</div>
+    </div>
+    <div class="phase-card">
+      <div class="phase-num">03</div>
+      <div class="phase-title">The LCC Bridge</div>
+      <div class="phase-time">Build when needed · Optional</div>
+      <div class="phase-body">Claude-in-Chrome attaches to user's existing authenticated Jetstar/AirAsia session. Manual trigger only — not scheduled. Extracts prices, merges into dashboard alongside Amadeus data. Used sparingly for LCC routes not covered by Amadeus. Treat as a research signal, not a booking source — always verify on site.</div>
+    </div>
+  </div>
+
+  <div class="arch-block">
+    <span class="hl">FLIGHT-STRESS-ASSASSIN-Plus Architecture</span><br>
+    │<br>
+    ├── <span class="hl">LAUNCHER</span> (Phase 1 — Day 1)<br>
+    │   ├── Input: origin, dest, dates, stops, baggage, time windows, airlines<br>
+    │   ├── Generates: Google Flights + Skyscanner + Qantas + Virgin + Jetstar deep-links<br>
+    │   └── <span class="go">→ Opens all in parallel tabs · Zero cost · Zero ToS risk</span><br>
+    │<br>
+    ├── <span class="hl">INTELLIGENCE</span> (Phase 2 — Week 1)<br>
+    │   ├── Amadeus API: price calendar · cheapest day · trend signal · availability alert<br>
+    │   ├── Dashboard: all active searches + price alerts in one view<br>
+    │   └── <span class="go">→ Free tier: 2,000 calls/month · Covers 400+ full-service airlines</span><br>
+    │<br>
+    └── <span class="hl">LCC BRIDGE</span> (Phase 3 — Optional)<br>
+        ├── Claude-in-Chrome: user's existing Jetstar/AirAsia session<br>
+        ├── Manual trigger only · Results merged into dashboard<br>
+        └── <span class="muted">→ Research signal only — always verify on airline site before booking</span>
+  </div>
+</div>
+
+<!-- ═══════════ SECTION 4: 7 FAILURE MODES TO AVOID ═══════════ -->
+<div class="section page-break">
+  <div class="section-eyebrow">Section 4</div>
+  <div class="section-title">7 Critical Failure Modes to Avoid</div>
+  <div class="section-sub">Identified by the DA. None are caught by standard development planning.</div>
+
+  <div class="fm-list">
+    <div class="fm-item">
+      <div class="fm-num">1</div>
+      <div class="fm-text"><strong>Don't scrape without user session.</strong> Cloudflare/Akamai fingerprints canvas rendering, WebGL, TLS hash, mouse entropy. A headless Playwright session is detectable within seconds. Will be blocked within days. Use Amadeus API or the user's own authenticated Chrome session instead.</div>
+    </div>
+    <div class="fm-item">
+      <div class="fm-num">2</div>
+      <div class="fm-text"><strong>Don't trust scraped prices as bookable.</strong> Prices change every 30–90 seconds. Any price shown is a snapshot at time of query. Always verify on the airline site before any purchase. Build a "verify on airline site" button into the UI — make it the default next step.</div>
+    </div>
+    <div class="fm-item">
+      <div class="fm-num">3</div>
+      <div class="fm-text"><strong>Don't try to cover all airlines on day one.</strong> Start with Amadeus (400+ full-service carriers) + Google Flights deep-link (covers LCCs via the site). Add Claude-in-Chrome LCC bridge incrementally when a specific gap is felt. Trying to cover everything at launch means shipping nothing.</div>
+    </div>
+    <div class="fm-item">
+      <div class="fm-num">4</div>
+      <div class="fm-text"><strong>Don't build a background scheduling service for scraping.</strong> Scheduled automated sessions on airline sites = ToS violation. Loyalty account termination risk (points gone). Use on-demand search only. Price alerts via Amadeus API are fine — that's using an authorised data channel.</div>
+    </div>
+    <div class="fm-item">
+      <div class="fm-num">5</div>
+      <div class="fm-text"><strong>Don't attempt to automate the booking step.</strong> Seat selection, payment, confirmation are always manual and always on the airline site. The tool's job is search aggregation and handoff — not end-to-end booking. Attempting booking automation introduces payment failure modes and zero benefit.</div>
+    </div>
+    <div class="fm-item">
+      <div class="fm-num">6</div>
+      <div class="fm-text"><strong>Don't conflate "price found" with "deal confirmed."</strong> The UI must always show data freshness (timestamp of last query) and include a prominent "verify before buying" warning on every result. A user who acts on a stale price will blame the tool, not the airline's dynamic pricing system.</div>
+    </div>
+    <div class="fm-item">
+      <div class="fm-num">7</div>
+      <div class="fm-text"><strong>Don't let "AI said so" replace the tool.</strong> The origin story of this project is an AI that gave bad flight advice because it had no real data. This tool must never give a price recommendation without showing its data source, its freshness, and its limitations. Data transparency is non-negotiable.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ SECTION 5: HONEST DELIVERY ASSESSMENT ═══════════ -->
+<div class="section page-break">
+  <div class="section-eyebrow">Section 5</div>
+  <div class="section-title">Honest Delivery Assessment</div>
+  <div class="section-sub">What this tool will and won't deliver. No false promises.</div>
+
+  <table class="delivery-table">
+    <thead>
+      <tr>
+        <th>Capability</th>
+        <th>Delivered?</th>
+        <th>Via</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Never re-enter the same search parameters again</td>
+        <td><span class="tick">✓ Yes</span></td>
+        <td>Phase 1 Launcher — day one</td>
+      </tr>
+      <tr>
+        <td>Cheapest day in a date range found automatically</td>
+        <td><span class="tick">✓ Yes</span></td>
+        <td>Amadeus price calendar API — Phase 2</td>
+      </tr>
+      <tr>
+        <td>Know if today's price is high or low vs recent history</td>
+        <td><span class="tick">✓ Yes</span></td>
+        <td>Amadeus + Travelpayouts price history — Phase 2</td>
+      </tr>
+      <tr>
+        <td>Alert when price drops to threshold</td>
+        <td><span class="tick">✓ Yes</span></td>
+        <td>Amadeus subscription API — Phase 2</td>
+      </tr>
+      <tr>
+        <td>One click opens all relevant sites pre-filtered</td>
+        <td><span class="tick">✓ Yes</span></td>
+        <td>Phase 1 Launcher — day one</td>
+      </tr>
+      <tr>
+        <td>LCC fares (Jetstar, AirAsia, Scoot) surfaced</td>
+        <td><span class="tick">✓ Mostly</span></td>
+        <td>Google Flights deep-link (Phase 1) + Chrome bridge (Phase 3)</td>
+      </tr>
+      <tr>
+        <td>Qantas/Velocity Points fares surfaced</td>
+        <td><span class="cross">✗ Not yet</span></td>
+        <td>No public API; future Phase 3+ enhancement</td>
+      </tr>
+      <tr>
+        <td>Booking handled by the tool</td>
+        <td><span class="cross">✗ No</span></td>
+        <td>Always manual on airline/OTA site — by design</td>
+      </tr>
+      <tr>
+        <td>Guaranteed bookable price shown</td>
+        <td><span class="cross">✗ No</span></td>
+        <td>Dynamic pricing means verification always required</td>
+      </tr>
+      <tr>
+        <td>Seat selection, baggage fine print, check-in links</td>
+        <td><span class="cross">✗ No</span></td>
+        <td>Not aggregatable — handled on airline site at booking</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="verdict-card" style="margin-top:14px;">
+    <div class="verdict-card-label">Net Assessment</div>
+    <div class="verdict-card-title">Eliminates 80% of the Friction. Build Phase 1 This Week.</div>
+    <div class="verdict-card-body">Phase 1 alone (the launcher — one day of build time) removes the single biggest source of flight search stress: re-entering the same parameters into five different sites. Phase 2 adds the intelligence layer that the original AI advice failed to provide — real price trend data, not a guess. Phase 3 fills the LCC gap when needed. The remaining 20% — booking, seat selection, price verification — cannot be automated without unacceptable legal and fragility risk. That's not a failure. That's an honest scope.</div>
+  </div>
+</div>
+
+</div><!-- /page-wrap -->
+</body>
+</html>
