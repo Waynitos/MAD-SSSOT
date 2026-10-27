@@ -1527,6 +1527,34 @@ AfterSingleTraversal:
         sLog = sLog & vbCrLf & "Browser node reset FAILED: " & ex.Message
     End Try
 
+    ' ---------- DRAWING UPDATE PASS (Mode 6 only, when user opted in) ----------
+    ' Runs BEFORE document cleanup so all renamed model documents are still
+    ' live in session - ReplaceReference requires both old and new Document
+    ' objects to be open at call time.
+    If oChoice.bCopyDesignMode AndAlso oChoice.bUpdateDrawings AndAlso Trim(oChoice.sDrawingsFolder) <> "" Then
+        Dim iDwgOk As Integer = 0
+        Dim iDwgPartial As Integer = 0
+        Dim iDwgFail As Integer = 0
+        Try
+            System.IO.File.AppendAllText(sLogFilePath, vbCrLf & "Starting drawing update pass. Folder: " & oChoice.sDrawingsFolder & vbCrLf)
+        Catch
+        End Try
+        Try
+            RunDrawingUpdatePass(oChoice.sDrawingsFolder, oRenameMap, sLog, iDwgOk, iDwgPartial, iDwgFail, sLogFilePath)
+        Catch ex As Exception
+            sLog = sLog & vbCrLf & "DRAWING UPDATE PASS FAILED: " & ex.Message
+            Try
+                System.IO.File.AppendAllText(sLogFilePath, vbCrLf & "DRAWING UPDATE PASS FAILED: " & ex.Message & vbCrLf & ex.StackTrace)
+            Catch
+            End Try
+        End Try
+        sLog = sLog & vbCrLf & "Drawing update pass complete: " & iDwgOk & " saved, " & iDwgPartial & " partial (not saved - manual repair needed), " & iDwgFail & " failed to open."
+        Try
+            System.IO.File.AppendAllText(sLogFilePath, vbCrLf & "Drawing update pass complete: " & iDwgOk & " saved, " & iDwgPartial & " partial, " & iDwgFail & " failed." & vbCrLf)
+        Catch
+        End Try
+    End If
+
     ' ---------- Restore Excel dialog behaviour ----------
     Try
         If oExcelApp IsNot Nothing Then
@@ -1605,6 +1633,172 @@ AfterSingleTraversal:
 	ThisDoc.Save
 
 End Sub
+
+' =====================================================================
+' DRAWING UPDATE PASS
+' =====================================================================
+' Loops every .idw in sDrawingsFolder (flat - no recursion).
+' For each drawing, looks up each of its model references in oRenameMap.
+' Calls ReplaceReference for every hit.
+'
+' SAFETY RULE: only saves a drawing if ALL its model references resolved
+' after the pass. A drawing with any remaining unresolved (old-path)
+' reference is logged as DRAW-PARTIAL-SKIP and left untouched.
+' This prevents silent partial-success drawings passing review.
+'
+' Requires: all renamed model documents still open in current Inventor
+' session (i.e. called BEFORE the document cleanup pass).
+' =====================================================================
+Sub RunDrawingUpdatePass( _
+    sDrawingsFolder As String, _
+    oRenameMap As System.Collections.Generic.Dictionary(Of String, String), _
+    ByRef sLog As String, _
+    ByRef iDwgOk As Integer, _
+    ByRef iDwgPartial As Integer, _
+    ByRef iDwgFail As Integer, _
+    sLogFilePath As String)
+
+    If oRenameMap Is Nothing OrElse oRenameMap.Count = 0 Then
+        sLog = sLog & vbCrLf & "DRAWING UPDATE: rename map is empty - nothing to do."
+        Return
+    End If
+
+    Dim oIdwFiles() As String
+    Try
+        oIdwFiles = System.IO.Directory.GetFiles(sDrawingsFolder, "*.idw")
+    Catch ex As Exception
+        sLog = sLog & vbCrLf & "DRAWING UPDATE: could not read drawings folder: " & ex.Message
+        Return
+    End Try
+
+    If oIdwFiles.Length = 0 Then
+        sLog = sLog & vbCrLf & "DRAWING UPDATE: no .idw files found in " & sDrawingsFolder
+        Return
+    End If
+
+    sLog = sLog & vbCrLf & "DRAWING UPDATE: found " & oIdwFiles.Length & " drawing(s) to process."
+    Try : System.IO.File.AppendAllText(sLogFilePath, "Drawing update: " & oIdwFiles.Length & " drawings found." & vbCrLf) : Catch : End Try
+
+    Dim bOrigSilent As Boolean = ThisApplication.SilentOperation
+    ThisApplication.SilentOperation = True
+
+    For Each sDrawPath As String In oIdwFiles
+        Dim oDrawDoc As DrawingDocument = Nothing
+        Try
+            ' Open drawing without showing it in the UI
+            oDrawDoc = TryCast(ThisApplication.Documents.Open(sDrawPath, False), DrawingDocument)
+            If oDrawDoc Is Nothing Then
+                sLog = sLog & vbCrLf & "DRAW-SKIP (not a drawing): " & System.IO.Path.GetFileName(sDrawPath)
+                iDwgFail = iDwgFail + 1
+                Continue For
+            End If
+
+            ' --- Phase A: collect which refs need updating ---
+            ' Build a list of (oldDoc, newPath) pairs from oRenameMap
+            Dim oSwaps As New System.Collections.Generic.List(Of Object())  ' {oldDoc, newFullPath}
+            For Each oRef As Document In oDrawDoc.ReferencedDocuments
+                Dim sRefPath As String = ""
+                Try : sRefPath = oRef.FullDocumentName : Catch : Continue For : End Try
+                Dim sNewPath As String = ""
+                If oRenameMap.TryGetValue(sRefPath, sNewPath) Then
+                    ' Verify new doc is open in session
+                    Dim oNewDoc As Document = Nothing
+                    Try
+                        oNewDoc = ThisApplication.Documents.ItemByName(sNewPath)
+                    Catch
+                    End Try
+                    If oNewDoc IsNot Nothing Then
+                        oSwaps.Add(New Object() {oRef, oNewDoc, sRefPath, sNewPath})
+                    Else
+                        ' New doc not in session - log and skip this swap
+                        sLog = sLog & vbCrLf & "DRAW-REF-NOTSESSION: " & System.IO.Path.GetFileName(sDrawPath) & " -> " & System.IO.Path.GetFileName(sNewPath) & " (new doc not open in session)"
+                        Try : System.IO.File.AppendAllText(sLogFilePath, "DRAW-REF-NOTSESSION: " & sDrawPath & " -> " & sNewPath & vbCrLf) : Catch : End Try
+                    End If
+                End If
+            Next
+
+            ' --- Phase B: apply ReplaceReference for each swap ---
+            Dim iSwapOk As Integer = 0
+            Dim iSwapFail As Integer = 0
+            For Each oSwap As Object() In oSwaps
+                Dim oOldDoc As Document = TryCast(oSwap(0), Document)
+                Dim oNewDoc As Document = TryCast(oSwap(1), Document)
+                Dim sOldPath As String = CStr(oSwap(2))
+                Dim sNewPath As String = CStr(oSwap(3))
+                Try
+                    oDrawDoc.ReferencedDocuments.ReplaceReference(oOldDoc, oNewDoc)
+                    iSwapOk = iSwapOk + 1
+                    Try : System.IO.File.AppendAllText(sLogFilePath, "DRAW-REF-OK: " & System.IO.Path.GetFileName(sDrawPath) & " | " & System.IO.Path.GetFileName(sOldPath) & " -> " & System.IO.Path.GetFileName(sNewPath) & vbCrLf) : Catch : End Try
+                Catch exRep As Exception
+                    iSwapFail = iSwapFail + 1
+                    sLog = sLog & vbCrLf & "DRAW-REF-FAIL: " & System.IO.Path.GetFileName(sDrawPath) & " | " & System.IO.Path.GetFileName(sOldPath) & " : " & exRep.Message
+                    Try : System.IO.File.AppendAllText(sLogFilePath, "DRAW-REF-FAIL: " & sDrawPath & " | " & sOldPath & " : " & exRep.Message & vbCrLf) : Catch : End Try
+                End Try
+            Next
+
+            ' --- Phase C: verify - check for any remaining old-path refs ---
+            Dim bAllClean As Boolean = True
+            For Each oRef As Document In oDrawDoc.ReferencedDocuments
+                Dim sRefPath As String = ""
+                Try : sRefPath = oRef.FullDocumentName : Catch : Continue For : End Try
+                ' If this ref is in the rename map as a KEY (i.e. it's an old path), it wasn't updated
+                If oRenameMap.ContainsKey(sRefPath) Then
+                    bAllClean = False
+                    sLog = sLog & vbCrLf & "DRAW-UNRESOLVED-REMAIN: " & System.IO.Path.GetFileName(sDrawPath) & " still refs old: " & System.IO.Path.GetFileName(sRefPath)
+                    Try : System.IO.File.AppendAllText(sLogFilePath, "DRAW-UNRESOLVED-REMAIN: " & sDrawPath & " still refs " & sRefPath & vbCrLf) : Catch : End Try
+                End If
+            Next
+
+            ' --- Phase D: save only if fully clean ---
+            If bAllClean AndAlso iSwapOk > 0 Then
+                ' Clear read-only flag if present (Vault source files are RO)
+                Try
+                    Dim oAttrs As System.IO.FileAttributes = System.IO.File.GetAttributes(sDrawPath)
+                    If (oAttrs And System.IO.FileAttributes.ReadOnly) = System.IO.FileAttributes.ReadOnly Then
+                        System.IO.File.SetAttributes(sDrawPath, oAttrs And Not System.IO.FileAttributes.ReadOnly)
+                    End If
+                Catch
+                End Try
+                Try
+                    oDrawDoc.Save()
+                    iDwgOk = iDwgOk + 1
+                    sLog = sLog & vbCrLf & "DRAW-OK: " & System.IO.Path.GetFileName(sDrawPath) & " (" & iSwapOk & " ref(s) updated)"
+                    Try : System.IO.File.AppendAllText(sLogFilePath, "DRAW-OK: " & sDrawPath & vbCrLf) : Catch : End Try
+                Catch exSave As Exception
+                    sLog = sLog & vbCrLf & "DRAW-SAVE-FAIL: " & System.IO.Path.GetFileName(sDrawPath) & " : " & exSave.Message
+                    iDwgPartial = iDwgPartial + 1
+                    Try : System.IO.File.AppendAllText(sLogFilePath, "DRAW-SAVE-FAIL: " & sDrawPath & " : " & exSave.Message & vbCrLf) : Catch : End Try
+                End Try
+            ElseIf iSwapOk = 0 AndAlso oSwaps.Count = 0 Then
+                ' No refs in this drawing matched the rename map - nothing to do, not an error
+                sLog = sLog & vbCrLf & "DRAW-NOOP: " & System.IO.Path.GetFileName(sDrawPath) & " (no refs matched rename map)"
+            Else
+                ' Partial or unresolved - do NOT save
+                iDwgPartial = iDwgPartial + 1
+                sLog = sLog & vbCrLf & "DRAW-PARTIAL-SKIP: " & System.IO.Path.GetFileName(sDrawPath) & " NOT saved (" & iSwapOk & " OK, " & iSwapFail & " fail) - manual repair required"
+                Try : System.IO.File.AppendAllText(sLogFilePath, "DRAW-PARTIAL-SKIP: " & sDrawPath & vbCrLf) : Catch : End Try
+            End If
+
+        Catch exOuter As Exception
+            iDwgFail = iDwgFail + 1
+            sLog = sLog & vbCrLf & "DRAW-OPEN-FAIL: " & System.IO.Path.GetFileName(sDrawPath) & " : " & exOuter.Message
+            Try : System.IO.File.AppendAllText(sLogFilePath, "DRAW-OPEN-FAIL: " & sDrawPath & " : " & exOuter.Message & vbCrLf) : Catch : End Try
+        Finally
+            ' Always close the drawing after processing - it's not part of the model tree
+            If oDrawDoc IsNot Nothing Then
+                Try : oDrawDoc.Close(False) : Catch : End Try
+                oDrawDoc = Nothing
+            End If
+        End Try
+
+        ' Periodic GC to prevent memory balloon on large drawing sets
+        Try : GC.Collect() : GC.WaitForPendingFinalizers() : Catch : End Try
+    Next
+
+    ThisApplication.SilentOperation = bOrigSilent
+
+End Sub
+
 
 Function GetSetExitFlag(Optional bSet As Boolean = False, Optional bNewVal As Boolean = False) As Boolean
     Static bExitRequested As Boolean = False
@@ -1955,6 +2149,10 @@ Class RenameModeChoice
     '   False = CLEAN SINGLE FOLDER  - all renamed files land flat in sTargetFolder (current behaviour)
     '   True  = HONOUR EXISTING      - files keep their relative sub-folder path inside sTargetFolder
     Public bHonourFolderStructure As Boolean = False
+    ' Mode 6 Drawing Update: run RunDrawingUpdatePass after TRAVERSE completes
+    Public bUpdateDrawings As Boolean = False
+    ' Mode 6 Drawing Update: flat drawings folder path (all .idw files to update)
+    Public sDrawingsFolder As String = ""
 End Class
 
 
@@ -2461,17 +2659,84 @@ Function ShowCopyDesignConfigForm(ByRef oChoice As RenameModeChoice) As Boolean
     oLblNote.Left = 15 : oLblNote.Top = 489 : oLblNote.Width = 500
     oForm.Controls.Add(oLblNote)
 
+    ' ---- DRAWING UPDATE SECTION ----
+    Dim oGrpDwg As New GroupBox()
+    oGrpDwg.Text = "DRAWING UPDATE (after TRAVERSE)"
+    oGrpDwg.Left = 15 : oGrpDwg.Top = 516 : oGrpDwg.Width = 520 : oGrpDwg.Height = 118
+    oForm.Controls.Add(oGrpDwg)
+
+    Dim oChkUpdateDwg As New CheckBox()
+    oChkUpdateDwg.Text = "Update drawings: repoint model references using TRAVERSE rename map"
+    oChkUpdateDwg.Left = 8 : oChkUpdateDwg.Top = 18 : oChkUpdateDwg.Width = 500
+    oChkUpdateDwg.Checked = False
+    oGrpDwg.Controls.Add(oChkUpdateDwg)
+
+    Dim oLblDwgFolder As New Label()
+    oLblDwgFolder.Text = "Drawings folder (flat, all .idw files):"
+    oLblDwgFolder.Left = 8 : oLblDwgFolder.Top = 44 : oLblDwgFolder.Width = 500
+    oGrpDwg.Controls.Add(oLblDwgFolder)
+
+    Dim oTxtDwgFolder As New System.Windows.Forms.TextBox()
+    oTxtDwgFolder.Left = 8 : oTxtDwgFolder.Top = 62 : oTxtDwgFolder.Width = 390
+    oTxtDwgFolder.Text = ""
+    oTxtDwgFolder.Enabled = False
+    oGrpDwg.Controls.Add(oTxtDwgFolder)
+
+    Dim oBtnBrowseDwg As New Button()
+    oBtnBrowseDwg.Text = "Browse..."
+    oBtnBrowseDwg.Left = 406 : oBtnBrowseDwg.Top = 59 : oBtnBrowseDwg.Width = 100
+    oBtnBrowseDwg.Enabled = False
+    oGrpDwg.Controls.Add(oBtnBrowseDwg)
+
+    Dim oLblDwgNote As New Label()
+    oLblDwgNote.Text = "Only saves drawings where ALL references resolved. Partial-success drawings are logged, not saved."
+    oLblDwgNote.Left = 8 : oLblDwgNote.Top = 90 : oLblDwgNote.Width = 500 : oLblDwgNote.Height = 24
+    oGrpDwg.Controls.Add(oLblDwgNote)
+
+    ' Enable/disable folder controls when checkbox toggled
+    AddHandler oChkUpdateDwg.CheckedChanged, Sub(s, e)
+        oTxtDwgFolder.Enabled = oChkUpdateDwg.Checked
+        oBtnBrowseDwg.Enabled = oChkUpdateDwg.Checked
+    End Sub
+
+    ' Browse button opens FolderBrowserDialog
+    AddHandler oBtnBrowseDwg.Click, Sub(s, e)
+        Dim oFbd As New FolderBrowserDialog()
+        oFbd.Description = "Select the flat drawings folder (.idw files)"
+        If Trim(oTxtDwgFolder.Text) <> "" AndAlso System.IO.Directory.Exists(oTxtDwgFolder.Text) Then
+            oFbd.SelectedPath = oTxtDwgFolder.Text
+        End If
+        If oFbd.ShowDialog() = DialogResult.OK Then
+            oTxtDwgFolder.Text = oFbd.SelectedPath
+        End If
+    End Sub
+
+    ' Expand form to fit new section
+    oForm.Height = 706
+
     Dim oOk As New Button()
     oOk.Text = "OK" : oOk.DialogResult = DialogResult.OK
-    oOk.Left = 350 : oOk.Top = 524 : oOk.Width = 90
+    oOk.Left = 350 : oOk.Top = 648 : oOk.Width = 90
     oForm.Controls.Add(oOk) : oForm.AcceptButton = oOk
 
     Dim oCancel As New Button()
     oCancel.Text = "Cancel" : oCancel.DialogResult = DialogResult.Cancel
-    oCancel.Left = 450 : oCancel.Top = 524 : oCancel.Width = 90
+    oCancel.Left = 450 : oCancel.Top = 648 : oCancel.Width = 90
     oForm.Controls.Add(oCancel) : oForm.CancelButton = oCancel
 
     If oForm.ShowDialog() <> DialogResult.OK Then Return False
+
+    ' Validate drawing folder if update requested
+    If oChkUpdateDwg.Checked Then
+        If Trim(oTxtDwgFolder.Text) = "" Then
+            MessageBox.Show("Please select a drawings folder, or uncheck 'Update drawings'.", "Copy Design")
+            Return False
+        End If
+        If Not System.IO.Directory.Exists(oTxtDwgFolder.Text) Then
+            MessageBox.Show("Drawings folder not found: " & oTxtDwgFolder.Text, "Copy Design")
+            Return False
+        End If
+    End If
 
     Dim sPrefix As String = Trim(oTxtPrefix.Text)
     If sPrefix = "" Then
@@ -2493,6 +2758,8 @@ Function ShowCopyDesignConfigForm(ByRef oChoice As RenameModeChoice) As Boolean
     oChoice.sReplace = sPrefix
     oChoice.bLocalizeNonStd = oChkNonStd.Checked
     oChoice.bHonourFolderStructure = oRbHonour.Checked
+    oChoice.bUpdateDrawings = oChkUpdateDwg.Checked
+    oChoice.sDrawingsFolder = Trim(oTxtDwgFolder.Text)
     oChoice.oSegFinds.Clear()
     oChoice.oSegReplaces.Clear()
     If Trim(oTxtF1.Text) <> "" Then
