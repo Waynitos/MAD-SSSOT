@@ -1582,27 +1582,45 @@ AfterSingleTraversal:
     ' live in session - ReplaceReference requires both old and new Document
     ' objects to be open at call time.
     If oChoice.bCopyDesignMode AndAlso oChoice.bUpdateDrawings AndAlso Trim(oChoice.sDrawingsFolder) <> "" Then
-        Dim iDwgOk As Integer = 0
-        Dim iDwgPartial As Integer = 0
-        Dim iDwgFail As Integer = 0
+        ' --- Drawing selection checkpoint ---
+        ' Show all .idw files in the drawings folder with checkboxes so the user can
+        ' choose exactly which drawings to update now. Useful for partial re-runs.
+        Dim oSelectedDrawings As System.Collections.Generic.List(Of String) = Nothing
         Try
-            System.IO.File.AppendAllText(sLogFilePath, vbCrLf & "Starting drawing update pass. Folder: " & oChoice.sDrawingsFolder & vbCrLf)
-        Catch
-        End Try
-        Try
-            RunDrawingUpdatePass(oChoice.sDrawingsFolder, oRenameMap, oChoice.oDrawingStateMatch, sLog, iDwgOk, iDwgPartial, iDwgFail, sLogFilePath)
+            oSelectedDrawings = ShowDrawingSelectionForm(oChoice.sDrawingsFolder, oRenameMap)
         Catch ex As Exception
-            sLog = sLog & vbCrLf & "DRAWING UPDATE PASS FAILED: " & ex.Message
+            sLog = sLog & vbCrLf & "DRAW-SELECT-FORM-ERROR: " & ex.Message
+        End Try
+        ' Nothing returned = user cancelled
+        If oSelectedDrawings Is Nothing Then
+            sLog = sLog & vbCrLf & "Drawing update pass CANCELLED by user."
+            Try : System.IO.File.AppendAllText(sLogFilePath, vbCrLf & "Drawing update pass cancelled by user." & vbCrLf) : Catch : End Try
+        ElseIf oSelectedDrawings.Count = 0 Then
+            sLog = sLog & vbCrLf & "Drawing update pass SKIPPED - no drawings selected."
+            Try : System.IO.File.AppendAllText(sLogFilePath, vbCrLf & "Drawing update pass skipped - no drawings selected." & vbCrLf) : Catch : End Try
+        Else
+            Dim iDwgOk As Integer = 0
+            Dim iDwgPartial As Integer = 0
+            Dim iDwgFail As Integer = 0
             Try
-                System.IO.File.AppendAllText(sLogFilePath, vbCrLf & "DRAWING UPDATE PASS FAILED: " & ex.Message & vbCrLf & ex.StackTrace)
+                System.IO.File.AppendAllText(sLogFilePath, vbCrLf & "Starting drawing update pass. " & oSelectedDrawings.Count & " drawing(s) selected. Folder: " & oChoice.sDrawingsFolder & vbCrLf)
             Catch
             End Try
-        End Try
-        sLog = sLog & vbCrLf & "Drawing update pass complete: " & iDwgOk & " saved, " & iDwgPartial & " partial (not saved - manual repair needed), " & iDwgFail & " failed to open."
-        Try
-            System.IO.File.AppendAllText(sLogFilePath, vbCrLf & "Drawing update pass complete: " & iDwgOk & " saved, " & iDwgPartial & " partial, " & iDwgFail & " failed." & vbCrLf)
-        Catch
-        End Try
+            Try
+                RunDrawingUpdatePass(oSelectedDrawings, oRenameMap, oChoice.oDrawingStateMatch, sLog, iDwgOk, iDwgPartial, iDwgFail, sLogFilePath)
+            Catch ex As Exception
+                sLog = sLog & vbCrLf & "DRAWING UPDATE PASS FAILED: " & ex.Message
+                Try
+                    System.IO.File.AppendAllText(sLogFilePath, vbCrLf & "DRAWING UPDATE PASS FAILED: " & ex.Message & vbCrLf & ex.StackTrace)
+                Catch
+                End Try
+            End Try
+            sLog = sLog & vbCrLf & "Drawing update pass complete: " & iDwgOk & " saved, " & iDwgPartial & " partial (not saved - manual repair needed), " & iDwgFail & " failed to open."
+            Try
+                System.IO.File.AppendAllText(sLogFilePath, vbCrLf & "Drawing update pass complete: " & iDwgOk & " saved, " & iDwgPartial & " partial, " & iDwgFail & " failed." & vbCrLf)
+            Catch
+            End Try
+        End If
     End If
 
     ' ---------- Restore Excel dialog behaviour ----------
@@ -1685,6 +1703,214 @@ AfterSingleTraversal:
 End Sub
 
 ' =====================================================================
+' DRAWING SELECTION FORM
+' =====================================================================
+' Shows a checklist of all .idw files in sDrawingsFolder.
+' Drawings that have at least one reference in oRenameMap are pre-ticked.
+' Drawings with no matching references are shown un-ticked (grey label) but
+' selectable — handy for confirming the map is correct even on a no-op drawing.
+' Returns Nothing if the user cancels, or a List(Of String) of selected full paths.
+' =====================================================================
+Function ShowDrawingSelectionForm( _
+    sDrawingsFolder As String, _
+    oRenameMap As System.Collections.Generic.Dictionary(Of String, String)) _
+    As System.Collections.Generic.List(Of String)
+
+    Dim oIdwFiles() As String
+    Try
+        oIdwFiles = System.IO.Directory.GetFiles(sDrawingsFolder, "*.idw")
+    Catch
+        Return Nothing
+    End Try
+    If oIdwFiles.Length = 0 Then
+        MessageBox.Show("No .idw files found in:" & vbCrLf & sDrawingsFolder, "Drawing Update")
+        Return New System.Collections.Generic.List(Of String)()
+    End If
+
+    ' Sort ascending so GA (lowest number) appears first
+    System.Array.Sort(oIdwFiles)
+
+    ' --- determine which drawings have matching refs (for pre-tick) ---
+    Dim oHasMatch As New System.Collections.Generic.HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+    If oRenameMap IsNot Nothing Then
+        For Each sIdw As String In oIdwFiles
+            Dim oDwgDoc As DrawingDocument = Nothing
+            Try
+                Dim bWasOpen As Boolean = False
+                Try
+                    oDwgDoc = TryCast(ThisApplication.Documents.ItemByName(sIdw), DrawingDocument)
+                    If oDwgDoc IsNot Nothing Then bWasOpen = True
+                Catch
+                End Try
+                If oDwgDoc Is Nothing Then
+                    Try
+                        oDwgDoc = TryCast(ThisApplication.Documents.Open(sIdw, False), DrawingDocument)
+                    Catch
+                    End Try
+                End If
+                If oDwgDoc IsNot Nothing Then
+                    For Each oRef As Document In oDwgDoc.ReferencedDocuments
+                        Dim sRefPath As String = ""
+                        Try : sRefPath = oRef.FullDocumentName : Catch : Continue For : End Try
+                        If oRenameMap.ContainsKey(sRefPath) Then
+                            oHasMatch.Add(sIdw)
+                            Exit For
+                        End If
+                    Next
+                    If Not bWasOpen Then Try : oDwgDoc.Close(False) : Catch : End Try
+                End If
+            Catch
+                If oDwgDoc IsNot Nothing Then Try : oDwgDoc.Close(False) : Catch : End Try
+            End Try
+        Next
+    End If
+
+    ' --- build form ---
+    Dim oForm As New System.Windows.Forms.Form()
+    oForm.Text = "Drawing Update — Select Drawings to Update"
+    oForm.Width = 620
+    oForm.FormBorderStyle = System.Windows.Forms.FormBorderStyle.FixedDialog
+    oForm.MaximizeBox = False
+    oForm.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen
+
+    ' Header label
+    Dim oLblHdr As New System.Windows.Forms.Label()
+    oLblHdr.Text = "Select which drawings to update with the new model references."
+    oLblHdr.Left = 12 : oLblHdr.Top = 10 : oLblHdr.Width = 580 : oLblHdr.Height = 18
+    oForm.Controls.Add(oLblHdr)
+
+    Dim oLblSub As New System.Windows.Forms.Label()
+    oLblSub.Text = "Pre-ticked = has model references matching this rename run.  Unticked = no matches (verify-only)."
+    oLblSub.Left = 12 : oLblSub.Top = 30 : oLblSub.Width = 580 : oLblSub.Height = 18
+    oLblSub.ForeColor = System.Drawing.Color.Gray
+    oForm.Controls.Add(oLblSub)
+
+    ' Select All / Deselect All buttons (inline row)
+    Dim oBtnAll As New System.Windows.Forms.Button()
+    oBtnAll.Text = "Select All" : oBtnAll.Left = 12 : oBtnAll.Top = 54 : oBtnAll.Width = 90 : oBtnAll.Height = 24
+    oForm.Controls.Add(oBtnAll)
+
+    Dim oBtnNone As New System.Windows.Forms.Button()
+    oBtnNone.Text = "Deselect All" : oBtnNone.Left = 108 : oBtnNone.Top = 54 : oBtnNone.Width = 90 : oBtnNone.Height = 24
+    oForm.Controls.Add(oBtnNone)
+
+    Dim oBtnMatched As New System.Windows.Forms.Button()
+    oBtnMatched.Text = "Matched Only" : oBtnMatched.Left = 204 : oBtnMatched.Top = 54 : oBtnMatched.Width = 100 : oBtnMatched.Height = 24
+    oBtnMatched.ToolTipText = "Tick only drawings that have matching model references"
+    oForm.Controls.Add(oBtnMatched)
+
+    ' Scrollable checklist panel
+    Dim oPanel As New System.Windows.Forms.Panel()
+    oPanel.Left = 12 : oPanel.Top = 86 : oPanel.Width = 578 : oPanel.Height = 320
+    oPanel.AutoScroll = True
+    oPanel.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle
+    oPanel.BackColor = System.Drawing.Color.White
+    oForm.Controls.Add(oPanel)
+
+    Dim oCheckList As New System.Collections.Generic.List(Of System.Windows.Forms.CheckBox)()
+    Dim iY As Integer = 4
+    For Each sIdw As String In oIdwFiles
+        Dim sBasename As String = System.IO.Path.GetFileName(sIdw)
+        Dim bMatched As Boolean = oHasMatch.Contains(sIdw)
+
+        Dim oChk As New System.Windows.Forms.CheckBox()
+        oChk.Text = sBasename
+        oChk.Left = 6 : oChk.Top = iY : oChk.Width = 550 : oChk.Height = 20
+        oChk.Checked = bMatched   ' pre-tick matched drawings
+        oChk.Tag = sIdw           ' store full path
+        If Not bMatched Then
+            oChk.ForeColor = System.Drawing.Color.Gray
+        End If
+        oPanel.Controls.Add(oChk)
+        oCheckList.Add(oChk)
+        iY = iY + 22
+    Next
+
+    ' Resize form height to fit nicely (cap at 600px usable)
+    Dim iListHeight As Integer = Math.Min(iY + 12, 400)
+    oPanel.Height = iListHeight
+    oForm.Height = 86 + iListHeight + 60  ' panel top + panel height + button strip + border
+
+    ' Count label (updates on tick/untick)
+    Dim oLblCount As New System.Windows.Forms.Label()
+    oLblCount.Left = 12 : oLblCount.Top = oPanel.Top + oPanel.Height + 6
+    oLblCount.Width = 300 : oLblCount.Height = 18
+    oForm.Controls.Add(oLblCount)
+
+    Dim UpdateCount As Action = Sub()
+        Dim n As Integer = 0
+        For Each c As System.Windows.Forms.CheckBox In oCheckList
+            If c.Checked Then n = n + 1
+        Next
+        oLblCount.Text = n.ToString & " of " & oIdwFiles.Length & " drawing(s) selected"
+    End Sub
+    UpdateCount()
+
+    For Each oChk As System.Windows.Forms.CheckBox In oCheckList
+        AddHandler oChk.CheckedChanged, Sub() UpdateCount()
+    Next
+
+    ' Wire Select All / Deselect All / Matched Only
+    AddHandler oBtnAll.Click, Sub()
+        For Each c As System.Windows.Forms.CheckBox In oCheckList : c.Checked = True : Next
+    End Sub
+    AddHandler oBtnNone.Click, Sub()
+        For Each c As System.Windows.Forms.CheckBox In oCheckList : c.Checked = False : Next
+    End Sub
+    AddHandler oBtnMatched.Click, Sub()
+        For Each c As System.Windows.Forms.CheckBox In oCheckList
+            c.Checked = oHasMatch.Contains(CStr(c.Tag))
+        Next
+    End Sub
+
+    ' OK / Cancel
+    Dim iBtnTop As Integer = oPanel.Top + oPanel.Height + 30
+    Dim oBtnOK As New System.Windows.Forms.Button()
+    oBtnOK.Text = "Update Selected Drawings" : oBtnOK.Left = 12 : oBtnOK.Top = iBtnTop
+    oBtnOK.Width = 200 : oBtnOK.Height = 28
+    oBtnOK.BackColor = System.Drawing.Color.FromArgb(75, 47, 160)
+    oBtnOK.ForeColor = System.Drawing.Color.White
+    oBtnOK.DialogResult = System.Windows.Forms.DialogResult.OK
+    oForm.Controls.Add(oBtnOK)
+    oForm.AcceptButton = oBtnOK
+
+    Dim oBtnSkip As New System.Windows.Forms.Button()
+    oBtnSkip.Text = "Skip Drawing Update" : oBtnSkip.Left = 220 : oBtnSkip.Top = iBtnTop
+    oBtnSkip.Width = 160 : oBtnSkip.Height = 28
+    oBtnSkip.DialogResult = System.Windows.Forms.DialogResult.No
+    oForm.Controls.Add(oBtnSkip)
+
+    Dim oBtnCancel As New System.Windows.Forms.Button()
+    oBtnCancel.Text = "Cancel Rule" : oBtnCancel.Left = 388 : oBtnCancel.Top = iBtnTop
+    oBtnCancel.Width = 100 : oBtnCancel.Height = 28
+    oBtnCancel.DialogResult = System.Windows.Forms.DialogResult.Cancel
+    oForm.Controls.Add(oBtnCancel)
+    oForm.CancelButton = oBtnCancel
+
+    oForm.Height = iBtnTop + 28 + 48  ' final height
+
+    Dim oResult As System.Windows.Forms.DialogResult = oForm.ShowDialog()
+    oForm.Dispose()
+
+    If oResult = System.Windows.Forms.DialogResult.Cancel Then
+        ' Cancel rule entirely - propagate Nothing to caller
+        Return Nothing
+    ElseIf oResult = System.Windows.Forms.DialogResult.No Then
+        ' Skip drawing update but don't cancel - return empty list
+        Return New System.Collections.Generic.List(Of String)()
+    End If
+
+    ' OK - collect checked paths
+    Dim oSelected As New System.Collections.Generic.List(Of String)()
+    For Each oChk As System.Windows.Forms.CheckBox In oCheckList
+        If oChk.Checked Then oSelected.Add(CStr(oChk.Tag))
+    Next
+    Return oSelected
+
+End Function
+
+
+' =====================================================================
 ' DRAWING UPDATE PASS
 ' =====================================================================
 ' Loops every .idw in sDrawingsFolder (flat - no recursion).
@@ -1700,7 +1926,7 @@ End Sub
 ' session (i.e. called BEFORE the document cleanup pass).
 ' =====================================================================
 Sub RunDrawingUpdatePass( _
-    sDrawingsFolder As String, _
+    oIdwFileList As System.Collections.Generic.List(Of String), _
     oRenameMap As System.Collections.Generic.Dictionary(Of String, String), _
     oDrawingStateMatch As System.Collections.Generic.Dictionary(Of String, Boolean), _
     ByRef sLog As String, _
@@ -1714,21 +1940,15 @@ Sub RunDrawingUpdatePass( _
         Return
     End If
 
-    Dim oIdwFiles() As String
-    Try
-        oIdwFiles = System.IO.Directory.GetFiles(sDrawingsFolder, "*.idw")
-    Catch ex As Exception
-        sLog = sLog & vbCrLf & "DRAWING UPDATE: could not read drawings folder: " & ex.Message
-        Return
-    End Try
-
-    If oIdwFiles.Length = 0 Then
-        sLog = sLog & vbCrLf & "DRAWING UPDATE: no .idw files found in " & sDrawingsFolder
+    If oIdwFileList Is Nothing OrElse oIdwFileList.Count = 0 Then
+        sLog = sLog & vbCrLf & "DRAWING UPDATE: no drawings in selection - nothing to do."
         Return
     End If
 
-    sLog = sLog & vbCrLf & "DRAWING UPDATE: found " & oIdwFiles.Length & " drawing(s) to process."
-    Try : System.IO.File.AppendAllText(sLogFilePath, "Drawing update: " & oIdwFiles.Length & " drawings found." & vbCrLf) : Catch : End Try
+    Dim oIdwFiles() As String = oIdwFileList.ToArray()
+
+    sLog = sLog & vbCrLf & "DRAWING UPDATE: processing " & oIdwFiles.Length & " selected drawing(s)."
+    Try : System.IO.File.AppendAllText(sLogFilePath, "Drawing update: " & oIdwFiles.Length & " drawing(s) selected." & vbCrLf) : Catch : End Try
 
     Dim bOrigSilent As Boolean = ThisApplication.SilentOperation
     ThisApplication.SilentOperation = True
