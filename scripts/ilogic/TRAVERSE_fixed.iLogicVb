@@ -1587,7 +1587,7 @@ AfterSingleTraversal:
         ' choose exactly which drawings to update now. Useful for partial re-runs.
         Dim oSelectedDrawings As System.Collections.Generic.List(Of String) = Nothing
         Try
-            oSelectedDrawings = ShowDrawingSelectionForm(oChoice.sDrawingsFolder, oRenameMap)
+            oSelectedDrawings = ShowDrawingSelectionForm(oChoice.sDrawingsFolder, oRenameMap, oPhase0Data)
         Catch ex As Exception
             sLog = sLog & vbCrLf & "DRAW-SELECT-FORM-ERROR: " & ex.Message
         End Try
@@ -1713,7 +1713,8 @@ End Sub
 ' =====================================================================
 Function ShowDrawingSelectionForm( _
     sDrawingsFolder As String, _
-    oRenameMap As System.Collections.Generic.Dictionary(Of String, String)) _
+    oRenameMap As System.Collections.Generic.Dictionary(Of String, String), _
+    oPhase0Data As System.Collections.Generic.List(Of Object())) _
     As System.Collections.Generic.List(Of String)
 
     Dim oIdwFiles() As String
@@ -1730,10 +1731,29 @@ Function ShowDrawingSelectionForm( _
     ' Sort ascending so GA (lowest number) appears first
     System.Array.Sort(oIdwFiles)
 
+    ' --- Phase 0 authoritative set ---
+    ' Only drawings that appeared in the Phase 0 scan (i.e. were presented in the
+    ' drawing model rename form) are candidates for pre-ticking. Any .idw in the
+    ' folder that was NOT in Phase 0 — obsolete copies, sheets added after the scan —
+    ' appears in the list but starts un-ticked regardless of rename-map matches.
+    Dim oPhase0Basenames As New System.Collections.Generic.HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+    If oPhase0Data IsNot Nothing Then
+        For Each oEntry As Object() In oPhase0Data
+            oPhase0Basenames.Add(CStr(oEntry(0)))   ' entry(0) = drawing basename WITH extension
+        Next
+    End If
+
     ' --- determine which drawings have matching refs (for pre-tick) ---
+    ' A drawing is pre-ticked only if it was in Phase 0 AND has at least one
+    ' reference in oRenameMap. Drawings outside Phase 0 are shown greyed/unticked.
     Dim oHasMatch As New System.Collections.Generic.HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
     If oRenameMap IsNot Nothing Then
         For Each sIdw As String In oIdwFiles
+            Dim sBasenameChk As String = System.IO.Path.GetFileName(sIdw)
+            ' Skip pre-tick scan for drawings not in Phase 0 set
+            If oPhase0Basenames.Count > 0 AndAlso Not oPhase0Basenames.Contains(sBasenameChk) Then
+                Continue For
+            End If
             Dim oDwgDoc As DrawingDocument = Nothing
             Try
                 Dim bWasOpen As Boolean = False
@@ -1780,7 +1800,7 @@ Function ShowDrawingSelectionForm( _
     oForm.Controls.Add(oLblHdr)
 
     Dim oLblSub As New System.Windows.Forms.Label()
-    oLblSub.Text = "Pre-ticked = has model references matching this rename run.  Unticked = no matches (verify-only)."
+    oLblSub.Text = "Pre-ticked = in drawing model map with matching refs.  Grey = not in original scan / no matches."
     oLblSub.Left = 12 : oLblSub.Top = 30 : oLblSub.Width = 580 : oLblSub.Height = 18
     oLblSub.ForeColor = System.Drawing.Color.Gray
     oForm.Controls.Add(oLblSub)
@@ -1810,17 +1830,30 @@ Function ShowDrawingSelectionForm( _
     Dim oCheckList As New System.Collections.Generic.List(Of System.Windows.Forms.CheckBox)()
     Dim iY As Integer = 4
     For Each sIdw As String In oIdwFiles
-        Dim sBasename As String = System.IO.Path.GetFileName(sIdw)
+        Dim sBasenameRow As String = System.IO.Path.GetFileName(sIdw)
         Dim bMatched As Boolean = oHasMatch.Contains(sIdw)
+        Dim bInPhase0 As Boolean = (oPhase0Basenames.Count = 0) OrElse oPhase0Basenames.Contains(sBasenameRow)
 
         Dim oChk As New System.Windows.Forms.CheckBox()
-        oChk.Text = sBasename
         oChk.Left = 6 : oChk.Top = iY : oChk.Width = 550 : oChk.Height = 20
-        oChk.Checked = bMatched   ' pre-tick matched drawings
-        oChk.Tag = sIdw           ' store full path
-        If Not bMatched Then
+        oChk.Tag = sIdw   ' store full path
+
+        If bMatched Then
+            ' In Phase 0 AND has rename-map refs — pre-ticked, normal colour
+            oChk.Text = sBasenameRow
+            oChk.Checked = True
+        ElseIf bInPhase0 Then
+            ' In Phase 0 but no matching refs in rename map — in drawing set, nothing to swap
+            oChk.Text = sBasenameRow & "  (no matching refs in this run)"
+            oChk.Checked = False
+            oChk.ForeColor = System.Drawing.Color.FromArgb(160, 100, 0)  ' dark amber
+        Else
+            ' Not in Phase 0 — orphan / obsolete / added after scan
+            oChk.Text = sBasenameRow & "  (not in original drawing scan)"
+            oChk.Checked = False
             oChk.ForeColor = System.Drawing.Color.Gray
         End If
+
         oPanel.Controls.Add(oChk)
         oCheckList.Add(oChk)
         iY = iY + 22
