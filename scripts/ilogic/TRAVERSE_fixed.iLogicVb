@@ -393,11 +393,12 @@ Sub Main()
         sReplace = oChoice.sReplace
 
         ' ---- DRAWING MODEL RENAME: Phase 0 scan + optional form ----
+        ' oPhase0Data hoisted here so it is in scope at the drawing selection form call site
+        Dim oPhase0Data As System.Collections.Generic.List(Of Object()) = Nothing
         ' Only runs when drawing update is enabled and a drawings folder is set
         If oChoice.bUpdateDrawings AndAlso Trim(oChoice.sDrawingsFolder) <> "" Then
             Dim bOrigSilentP0 As Boolean = ThisApplication.SilentOperation
             ThisApplication.SilentOperation = True
-            Dim oPhase0Data As System.Collections.Generic.List(Of Object()) = Nothing
             Try
                 oPhase0Data = RunPhase0DrawingScan(oChoice.sDrawingsFolder, sLog, sLogFilePath)
             Catch ex As Exception
@@ -1814,7 +1815,7 @@ Function ShowDrawingSelectionForm( _
     Dim oLblSub As New System.Windows.Forms.Label()
     oLblSub.Text = "Pre-ticked = in drawing model map with matching refs.  Grey = not in original scan / no matches."
     oLblSub.Left = 12 : oLblSub.Top = 30 : oLblSub.Width = 580 : oLblSub.Height = 18
-    oLblSub.ForeColor = System.Drawing.Color.Gray
+    oLblSub.ForeColor = System.Drawing.SystemColors.GrayText
     oForm.Controls.Add(oLblSub)
 
     ' Select All / Deselect All buttons (inline row)
@@ -1828,7 +1829,6 @@ Function ShowDrawingSelectionForm( _
 
     Dim oBtnMatched As New System.Windows.Forms.Button()
     oBtnMatched.Text = "Matched Only" : oBtnMatched.Left = 204 : oBtnMatched.Top = 54 : oBtnMatched.Width = 100 : oBtnMatched.Height = 24
-    oBtnMatched.ToolTipText = "Tick only drawings that have matching model references"
     oForm.Controls.Add(oBtnMatched)
 
     ' Scrollable checklist panel
@@ -1836,7 +1836,7 @@ Function ShowDrawingSelectionForm( _
     oPanel.Left = 12 : oPanel.Top = 86 : oPanel.Width = 578 : oPanel.Height = 320
     oPanel.AutoScroll = True
     oPanel.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle
-    oPanel.BackColor = System.Drawing.Color.White
+    oPanel.BackColor = System.Drawing.SystemColors.Window
     oForm.Controls.Add(oPanel)
 
     Dim oCheckList As New System.Collections.Generic.List(Of System.Windows.Forms.CheckBox)()
@@ -1858,12 +1858,12 @@ Function ShowDrawingSelectionForm( _
             ' In Phase 0 but no matching refs in rename map — in drawing set, nothing to swap
             oChk.Text = sBasenameRow & "  (no matching refs in this run)"
             oChk.Checked = False
-            oChk.ForeColor = System.Drawing.Color.FromArgb(160, 100, 0)  ' dark amber
+            oChk.ForeColor = System.Drawing.SystemColors.GrayText  ' amber not available - use system grey
         Else
             ' Not in Phase 0 — orphan / obsolete / added after scan
             oChk.Text = sBasenameRow & "  (not in original drawing scan)"
             oChk.Checked = False
-            oChk.ForeColor = System.Drawing.Color.Gray
+            oChk.ForeColor = System.Drawing.SystemColors.GrayText
         End If
 
         oPanel.Controls.Add(oChk)
@@ -1913,8 +1913,7 @@ Function ShowDrawingSelectionForm( _
     Dim oBtnOK As New System.Windows.Forms.Button()
     oBtnOK.Text = "Update Selected Drawings" : oBtnOK.Left = 12 : oBtnOK.Top = iBtnTop
     oBtnOK.Width = 200 : oBtnOK.Height = 28
-    oBtnOK.BackColor = System.Drawing.Color.FromArgb(75, 47, 160)
-    oBtnOK.ForeColor = System.Drawing.Color.White
+    ' Note: System.Drawing.Color.FromArgb not available in iLogic sandbox - use default button colours
     oBtnOK.DialogResult = System.Windows.Forms.DialogResult.OK
     oForm.Controls.Add(oBtnOK)
     oForm.AcceptButton = oBtnOK
@@ -2286,7 +2285,7 @@ Function ShowDrawingModelRenameForm( _
         oLblDwg.Text = "  " & sDwgBasename
         oLblDwg.Left = 4 : oLblDwg.Top = iY : oLblDwg.Width = 340 : oLblDwg.Height = 18
         ' Simulate italic: can't set Font in iLogic sandbox safely, use colour instead
-        oLblDwg.ForeColor = System.Drawing.Color.DarkBlue
+        oLblDwg.ForeColor = System.Drawing.SystemColors.HotTrack
         oPanel.Controls.Add(oLblDwg)
 
         ' Per-drawing "Match model states?" checkbox (right side of header row)
@@ -2313,7 +2312,7 @@ Function ShowDrawingModelRenameForm( _
             Dim oLblOld As New Label()
             oLblOld.Text = sModelBasename
             oLblOld.Left = 4 : oLblOld.Top = iY : oLblOld.Width = 268 : oLblOld.Height = 20
-            oLblOld.BackColor = System.Drawing.Color.FromArgb(230, 230, 230)
+            oLblOld.BackColor = System.Drawing.SystemColors.Control
             oLblOld.BorderStyle = BorderStyle.FixedSingle
             oPanel.Controls.Add(oLblOld)
 
@@ -2329,7 +2328,7 @@ Function ShowDrawingModelRenameForm( _
                 Dim oTxtLocked As New System.Windows.Forms.TextBox()
                 oTxtLocked.Left = 298 : oTxtLocked.Top = iY : oTxtLocked.Width = 256
                 oTxtLocked.ReadOnly = True
-                oTxtLocked.BackColor = System.Drawing.Color.FromArgb(230, 230, 230)
+                oTxtLocked.BackColor = System.Drawing.SystemColors.Control
                 ' Bind text to master: copy current value and wire DataBindings isn't available
                 ' so use a closure-style TextChanged handler from the master textbox
                 oTxtLocked.Text = oMasterTxtMap(sModelBasename).Text
@@ -3557,20 +3556,20 @@ Function BuildCopyDesignRenameMap(oAsmDoc As AssemblyDocument, _
             ' or segment rules — the user's explicit decision is the final word.
             If oTier1Map IsNot Nothing AndAlso oTier1Map.ContainsKey(sOldName) Then
                 Dim sTier1New As String = oTier1Map(sOldName)
+                Dim sT1DestDir As String = sTargetFolder
+                Dim sT1NewFull As String = ""
                 If String.Compare(sTier1New, sOldName, True) <> 0 Then
                     ' Explicit rename - compute destination and add to map
-                    Dim sDestDir As String = sTargetFolder
-                    Dim sNewFull As String = System.IO.Path.Combine(sDestDir, sTier1New & sExt)
+                    sT1NewFull = System.IO.Path.Combine(sT1DestDir, sTier1New & sExt)
                     If Not oMap.ContainsKey(sOldFull) Then
-                        oMap(sOldFull) = sNewFull
+                        oMap(sOldFull) = sT1NewFull
                         Try : System.IO.File.AppendAllText(sLogFilePath, "TIER1-RENAME: " & sOldName & " -> " & sTier1New & vbCrLf) : Catch : End Try
                     End If
                 Else
                     ' Locked (keep existing name) — still needs to land in target folder
-                    Dim sDestDir As String = sTargetFolder
-                    Dim sNewFull As String = System.IO.Path.Combine(sDestDir, sOldName & sExt)
-                    If Not oMap.ContainsKey(sOldFull) AndAlso String.Compare(sOldFull, sNewFull, True) <> 0 Then
-                        oMap(sOldFull) = sNewFull
+                    sT1NewFull = System.IO.Path.Combine(sT1DestDir, sOldName & sExt)
+                    If Not oMap.ContainsKey(sOldFull) AndAlso String.Compare(sOldFull, sT1NewFull, True) <> 0 Then
+                        oMap(sOldFull) = sT1NewFull
                         Try : System.IO.File.AppendAllText(sLogFilePath, "TIER1-LOCK: " & sOldName & " (relocate only)" & vbCrLf) : Catch : End Try
                     End If
                 End If
