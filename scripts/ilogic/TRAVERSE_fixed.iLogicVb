@@ -1697,7 +1697,19 @@ AfterSingleTraversal:
         End Try
     End If
 
-    MessageBox.Show(iCount.ToString & " file(s) copied and replaced." & vbCrLf & "PJ-number property fields updated: " & iPropsUpdated & vbCrLf & "Full timing log: " & sLogFilePath & vbCrLf & "Decisions log (this text, written live as it runs): " & System.IO.Path.Combine(System.IO.Path.GetDirectoryName(sLogFilePath), System.IO.Path.GetFileNameWithoutExtension(sLogFilePath) & "_Decisions.txt") & vbCrLf & "Original-state snapshot: " & sSnapshotPath & vbCrLf & sLog, "Rule Complete")
+    ' ---------- PASS MANIFEST ----------
+    ' Write a clean old-path -> new-path table to the assembly folder.
+    ' Auto-numbered _Pass1, _Pass2, … so every run is preserved side by side.
+    Dim sManifestPath As String = ""
+    Try
+        sManifestPath = WritePassManifest(sTargetFolder, _
+            System.IO.Path.GetFileNameWithoutExtension(sTopAssemblyFullName), _
+            oRenameMap, sLog)
+    Catch ex As Exception
+        sLog = sLog & vbCrLf & "MANIFEST-WARN: could not write pass manifest: " & ex.Message
+    End Try
+
+    MessageBox.Show(iCount.ToString & " file(s) copied and replaced." & vbCrLf & "PJ-number property fields updated: " & iPropsUpdated & vbCrLf & "Full timing log: " & sLogFilePath & vbCrLf & "Decisions log (this text, written live as it runs): " & System.IO.Path.Combine(System.IO.Path.GetDirectoryName(sLogFilePath), System.IO.Path.GetFileNameWithoutExtension(sLogFilePath) & "_Decisions.txt") & vbCrLf & "Original-state snapshot: " & sSnapshotPath & vbCrLf & If(sManifestPath <> "", "Pass manifest: " & sManifestPath & vbCrLf, "") & sLog, "Rule Complete")
 	ThisDoc.Save
 
 End Sub
@@ -2639,6 +2651,68 @@ End Sub
 ' than one branch) - occurrence names stay stable even after Replace()
 ' repoints them to a different file, so this breadcrumb will still
 ' resolve correctly in a companion "revert" rule even after this rule
+' =====================================================================
+' PASS MANIFEST WRITER
+' =====================================================================
+' Writes a structured old-path -> new-path table to sTargetFolder.
+' File name: <GA basename>_RenameMap_Pass1.txt, _Pass2.txt, ... auto-numbered.
+' Format is tab-separated with a header, suitable for diff or scripted revert.
+' Returns the full path of the file written.
+' =====================================================================
+Function WritePassManifest( _
+    sTargetFolder As String, _
+    sGABasename As String, _
+    oRenameMap As System.Collections.Generic.Dictionary(Of String, String), _
+    ByRef sLog As String) As String
+
+    ' Auto-number: scan for existing _PassN files and use N+1
+    Dim iPass As Integer = 1
+    Do While System.IO.File.Exists( _
+        System.IO.Path.Combine(sTargetFolder, sGABasename & "_RenameMap_Pass" & iPass & ".txt"))
+        iPass = iPass + 1
+    Loop
+
+    Dim sPath As String = System.IO.Path.Combine(sTargetFolder, sGABasename & "_RenameMap_Pass" & iPass & ".txt")
+
+    Dim oLines As New System.Collections.Generic.List(Of String)
+    oLines.Add("TRAVERSE Pass Manifest — Pass " & iPass)
+    oLines.Add("Generated : " & DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"))
+    oLines.Add("Assembly  : " & sGABasename)
+    oLines.Add("Entries   : " & If(oRenameMap IsNot Nothing, oRenameMap.Count, 0).ToString)
+    oLines.Add("")
+    oLines.Add("OLD PATH" & vbTab & "NEW PATH")
+    oLines.Add(New String("-"c, 80))
+
+    If oRenameMap IsNot Nothing Then
+        ' Sort by old path for consistent, diffable output
+        Dim oKeys As New System.Collections.Generic.List(Of String)(oRenameMap.Keys)
+        oKeys.Sort(StringComparer.OrdinalIgnoreCase)
+        For Each sOld As String In oKeys
+            Dim sNew As String = ""
+            oRenameMap.TryGetValue(sOld, sNew)
+            ' Flag no-change entries (relocate only or locked tier-1)
+            Dim sTag As String = ""
+            If String.Compare(System.IO.Path.GetFileName(sOld), System.IO.Path.GetFileName(sNew), True) = 0 Then
+                sTag = vbTab & "[RELOCATE-ONLY]"
+            End If
+            oLines.Add(sOld & vbTab & sNew & sTag)
+        Next
+    End If
+
+    oLines.Add("")
+    oLines.Add("--- END OF PASS " & iPass & " MANIFEST ---")
+    oLines.Add("To reverse this pass: swap OLD PATH and NEW PATH columns and re-run a restore script.")
+
+    System.IO.File.WriteAllLines(sPath, oLines)
+    sLog = sLog & vbCrLf & "Pass manifest written: " & System.IO.Path.GetFileName(sPath)
+    Return sPath
+
+End Function
+
+
+' =====================================================================
+' ORIGINAL STATE SNAPSHOT
+' =====================================================================
 ' has renamed things. Uses the same current-path cycle guard and
 ' virtual-component handling as the main rename traversal, but is
 ' entirely read-only - it never renames, saves, or repoints anything.
