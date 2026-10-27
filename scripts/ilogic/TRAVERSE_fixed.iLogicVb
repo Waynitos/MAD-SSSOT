@@ -392,6 +392,55 @@ Sub Main()
         End If
         sReplace = oChoice.sReplace
 
+        ' ---- DRAWING MODEL RENAME: Phase 0 scan + optional form ----
+        ' Only runs when drawing update is enabled and a drawings folder is set
+        If oChoice.bUpdateDrawings AndAlso Trim(oChoice.sDrawingsFolder) <> "" Then
+            Dim bOrigSilentP0 As Boolean = ThisApplication.SilentOperation
+            ThisApplication.SilentOperation = True
+            Dim oPhase0Data As System.Collections.Generic.List(Of Object()) = Nothing
+            Try
+                oPhase0Data = RunPhase0DrawingScan(oChoice.sDrawingsFolder, sLog, sLogFilePath)
+            Catch ex As Exception
+                sLog = sLog & vbCrLf & "PHASE0 SCAN FAILED: " & ex.Message
+            Finally
+                ThisApplication.SilentOperation = bOrigSilentP0
+            End Try
+
+            If oChoice.bKeepDrawingModelNames Then
+                ' Self-map: all drawing-referenced model names lock to themselves
+                ' String rules will skip these names (tier-1 exclusion)
+                If oPhase0Data IsNot Nothing Then
+                    For Each oEntry As Object() In oPhase0Data
+                        Dim sDwgBasename As String = CStr(oEntry(0))
+                        Dim oModelList As System.Collections.Generic.List(Of String) = _
+                            CType(oEntry(1), System.Collections.Generic.List(Of String))
+                        For Each sModelBasename As String In oModelList
+                            If Not oChoice.oExplicitModelRenameMap.ContainsKey(sModelBasename) Then
+                                oChoice.oExplicitModelRenameMap(sModelBasename) = sModelBasename  ' old = new (locked)
+                            End If
+                        Next
+                        oChoice.oDrawingStateMatch(sDwgBasename) = True   ' default match states ON
+                    Next
+                End If
+                sLog = sLog & vbCrLf & "Drawing model names: KEEP EXISTING (" & oChoice.oExplicitModelRenameMap.Count & " models locked as tier-1)"
+            Else
+                ' Show explicit rename form
+                If oPhase0Data IsNot Nothing AndAlso oPhase0Data.Count > 0 Then
+                    If Not ShowDrawingModelRenameForm(oChoice, oPhase0Data) Then
+                        MessageBox.Show("Cancelled - no changes made.", "Cancelled")
+                        ThisApplication.SilentOperation = bOrigSilent
+                        Exit Sub
+                    End If
+                End If
+                sLog = sLog & vbCrLf & "Drawing model renames: " & oChoice.oExplicitModelRenameMap.Count & " model(s) explicitly mapped"
+            End If
+            Try
+                System.IO.File.AppendAllText(sLogFilePath, sLog & vbCrLf)
+            Catch
+            End Try
+        End If
+        ' ---- END DRAWING MODEL RENAME SETUP ----
+
         Dim oCdTokens As System.Collections.Generic.List(Of String)
         Try
             oCdTokens = ScanPrefixes(oAsmDoc)
@@ -422,7 +471,8 @@ Sub Main()
             BuildCopyDesignRenameMap(oAsmDoc, oChoice.oBatchFinds, sReplace, _
                 oChoice.oSegFinds, oChoice.oSegReplaces, oChoice.bLocalizeNonStd, _
                 oChoice.bHonourFolderStructure, _
-                sTargetFolder, sTopAssemblyFullName, sNonStdFolder, sLog, sLogFilePath)
+                sTargetFolder, sTopAssemblyFullName, sNonStdFolder, _
+                oChoice.oExplicitModelRenameMap, sLog, sLogFilePath)
 
         If oCdMap Is Nothing OrElse oCdMap.Count = 0 Then
             MessageBox.Show("Copy Design map is empty - nothing to do.", "Copy Design")
@@ -1540,7 +1590,7 @@ AfterSingleTraversal:
         Catch
         End Try
         Try
-            RunDrawingUpdatePass(oChoice.sDrawingsFolder, oRenameMap, sLog, iDwgOk, iDwgPartial, iDwgFail, sLogFilePath)
+            RunDrawingUpdatePass(oChoice.sDrawingsFolder, oRenameMap, oChoice.oDrawingStateMatch, sLog, iDwgOk, iDwgPartial, iDwgFail, sLogFilePath)
         Catch ex As Exception
             sLog = sLog & vbCrLf & "DRAWING UPDATE PASS FAILED: " & ex.Message
             Try
@@ -1652,6 +1702,7 @@ End Sub
 Sub RunDrawingUpdatePass( _
     sDrawingsFolder As String, _
     oRenameMap As System.Collections.Generic.Dictionary(Of String, String), _
+    oDrawingStateMatch As System.Collections.Generic.Dictionary(Of String, Boolean), _
     ByRef sLog As String, _
     ByRef iDwgOk As Integer, _
     ByRef iDwgPartial As Integer, _
@@ -1736,6 +1787,39 @@ Sub RunDrawingUpdatePass( _
                 End Try
             Next
 
+            ' --- Phase B2: model state re-assertion (if flag set for this drawing) ---
+            ' After ReplaceReference the new document is bound, but named model states
+            ' (e.g. "Weldment", "LOD_Low") may not auto-bind to the new doc.
+            ' We iterate every DrawingView and call ChangeModelState to re-assert.
+            Dim sDwgBasename As String = System.IO.Path.GetFileName(sDrawPath)
+            Dim bDoStateMatch As Boolean = False
+            If oDrawingStateMatch IsNot Nothing Then
+                oDrawingStateMatch.TryGetValue(sDwgBasename, bDoStateMatch)
+            End If
+            If bDoStateMatch AndAlso iSwapOk > 0 Then
+                Try
+                    For Each oSheet As Sheet In oDrawDoc.Sheets
+                        For Each oView As DrawingView In oSheet.DrawingViews
+                            Dim sStateName As String = ""
+                            Try : sStateName = oView.ModelState : Catch : End Try
+                            If Trim(sStateName) <> "" AndAlso String.Compare(sStateName, "Master", True) <> 0 Then
+                                Try
+                                    oView.ChangeModelState(sStateName)
+                                    Try : System.IO.File.AppendAllText(sLogFilePath, "DRAW-STATE-OK: " & sDwgBasename & " view state re-asserted: " & sStateName & vbCrLf) : Catch : End Try
+                                Catch exState As Exception
+                                    sLog = sLog & vbCrLf & "DRAW-STATE-WARN: " & sDwgBasename & " view '" & sStateName & "' re-assert failed: " & exState.Message
+                                    Try : System.IO.File.AppendAllText(sLogFilePath, "DRAW-STATE-WARN: " & sDwgBasename & " : " & sStateName & " : " & exState.Message & vbCrLf) : Catch : End Try
+                                End Try
+                            End If
+                        Next
+                    Next
+                Catch exStateOuter As Exception
+                    sLog = sLog & vbCrLf & "DRAW-STATE-WARN: " & sDwgBasename & " state loop error: " & exStateOuter.Message
+                End Try
+            ElseIf Not bDoStateMatch Then
+                Try : System.IO.File.AppendAllText(sLogFilePath, "DRAW-STATE-SKIP: " & sDwgBasename & " (match model states not enabled)" & vbCrLf) : Catch : End Try
+            End If
+
             ' --- Phase C: verify - check for any remaining old-path refs ---
             Dim bAllClean As Boolean = True
             For Each oRef As Document In oDrawDoc.ReferencedDocuments
@@ -1798,6 +1882,255 @@ Sub RunDrawingUpdatePass( _
     ThisApplication.SilentOperation = bOrigSilent
 
 End Sub
+
+
+' =====================================================================
+' PHASE 0: DRAWING SCAN
+' =====================================================================
+' Scans sDrawingsFolder (flat) and returns a structure describing which
+' drawings reference which model files.
+' Return: List of (sDrawingBasename, List(Of sModelBasename)) pairs.
+' Both keys are basenames WITHOUT extension for model, WITH extension for drawing.
+' SilentOperation must be set by caller.
+' =====================================================================
+Function RunPhase0DrawingScan(sDrawingsFolder As String, ByRef sLog As String, sLogFilePath As String) _
+    As System.Collections.Generic.List(Of Object())
+    ' Each Object() = { sDrawingBasename As String, List(Of String) modelBasenames }
+
+    Dim oResult As New System.Collections.Generic.List(Of Object())
+
+    Dim oIdwFiles() As String
+    Try
+        oIdwFiles = System.IO.Directory.GetFiles(sDrawingsFolder, "*.idw")
+    Catch ex As Exception
+        sLog = sLog & vbCrLf & "PHASE0: could not read drawings folder: " & ex.Message
+        Return oResult
+    End Try
+
+    For Each sIdwPath As String In oIdwFiles
+        Dim sDwgBasename As String = System.IO.Path.GetFileName(sIdwPath)
+        Dim oModelList As New System.Collections.Generic.List(Of String)
+        Dim oDwgDoc As DrawingDocument = Nothing
+        Try
+            oDwgDoc = TryCast(ThisApplication.Documents.Open(sIdwPath, False), DrawingDocument)
+            If oDwgDoc IsNot Nothing Then
+                For Each oRef As Document In oDwgDoc.ReferencedDocuments
+                    Dim sRefBasename As String = ""
+                    Try : sRefBasename = System.IO.Path.GetFileNameWithoutExtension(oRef.FullDocumentName) : Catch : Continue For : End Try
+                    If sRefBasename <> "" AndAlso Not oModelList.Contains(sRefBasename) Then
+                        oModelList.Add(sRefBasename)
+                    End If
+                Next
+            End If
+        Catch ex As Exception
+            sLog = sLog & vbCrLf & "PHASE0-OPEN-FAIL: " & sDwgBasename & " : " & ex.Message
+            Try : System.IO.File.AppendAllText(sLogFilePath, "PHASE0-OPEN-FAIL: " & sIdwPath & " : " & ex.Message & vbCrLf) : Catch : End Try
+        Finally
+            If oDwgDoc IsNot Nothing Then
+                Try : oDwgDoc.Close(False) : Catch : End Try
+            End If
+        End Try
+
+        If oModelList.Count > 0 Then
+            oResult.Add(New Object() {sDwgBasename, oModelList})
+        End If
+    Next
+
+    Return oResult
+End Function
+
+
+' =====================================================================
+' DRAWING MODEL RENAME FORM
+' =====================================================================
+' Shows a scrollable form with one group per drawing, one row per unique
+' model referenced by that drawing.
+'
+' LEFT COLUMN  = old model basename (read-only, grey)
+' RIGHT COLUMN = new model basename (editable on FIRST appearance of that
+'                model; grey/locked on all subsequent appearances because
+'                the same old name can only map to one new name)
+'
+' Per-drawing "Match model states?" checkbox (default ticked).
+' Global checkbox at bottom controls all per-drawing ones simultaneously.
+'
+' Returns True if user clicked OK, False if cancelled.
+' oChoice.oExplicitModelRenameMap is populated on OK.
+' oChoice.oDrawingStateMatch is populated on OK.
+' =====================================================================
+Function ShowDrawingModelRenameForm( _
+    ByRef oChoice As RenameModeChoice, _
+    oPhase0Data As System.Collections.Generic.List(Of Object())) As Boolean
+
+    If oPhase0Data Is Nothing OrElse oPhase0Data.Count = 0 Then
+        ' No drawings found - nothing to show; self-map will be empty which is fine
+        Return True
+    End If
+
+    ' Master map: old model basename -> TextBox holding new name (shared across groups)
+    Dim oMasterTxtMap As New System.Collections.Generic.Dictionary(Of String, System.Windows.Forms.TextBox)(StringComparer.OrdinalIgnoreCase)
+    ' Per-drawing state-match checkboxes
+    Dim oStateCheckMap As New System.Collections.Generic.Dictionary(Of String, CheckBox)(StringComparer.OrdinalIgnoreCase)
+
+    ' ---- Build the form ----
+    Dim oForm As New Form()
+    oForm.Text = "Drawing Model Renames (Mode 6)"
+    oForm.StartPosition = FormStartPosition.CenterScreen
+    oForm.TopMost = True
+    oForm.FormBorderStyle = FormBorderStyle.FixedDialog
+    oForm.MinimizeBox = False
+    oForm.MaximizeBox = False
+    oForm.Width = 620
+    oForm.Height = 580
+
+    ' ---- Header label ----
+    Dim oLblHdr As New Label()
+    oLblHdr.Text = "Drawing model renames — these are applied FIRST." & vbCrLf & _
+        "String rules below will NOT touch any model name listed here."
+    oLblHdr.Left = 10 : oLblHdr.Top = 8 : oLblHdr.Width = 590 : oLblHdr.Height = 34
+    oForm.Controls.Add(oLblHdr)
+
+    ' Column headers
+    Dim oLblColOld As New Label()
+    oLblColOld.Text = "CURRENT model name (read-only)"
+    oLblColOld.Left = 10 : oLblColOld.Top = 44 : oLblColOld.Width = 270
+    oForm.Controls.Add(oLblColOld)
+
+    Dim oLblColNew As New Label()
+    oLblColNew.Text = "NEW model name (editable)"
+    oLblColNew.Left = 300 : oLblColNew.Top = 44 : oLblColNew.Width = 270
+    oForm.Controls.Add(oLblColNew)
+
+    ' ---- Scrollable panel ----
+    Dim oPanel As New System.Windows.Forms.Panel()
+    oPanel.Left = 10 : oPanel.Top = 64
+    oPanel.Width = 580 : oPanel.Height = 420
+    oPanel.AutoScroll = True
+    oPanel.BorderStyle = BorderStyle.FixedSingle
+    oForm.Controls.Add(oPanel)
+
+    Dim iY As Integer = 6   ' current Y inside panel
+
+    For Each oEntry As Object() In oPhase0Data
+        Dim sDwgBasename As String = CStr(oEntry(0))
+        Dim oModelList As System.Collections.Generic.List(Of String) = _
+            CType(oEntry(1), System.Collections.Generic.List(Of String))
+
+        ' Drawing header label (italic effect via prefix)
+        Dim oLblDwg As New Label()
+        oLblDwg.Text = "  " & sDwgBasename
+        oLblDwg.Left = 4 : oLblDwg.Top = iY : oLblDwg.Width = 340 : oLblDwg.Height = 18
+        ' Simulate italic: can't set Font in iLogic sandbox safely, use colour instead
+        oLblDwg.ForeColor = System.Drawing.Color.DarkBlue
+        oPanel.Controls.Add(oLblDwg)
+
+        ' Per-drawing "Match model states?" checkbox (right side of header row)
+        Dim oChkState As New CheckBox()
+        oChkState.Text = "Match model states?"
+        oChkState.Left = 350 : oChkState.Top = iY : oChkState.Width = 200
+        oChkState.Checked = True   ' default ON
+        oChkState.Tag = sDwgBasename
+        oPanel.Controls.Add(oChkState)
+        oStateCheckMap(sDwgBasename) = oChkState
+
+        iY = iY + 22
+
+        ' Separator line (thin label)
+        Dim oSep As New Label()
+        oSep.Left = 4 : oSep.Top = iY : oSep.Width = 548 : oSep.Height = 1
+        oSep.BorderStyle = BorderStyle.FixedSingle
+        oPanel.Controls.Add(oSep)
+        iY = iY + 4
+
+        ' One row per model in this drawing
+        For Each sModelBasename As String In oModelList
+            ' Left: old name label (read-only grey)
+            Dim oLblOld As New Label()
+            oLblOld.Text = sModelBasename
+            oLblOld.Left = 4 : oLblOld.Top = iY : oLblOld.Width = 268 : oLblOld.Height = 20
+            oLblOld.BackColor = System.Drawing.Color.FromArgb(230, 230, 230)
+            oLblOld.BorderStyle = BorderStyle.FixedSingle
+            oPanel.Controls.Add(oLblOld)
+
+            ' Arrow
+            Dim oLblArr As New Label()
+            oLblArr.Text = "->"
+            oLblArr.Left = 275 : oLblArr.Top = iY : oLblArr.Width = 20 : oLblArr.Height = 20
+            oPanel.Controls.Add(oLblArr)
+
+            ' Right: editable or locked depending on whether this model was seen before
+            If oMasterTxtMap.ContainsKey(sModelBasename) Then
+                ' Already seen - show locked copy (grey TextBox, ReadOnly)
+                Dim oTxtLocked As New System.Windows.Forms.TextBox()
+                oTxtLocked.Left = 298 : oTxtLocked.Top = iY : oTxtLocked.Width = 256
+                oTxtLocked.ReadOnly = True
+                oTxtLocked.BackColor = System.Drawing.Color.FromArgb(230, 230, 230)
+                ' Bind text to master: copy current value and wire DataBindings isn't available
+                ' so use a closure-style TextChanged handler from the master textbox
+                oTxtLocked.Text = oMasterTxtMap(sModelBasename).Text
+                Dim oMasterRef As System.Windows.Forms.TextBox = oMasterTxtMap(sModelBasename)
+                Dim oLockedRef As System.Windows.Forms.TextBox = oTxtLocked
+                AddHandler oMasterRef.TextChanged, Sub(s, e) oLockedRef.Text = oMasterRef.Text
+                oPanel.Controls.Add(oTxtLocked)
+            Else
+                ' First appearance - editable TextBox, pre-filled with old name
+                Dim oTxtNew As New System.Windows.Forms.TextBox()
+                oTxtNew.Left = 298 : oTxtNew.Top = iY : oTxtNew.Width = 256
+                oTxtNew.Text = sModelBasename   ' pre-fill with old name
+                oTxtNew.Tag = sModelBasename    ' remember which old name this row owns
+                oPanel.Controls.Add(oTxtNew)
+                oMasterTxtMap(sModelBasename) = oTxtNew
+            End If
+
+            iY = iY + 26
+        Next
+
+        iY = iY + 8   ' gap between drawing groups
+    Next
+
+    ' ---- Global match-states checkbox ----
+    Dim oChkGlobalState As New CheckBox()
+    oChkGlobalState.Text = "Match model states on ALL drawings (controls all checkboxes above)"
+    oChkGlobalState.Left = 10 : oChkGlobalState.Top = 494 : oChkGlobalState.Width = 500
+    oChkGlobalState.Checked = True
+    oForm.Controls.Add(oChkGlobalState)
+
+    ' Wire global checkbox to update all per-drawing checkboxes
+    AddHandler oChkGlobalState.CheckedChanged, Sub(s, e)
+        For Each oChk As CheckBox In oStateCheckMap.Values
+            oChk.Checked = oChkGlobalState.Checked
+        Next
+    End Sub
+
+    ' ---- OK / Cancel ----
+    Dim oOk As New Button()
+    oOk.Text = "OK" : oOk.DialogResult = DialogResult.OK
+    oOk.Left = 420 : oOk.Top = 520 : oOk.Width = 80
+    oForm.Controls.Add(oOk) : oForm.AcceptButton = oOk
+
+    Dim oCancel As New Button()
+    oCancel.Text = "Cancel" : oCancel.DialogResult = DialogResult.Cancel
+    oCancel.Left = 510 : oCancel.Top = 520 : oCancel.Width = 80
+    oForm.Controls.Add(oCancel) : oForm.CancelButton = oCancel
+
+    If oForm.ShowDialog() <> DialogResult.OK Then Return False
+
+    ' ---- Collect results ----
+    oChoice.oExplicitModelRenameMap.Clear()
+    For Each kvp As System.Collections.Generic.KeyValuePair(Of String, System.Windows.Forms.TextBox) In oMasterTxtMap
+        Dim sOldBase As String = kvp.Key
+        Dim sNewBase As String = Trim(kvp.Value.Text)
+        If sNewBase = "" Then sNewBase = sOldBase   ' blank -> keep original
+        oChoice.oExplicitModelRenameMap(sOldBase) = sNewBase
+    Next
+
+    oChoice.oDrawingStateMatch.Clear()
+    For Each kvp As System.Collections.Generic.KeyValuePair(Of String, CheckBox) In oStateCheckMap
+        oChoice.oDrawingStateMatch(kvp.Key) = kvp.Value.Checked
+    Next
+
+    Return True
+End Function
 
 
 Function GetSetExitFlag(Optional bSet As Boolean = False, Optional bNewVal As Boolean = False) As Boolean
@@ -2153,6 +2486,14 @@ Class RenameModeChoice
     Public bUpdateDrawings As Boolean = False
     ' Mode 6 Drawing Update: flat drawings folder path (all .idw files to update)
     Public sDrawingsFolder As String = ""
+    ' Mode 6 Drawing Model Rename: skip explicit rename form - keep all drawing model names as-is
+    Public bKeepDrawingModelNames As Boolean = False
+    ' Mode 6 Drawing Model Rename: explicit map - old model basename -> new model basename (user-confirmed)
+    ' Populated from ShowDrawingModelRenameForm or self-mapped when bKeepDrawingModelNames=True
+    Public oExplicitModelRenameMap As New System.Collections.Generic.Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase)
+    ' Mode 6 Drawing Model Rename: per-drawing "match model states?" flag
+    ' Key = drawing filename (basename), Value = True to re-assert model states after ReplaceReference
+    Public oDrawingStateMatch As New System.Collections.Generic.Dictionary(Of String, Boolean)(StringComparer.OrdinalIgnoreCase)
 End Class
 
 
@@ -2606,6 +2947,13 @@ Function ShowCopyDesignConfigForm(ByRef oChoice As RenameModeChoice) As Boolean
     oChkNonStd.Checked = g_bLastNonStd
     oForm.Controls.Add(oChkNonStd)
 
+    ' ---- DRAWING MODEL RENAME OPTION ----
+    Dim oChkKeepDwgNames As New CheckBox()
+    oChkKeepDwgNames.Text = "Keep existing drawing model names (skip rename step — string rules still run on subs below)"
+    oChkKeepDwgNames.Left = 15 : oChkKeepDwgNames.Top = 355 : oChkKeepDwgNames.Width = 520
+    oChkKeepDwgNames.Checked = False   ' default OFF: show rename form
+    oForm.Controls.Add(oChkKeepDwgNames)
+
     ' ---- FOLDER STRUCTURE OPTIONS ----
     Dim oLblFolder As New Label()
     oLblFolder.Text = "FOLDER STRUCTURE OPTIONS:"
@@ -2614,7 +2962,7 @@ Function ShowCopyDesignConfigForm(ByRef oChoice As RenameModeChoice) As Boolean
 
     Dim oGrpFolder As New GroupBox()
     oGrpFolder.Text = "FOLDER STRUCTURE"
-    oGrpFolder.Left = 15 : oGrpFolder.Top = 388 : oGrpFolder.Width = 520 : oGrpFolder.Height = 92
+    oGrpFolder.Left = 15 : oGrpFolder.Top = 413 : oGrpFolder.Width = 520 : oGrpFolder.Height = 92
     oForm.Controls.Add(oGrpFolder)
 
     Dim oRbClean As New RadioButton()
@@ -2656,13 +3004,13 @@ Function ShowCopyDesignConfigForm(ByRef oChoice As RenameModeChoice) As Boolean
 
     Dim oLblNote As New Label()
     oLblNote.Text = "Next: scan tree for old P-prefixes to swap. One map, one pass."
-    oLblNote.Left = 15 : oLblNote.Top = 489 : oLblNote.Width = 500
+    oLblNote.Left = 15 : oLblNote.Top = 514 : oLblNote.Width = 500
     oForm.Controls.Add(oLblNote)
 
     ' ---- DRAWING UPDATE SECTION ----
     Dim oGrpDwg As New GroupBox()
     oGrpDwg.Text = "DRAWING UPDATE (after TRAVERSE)"
-    oGrpDwg.Left = 15 : oGrpDwg.Top = 516 : oGrpDwg.Width = 520 : oGrpDwg.Height = 118
+    oGrpDwg.Left = 15 : oGrpDwg.Top = 541 : oGrpDwg.Width = 520 : oGrpDwg.Height = 118
     oForm.Controls.Add(oGrpDwg)
 
     Dim oChkUpdateDwg As New CheckBox()
@@ -2711,17 +3059,17 @@ Function ShowCopyDesignConfigForm(ByRef oChoice As RenameModeChoice) As Boolean
         End If
     End Sub
 
-    ' Expand form to fit new section
-    oForm.Height = 706
+    ' Expand form to fit new section (extra 25px for Keep Drawing Model Names checkbox)
+    oForm.Height = 731
 
     Dim oOk As New Button()
     oOk.Text = "OK" : oOk.DialogResult = DialogResult.OK
-    oOk.Left = 350 : oOk.Top = 648 : oOk.Width = 90
+    oOk.Left = 350 : oOk.Top = 673 : oOk.Width = 90
     oForm.Controls.Add(oOk) : oForm.AcceptButton = oOk
 
     Dim oCancel As New Button()
     oCancel.Text = "Cancel" : oCancel.DialogResult = DialogResult.Cancel
-    oCancel.Left = 450 : oCancel.Top = 648 : oCancel.Width = 90
+    oCancel.Left = 450 : oCancel.Top = 673 : oCancel.Width = 90
     oForm.Controls.Add(oCancel) : oForm.CancelButton = oCancel
 
     If oForm.ShowDialog() <> DialogResult.OK Then Return False
@@ -2758,6 +3106,7 @@ Function ShowCopyDesignConfigForm(ByRef oChoice As RenameModeChoice) As Boolean
     oChoice.sReplace = sPrefix
     oChoice.bLocalizeNonStd = oChkNonStd.Checked
     oChoice.bHonourFolderStructure = oRbHonour.Checked
+    oChoice.bKeepDrawingModelNames = oChkKeepDwgNames.Checked
     oChoice.bUpdateDrawings = oChkUpdateDwg.Checked
     oChoice.sDrawingsFolder = Trim(oTxtDwgFolder.Text)
     oChoice.oSegFinds.Clear()
@@ -2801,6 +3150,7 @@ Function BuildCopyDesignRenameMap(oAsmDoc As AssemblyDocument, _
     sTargetFolder As String, _
     sTopAssemblyFullName As String, _
     sNonStdFolder As String, _
+    oTier1Map As System.Collections.Generic.Dictionary(Of String, String), _
     ByRef sLog As String, _
     sLogFilePath As String) As System.Collections.Generic.Dictionary(Of String, String)
 
@@ -2873,6 +3223,32 @@ Function BuildCopyDesignRenameMap(oAsmDoc As AssemblyDocument, _
             Dim sNewName As String = sOldName
             Dim bChanged As Boolean = False
             Dim bNonStdTarget As Boolean = False
+
+            ' TIER-1 GUARD: if this model was explicitly renamed (or locked) in the
+            ' drawing model rename form, use that name directly and skip ALL string rules.
+            ' This ensures drawing-referenced model names are never touched by prefix swap
+            ' or segment rules — the user's explicit decision is the final word.
+            If oTier1Map IsNot Nothing AndAlso oTier1Map.ContainsKey(sOldName) Then
+                Dim sTier1New As String = oTier1Map(sOldName)
+                If String.Compare(sTier1New, sOldName, True) <> 0 Then
+                    ' Explicit rename - compute destination and add to map
+                    Dim sDestDir As String = sTargetFolder
+                    Dim sNewFull As String = System.IO.Path.Combine(sDestDir, sTier1New & sExt)
+                    If Not oMap.ContainsKey(sOldFull) Then
+                        oMap(sOldFull) = sNewFull
+                        Try : System.IO.File.AppendAllText(sLogFilePath, "TIER1-RENAME: " & sOldName & " -> " & sTier1New & vbCrLf) : Catch : End Try
+                    End If
+                Else
+                    ' Locked (keep existing name) — still needs to land in target folder
+                    Dim sDestDir As String = sTargetFolder
+                    Dim sNewFull As String = System.IO.Path.Combine(sDestDir, sOldName & sExt)
+                    If Not oMap.ContainsKey(sOldFull) AndAlso String.Compare(sOldFull, sNewFull, True) <> 0 Then
+                        oMap(sOldFull) = sNewFull
+                        Try : System.IO.File.AppendAllText(sLogFilePath, "TIER1-LOCK: " & sOldName & " (relocate only)" & vbCrLf) : Catch : End Try
+                    End If
+                End If
+                Continue For   ' skip all string rules for this file
+            End If
 
             ' 1) Prefix swap (longest matching old prefix first)
             Dim sMatchedOld As String = ""
