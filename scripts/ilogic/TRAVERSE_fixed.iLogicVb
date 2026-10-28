@@ -417,19 +417,43 @@ Sub Main()
     ' Combines prefix swap + optional segment replaces + non-std localization
     ' into ONE master map, then runs the Mode 2 multi-phase engine once.
     If oChoice.bCopyDesignMode Then
+
+        ' ── STEP 1: Destination folder for new GA model copies ──────────────
+        ' This is the very first prompt — shown before anything else so every
+        ' subsequent step (Phase 0 scan, rename map, TRAVERSE) knows where
+        ' the new files will land.  Pre-seed from drawings folder if known,
+        ' otherwise from the source assembly's own folder.
+        Dim oFbdTarget As New FolderBrowserDialog()
+        oFbdTarget.Description = "Select folder for new GA model  (all renamed sub copies land here)"
+        Dim sSeedTarget As String = If(Trim(oChoice.sTargetFolder) <> "", oChoice.sTargetFolder, _
+                                       If(Trim(oChoice.sDrawingsFolder) <> "", oChoice.sDrawingsFolder, _
+                                          System.IO.Path.GetDirectoryName(sTopAssemblyFullName)))
+        If System.IO.Directory.Exists(sSeedTarget) Then oFbdTarget.SelectedPath = sSeedTarget
+        If oFbdTarget.ShowDialog() <> DialogResult.OK Then
+            MessageBox.Show("Cancelled - no changes made.", "Cancelled")
+            ThisApplication.SilentOperation = bOrigSilent
+            Exit Sub
+        End If
+        sTargetFolder = oFbdTarget.SelectedPath
+        oChoice.sTargetFolder = sTargetFolder   ' persist for re-run seed
+        If Not System.IO.Directory.Exists(sTargetFolder) Then
+            Try
+                System.IO.Directory.CreateDirectory(sTargetFolder)
+            Catch exMk As Exception
+                MessageBox.Show("Could not create target folder: " & exMk.Message, "Error")
+                ThisApplication.SilentOperation = bOrigSilent
+                Exit Sub
+            End Try
+        End If
+        ' ────────────────────────────────────────────────────────────────────
+
         If Not ShowCopyDesignConfigForm(oChoice, sTopAssemblyFullName) Then
             MessageBox.Show("Cancelled - no changes made.", "Cancelled")
             ThisApplication.SilentOperation = bOrigSilent
             Exit Sub
         End If
         sReplace = oChoice.sReplace
-
-        ' Override sTargetFolder if the user browsed to a new destination folder
-        If Trim(oChoice.sTargetFolder) <> "" Then
-            sTargetFolder = oChoice.sTargetFolder
-            ' sTopAssemblyFullName still points to the SOURCE assembly (correct —
-            ' TRAVERSE opens the source, SaveAs copies go to sTargetFolder)
-        End If
+        ' sTargetFolder already set from step 1 — do NOT override from oChoice.sTargetFolder here
 
         ' ---- DRAWING MODEL RENAME: Phase 0 scan + optional form ----
         ' Only runs when drawing update is enabled and a drawings folder is set
@@ -3366,57 +3390,15 @@ Function ShowCopyDesignConfigForm(ByRef oChoice As RenameModeChoice, Optional sS
     End If
     oFolderStatusRefresh()   ' set label to match pre-selection
 
-    ' ---- DESTINATION FOLDER (where new assembly copies land) ----
-    Dim oLblDest As New Label()
-    oLblDest.Text = "Destination folder for new assembly copies (leave blank = source folder):"
-    oLblDest.Left = 15 : oLblDest.Top = 510 : oLblDest.Width = 520
-    oForm.Controls.Add(oLblDest)
-
-    Dim oTxtDestFolder As New System.Windows.Forms.TextBox()
-    oTxtDestFolder.Left = 15 : oTxtDestFolder.Top = 528 : oTxtDestFolder.Width = 390
-    ' Pre-seed: use drawings folder if already set (re-run), otherwise
-    ' fall back to the source assembly's own folder — both land the
-    ' browser close to where the new models folder will be.
-    If Trim(oChoice.sTargetFolder) <> "" Then
-        oTxtDestFolder.Text = oChoice.sTargetFolder   ' preserve last chosen dest on re-run
-    ElseIf Trim(oChoice.sDrawingsFolder) <> "" Then
-        oTxtDestFolder.Text = oChoice.sDrawingsFolder
-    ElseIf Trim(sSourceAsmPath) <> "" Then
-        oTxtDestFolder.Text = System.IO.Path.GetDirectoryName(sSourceAsmPath)
-    End If
-    oForm.Controls.Add(oTxtDestFolder)
-
-    Dim oBtnBrowseDest As New Button()
-    oBtnBrowseDest.Text = "Browse..."
-    oBtnBrowseDest.Left = 412 : oBtnBrowseDest.Top = 525 : oBtnBrowseDest.Width = 100
-    oForm.Controls.Add(oBtnBrowseDest)
-
-    AddHandler oBtnBrowseDest.Click, Sub(s, e)
-        Dim oFbdDest As New FolderBrowserDialog()
-        oFbdDest.Description = "Select destination folder for new assembly copies"
-        ' Seed browser: dest field > drawings folder field > source asm folder
-        Dim sSeed As String = Trim(oTxtDestFolder.Text)
-        If sSeed = "" OrElse Not System.IO.Directory.Exists(sSeed) Then
-            sSeed = Trim(oTxtDwgFolder.Text)
-        End If
-        If sSeed = "" OrElse Not System.IO.Directory.Exists(sSeed) Then
-            sSeed = If(Trim(sSourceAsmPath) <> "", System.IO.Path.GetDirectoryName(sSourceAsmPath), "")
-        End If
-        If sSeed <> "" Then oFbdDest.SelectedPath = sSeed
-        If oFbdDest.ShowDialog() = DialogResult.OK Then
-            oTxtDestFolder.Text = oFbdDest.SelectedPath
-        End If
-    End Sub
-
     Dim oLblNote As New Label()
     oLblNote.Text = "Next: scan tree for old P-prefixes to swap. One map, one pass."
-    oLblNote.Left = 15 : oLblNote.Top = 558 : oLblNote.Width = 500
+    oLblNote.Left = 15 : oLblNote.Top = 514 : oLblNote.Width = 500
     oForm.Controls.Add(oLblNote)
 
     ' ---- DRAWING UPDATE SECTION ----
     Dim oGrpDwg As New GroupBox()
     oGrpDwg.Text = "DRAWING UPDATE (after TRAVERSE)"
-    oGrpDwg.Left = 15 : oGrpDwg.Top = 585 : oGrpDwg.Width = 520 : oGrpDwg.Height = 118
+    oGrpDwg.Left = 15 : oGrpDwg.Top = 541 : oGrpDwg.Width = 520 : oGrpDwg.Height = 118
     oForm.Controls.Add(oGrpDwg)
 
     Dim oChkUpdateDwg As New CheckBox()
@@ -3465,17 +3447,16 @@ Function ShowCopyDesignConfigForm(ByRef oChoice As RenameModeChoice, Optional sS
         End If
     End Sub
 
-    ' Form height expanded to accommodate destination folder row (extra 44px)
-    oForm.Height = 775
+    oForm.Height = 731
 
     Dim oOk As New Button()
     oOk.Text = "OK" : oOk.DialogResult = DialogResult.OK
-    oOk.Left = 350 : oOk.Top = 717 : oOk.Width = 90
+    oOk.Left = 350 : oOk.Top = 673 : oOk.Width = 90
     oForm.Controls.Add(oOk) : oForm.AcceptButton = oOk
 
     Dim oCancel As New Button()
     oCancel.Text = "Cancel" : oCancel.DialogResult = DialogResult.Cancel
-    oCancel.Left = 450 : oCancel.Top = 717 : oCancel.Width = 90
+    oCancel.Left = 450 : oCancel.Top = 673 : oCancel.Width = 90
     oForm.Controls.Add(oCancel) : oForm.CancelButton = oCancel
 
     If oForm.ShowDialog() <> DialogResult.OK Then Return False
@@ -3515,17 +3496,8 @@ Function ShowCopyDesignConfigForm(ByRef oChoice As RenameModeChoice, Optional sS
     oChoice.bKeepDrawingModelNames = oChkKeepDwgNames.Checked
     oChoice.bUpdateDrawings = oChkUpdateDwg.Checked
     oChoice.sDrawingsFolder = Trim(oTxtDwgFolder.Text)
-    ' Destination folder: validate if provided; blank = use source folder
-    Dim sDestVal As String = Trim(oTxtDestFolder.Text)
-    If sDestVal <> "" AndAlso Not System.IO.Directory.Exists(sDestVal) Then
-        Try
-            System.IO.Directory.CreateDirectory(sDestVal)
-        Catch exMkDir As Exception
-            MessageBox.Show("Could not create destination folder: " & exMkDir.Message, "Copy Design")
-            Return False
-        End Try
-    End If
-    oChoice.sTargetFolder = sDestVal
+    ' sTargetFolder is set by the dedicated folder-selection step BEFORE this
+    ' form opens (Step 1 in Sub Main) — not captured here.
     oChoice.oSegFinds.Clear()
     oChoice.oSegReplaces.Clear()
     If Trim(oTxtF1.Text) <> "" Then
