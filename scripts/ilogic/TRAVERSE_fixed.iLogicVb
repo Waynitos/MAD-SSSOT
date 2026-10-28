@@ -209,16 +209,42 @@ Sub Main()
     ' ---------- Basic checks ----------
     Dim oAsmDoc As AssemblyDocument
     Try
-        oAsmDoc = ThisApplication.ActiveDocument
-    Catch
-        MessageBox.Show("Could not get the active document.", "Error")
+        Dim oActiveDoc As Document = ThisApplication.ActiveDocument
+        If oActiveDoc Is Nothing Then
+            MessageBox.Show("Could not get the active document.", "Error")
+            Exit Sub
+        End If
+
+        If oActiveDoc.DocumentType = kDrawingDocumentObject Then
+            ' Launched from a drawing — find the referenced assembly.
+            ' The GA drawing should have the top assembly as its first
+            ' referenced document (the model being documented).
+            Dim oDwgDoc As DrawingDocument = CType(oActiveDoc, DrawingDocument)
+            Dim oFoundAsm As AssemblyDocument = Nothing
+            For Each oRef As Document In oDwgDoc.ReferencedDocuments
+                If oRef.DocumentType = kAssemblyDocumentObject Then
+                    oFoundAsm = CType(oRef, AssemblyDocument)
+                    Exit For
+                End If
+            Next
+            If oFoundAsm Is Nothing Then
+                MessageBox.Show( _
+                    "This rule was run from a drawing but no referenced assembly was found." & vbCrLf & _
+                    "Open the GA assembly directly and run the rule from there.", _
+                    "No Assembly Found")
+                Exit Sub
+            End If
+            oAsmDoc = oFoundAsm
+        ElseIf oActiveDoc.DocumentType = kAssemblyDocumentObject Then
+            oAsmDoc = CType(oActiveDoc, AssemblyDocument)
+        Else
+            MessageBox.Show("This rule must be run from the GA assembly or its GA drawing.", "Wrong Document Type")
+            Exit Sub
+        End If
+    Catch ex As Exception
+        MessageBox.Show("Could not get the active document: " & ex.Message, "Error")
         Exit Sub
     End Try
-
-    If oAsmDoc.DocumentType <> kAssemblyDocumentObject Then
-        MessageBox.Show("This rule needs to be run from inside an assembly document.", "Wrong Document Type")
-        Exit Sub
-    End If
 
     ' ---------- Check the top assembly isn't checked in / read-only ----------
     ' A Vault-managed file that's checked IN (not checked out to you) is
