@@ -276,8 +276,10 @@ Sub Main()
     End Try
 
     Dim oAsmDef As AssemblyComponentDefinition = oAsmDoc.ComponentDefinition
-    Dim sTargetFolder As String = ThisDoc.Path
+    ' Use the assembly's own folder as the target — ThisDoc.Path would point
+    ' to the drawing folder if the rule was launched from a drawing.
     Dim sTopAssemblyFullName As String = oAsmDoc.FullFileName
+    Dim sTargetFolder As String = System.IO.Path.GetDirectoryName(sTopAssemblyFullName)
     Dim sLog As String = ""
     Dim iCount As Integer = 0
 
@@ -1739,7 +1741,12 @@ AfterSingleTraversal:
     End Try
 
     MessageBox.Show(iCount.ToString & " file(s) copied and replaced." & vbCrLf & "PJ-number property fields updated: " & iPropsUpdated & vbCrLf & "Full timing log: " & sLogFilePath & vbCrLf & "Decisions log (this text, written live as it runs): " & System.IO.Path.Combine(System.IO.Path.GetDirectoryName(sLogFilePath), System.IO.Path.GetFileNameWithoutExtension(sLogFilePath) & "_Decisions.txt") & vbCrLf & "Original-state snapshot: " & sSnapshotPath & vbCrLf & If(sManifestPath <> "", "Pass manifest: " & sManifestPath & vbCrLf, "") & sLog, "Rule Complete")
-	ThisDoc.Save
+    ' Save the assembly (not ThisDoc, which may be the GA drawing if launched from it)
+    Try
+        oAsmDoc.Save()
+    Catch exSave As Exception
+        sLog = sLog & vbCrLf & "SAVE-WARN: final assembly save failed: " & exSave.Message
+    End Try
 
 End Sub
 
