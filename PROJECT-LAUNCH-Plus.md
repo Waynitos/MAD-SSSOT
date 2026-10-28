@@ -1,5 +1,6 @@
-# PROJECT-LAUNCH-Plus v1.5
+# PROJECT-LAUNCH-Plus v1.6
 ## CHANGELOG
+- 2026-10-28 v1.6: Added PLU-session-protocol (NEWTHREAD proactive trigger + handoff template) and PLU-presearch-protocol (PRESEARCH research-first rule for non-trivial coding tasks)
 - 2026-10-25 v1.5: PLU-bootstrap.md created — single-URL instruction block pattern; trigger glossary, ordered fetch sequence, and fallback rules moved from pasted text into GitHub; PLU-wizard.md updated to generate new one-line instruction block; MAD run: plu-bootstrap-sync
 - 2026-10-25 v1.4: PLU-branding-extended.md created — full Phewphonics 3D Design Studio brand DNA (purple palette, Nunito/Rajdhani fonts, CSS custom properties, component specs, dark mode); PLU-wizard.md updated so all new BRANDING.md files reference the extended file
 - 2026-10-24 v1.3: Renamed MAD trigger from ?MAD to RMAD — simpler to type and remember
@@ -91,6 +92,8 @@ Then fetch the spec doc for the project you are working on (listed in Rule 1 of 
 Commit spec updates in the same commit as any code change — never defer to end of session.
 
 **Trigger word: `SESSION`** — fetches SESSION_STARTUP_PROTOCOL.md immediately.
+**Trigger word: `NEWTHREAD`** — user-invoked: Claude immediately produces the session handoff block. Claude also proactively says "⚠️ NEWTHREAD RECOMMENDED" when thread complexity signals context loss risk (≥5 code iterations, ≥2 direction pivots, repeated re-explanation, or 3+ unrelated sub-problems).
+**Trigger word: `PRESEARCH`** — user-invoked: run pre-code search immediately. Also fires automatically before any non-trivial code task (API calls, silent execution, proprietary SDKs, interop). Claude outputs a PRESEARCH REPORT before writing code.
 
 Add this to every project's instructions block (one-time manual update per project):
 ```
@@ -107,3 +110,5 @@ Branding extended: https://raw.githubusercontent.com/Waynitos/MAD-SSSOT/main/PLU
 Migration tracker: https://raw.githubusercontent.com/Waynitos/MAD-SSSOT/main/PLU-migration-status.md
 FTCA alerts definition: https://raw.githubusercontent.com/Waynitos/MAD-SSSOT/main/ftca/FTCA-alerts.md
 FTCA behaviour log: https://raw.githubusercontent.com/Waynitos/MAD-SSSOT/main/ftca/FTCA-behaviour.md
+Session protocol (NEWTHREAD + handoff): https://raw.githubusercontent.com/Waynitos/MAD-SSSOT/main/PLU-session-protocol.md
+Pre-code search protocol (PRESEARCH): https://raw.githubusercontent.com/Waynitos/MAD-SSSOT/main/PLU-presearch-protocol.md
