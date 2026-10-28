@@ -417,7 +417,7 @@ Sub Main()
     ' Combines prefix swap + optional segment replaces + non-std localization
     ' into ONE master map, then runs the Mode 2 multi-phase engine once.
     If oChoice.bCopyDesignMode Then
-        If Not ShowCopyDesignConfigForm(oChoice) Then
+        If Not ShowCopyDesignConfigForm(oChoice, sTopAssemblyFullName) Then
             MessageBox.Show("Cancelled - no changes made.", "Cancelled")
             ThisApplication.SilentOperation = bOrigSilent
             Exit Sub
@@ -3223,7 +3223,7 @@ End Sub
 
 ' Mode 6 secondary form: new project prefix, up to 5 segment pairs, non-std localize.
 ' Last-used values are pre-filled from the session-level history variables above.
-Function ShowCopyDesignConfigForm(ByRef oChoice As RenameModeChoice) As Boolean
+Function ShowCopyDesignConfigForm(ByRef oChoice As RenameModeChoice, Optional sSourceAsmPath As String = "") As Boolean
     ' Load history from INI file on first call this session
     If Not g_bHistoryLoaded Then
         LoadMode6History()
@@ -3374,7 +3374,16 @@ Function ShowCopyDesignConfigForm(ByRef oChoice As RenameModeChoice) As Boolean
 
     Dim oTxtDestFolder As New System.Windows.Forms.TextBox()
     oTxtDestFolder.Left = 15 : oTxtDestFolder.Top = 528 : oTxtDestFolder.Width = 390
-    oTxtDestFolder.Text = ""
+    ' Pre-seed: use drawings folder if already set (re-run), otherwise
+    ' fall back to the source assembly's own folder — both land the
+    ' browser close to where the new models folder will be.
+    If Trim(oChoice.sTargetFolder) <> "" Then
+        oTxtDestFolder.Text = oChoice.sTargetFolder   ' preserve last chosen dest on re-run
+    ElseIf Trim(oChoice.sDrawingsFolder) <> "" Then
+        oTxtDestFolder.Text = oChoice.sDrawingsFolder
+    ElseIf Trim(sSourceAsmPath) <> "" Then
+        oTxtDestFolder.Text = System.IO.Path.GetDirectoryName(sSourceAsmPath)
+    End If
     oForm.Controls.Add(oTxtDestFolder)
 
     Dim oBtnBrowseDest As New Button()
@@ -3385,9 +3394,15 @@ Function ShowCopyDesignConfigForm(ByRef oChoice As RenameModeChoice) As Boolean
     AddHandler oBtnBrowseDest.Click, Sub(s, e)
         Dim oFbdDest As New FolderBrowserDialog()
         oFbdDest.Description = "Select destination folder for new assembly copies"
-        If Trim(oTxtDestFolder.Text) <> "" AndAlso System.IO.Directory.Exists(oTxtDestFolder.Text) Then
-            oFbdDest.SelectedPath = oTxtDestFolder.Text
+        ' Seed browser: dest field > drawings folder field > source asm folder
+        Dim sSeed As String = Trim(oTxtDestFolder.Text)
+        If sSeed = "" OrElse Not System.IO.Directory.Exists(sSeed) Then
+            sSeed = Trim(oTxtDwgFolder.Text)
         End If
+        If sSeed = "" OrElse Not System.IO.Directory.Exists(sSeed) Then
+            sSeed = If(Trim(sSourceAsmPath) <> "", System.IO.Path.GetDirectoryName(sSourceAsmPath), "")
+        End If
+        If sSeed <> "" Then oFbdDest.SelectedPath = sSeed
         If oFbdDest.ShowDialog() = DialogResult.OK Then
             oTxtDestFolder.Text = oFbdDest.SelectedPath
         End If
