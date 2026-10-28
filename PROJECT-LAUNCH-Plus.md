@@ -82,7 +82,25 @@ Champion call-outs + enhancement suggestions + AI advancements + open alerts + f
 
 ---
 
+## SESSION STARTUP RULE (mandatory)
+
+Before any code work in any session, fetch and read:
+  https://raw.githubusercontent.com/Waynitos/MAD-SSSOT/main/SESSION_STARTUP_PROTOCOL.md
+
+Then fetch the spec doc for the project you are working on (listed in Rule 1 of that file).
+Commit spec updates in the same commit as any code change — never defer to end of session.
+
+**Trigger word: `SESSION`** — fetches SESSION_STARTUP_PROTOCOL.md immediately.
+
+Add this to every project's instructions block (one-time manual update per project):
+```
+SESSION = Fetch SESSION_STARTUP_PROTOCOL: https://raw.githubusercontent.com/Waynitos/MAD-SSSOT/main/SESSION_STARTUP_PROTOCOL.md — mandatory before any code work
+```
+
+---
+
 ## SUB-FILES (fetch on demand)
+Session startup protocol: https://raw.githubusercontent.com/Waynitos/MAD-SSSOT/main/SESSION_STARTUP_PROTOCOL.md
 MAD protocol detail: https://raw.githubusercontent.com/Waynitos/MAD-SSSOT/main/PLU-MAD-protocol.md
 Wizard (new project onboarding): https://raw.githubusercontent.com/Waynitos/MAD-SSSOT/main/PLU-wizard.md
 Branding extended: https://raw.githubusercontent.com/Waynitos/MAD-SSSOT/main/PLU-branding-extended.md
