@@ -11,6 +11,7 @@ fetch the spec doc for the relevant project BEFORE reading any code:
 | Project | Spec doc URL |
 |---|---|
 | Clean Sweeper — Mode 6 | https://raw.githubusercontent.com/Waynitos/MAD-SSSOT/main/scripts/ilogic/CLEAN_SWEEPER_MODE6_SPEC.md |
+| Daily Bible Cross-Reference Reading | https://raw.githubusercontent.com/Waynitos/MAD-SSSOT/main/projects/Daily-Bible-CrossRef-Reading/SPEC.md |
 | (add new projects here) | |
 
 If no spec doc exists for a project yet, create one before writing any code.
