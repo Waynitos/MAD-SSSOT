@@ -1,10 +1,10 @@
 # Daily Bible Cross-Reference Reading Project — Spec
-_Last updated: 2026-10-31_
+_Last updated: 2026-11-01_
 
 This document is the authoritative spec for the Daily Bible Cross-Reference Reading Project.
 Any session working on this project must read this before making changes.
 
-Source of architectural decisions: SSA from RMAD in runs/Daily-Bible-CrossRef-Reading-Project/ + 2026-10-31 refinement (user-selected extracts).
+Source of architectural decisions: SSA from RMAD in runs/Daily-Bible-CrossRef-Reading-Project/ + 2026-10-31 extract refinement + 2026-11-01 style lock.
 
 ---
 
@@ -46,6 +46,14 @@ Source of architectural decisions: SSA from RMAD in runs/Daily-Bible-CrossRef-Re
     - Return first/strongest mention in OT, then Ps/Prov, then Gospels, then Epistles/Rev, each with selection note.
     - Present as flashcards; option to return to daily mode.
 
+## Flashcard visual styles (locked 2026-11-01)
+
+- **Standard (daily mode):** Dark Rhema Blue background (`#1A1A8C` or near-black navy). White text. Oswald titles. Source Sans 3 body at 1.125rem (~18px).
+- **Topical option:** White background. Dark text. Blue (`#1A1A8C`) top bar / accents. Oswald titles. Source Sans 3 body at identical 1.125rem (~18px).
+- Buttons: pill-shaped, Rhema Blue or lighter blue accent, Oswald uppercase.
+- Branding source: PLU-branding-extended.md (rhema-blue token, font-body Source Sans 3, font-size-body 1.125rem).
+- Consistency rule: body text size must match across all cards in a sequence and between styles.
+
 ## Key variable notes
 
 | Variable | What it is | Set where |
@@ -60,6 +68,7 @@ Source of architectural decisions: SSA from RMAD in runs/Daily-Bible-CrossRef-Re
 | selection_priority | Ordered rules: direct > strong TSK (extract-scoped) > fallback | Spec / selection code |
 | used_refs | Set of previously used cross-refs (to prefer novelty) | Persistent state |
 | topic_query | Free-text topic in topic mode | User input |
+| card_style | standard-blue or topical-white | Mode (daily vs topic) |
 
 ## Constraints
 
@@ -72,6 +81,7 @@ Source of architectural decisions: SSA from RMAD in runs/Daily-Bible-CrossRef-Re
 - Topic search: start with keyword + TSK anchors; later semantic if needed.
 - No copyrighted modern translations by default (optional pairing on demand only if licensed or public domain).
 - Limit to 1–3 extracts per session to keep daily volume manageable.
+- Body font locked to Source Sans 3 at 1.125rem (~18px) for all cards.
 
 ## Commit history (key milestones)
 
@@ -79,7 +89,8 @@ Source of architectural decisions: SSA from RMAD in runs/Daily-Bible-CrossRef-Re
 |---|---|
 | 0a07368421bdc9571b35af7fa2b6e51f5836649d | Initial RMAD (AA/DA/SSA) |
 | ac80e743a9f4a438666aab27fc8190a16e6d07cf | Initial SPEC.md created from SSA decisions |
-| (this commit) | Refinement: user chooses from top 5 extracts in OT chapter; linked refs scoped to chosen extract(s); revisit-same-chapter option |
+| ca8ca5ef0aae85849936a5b770acb95c36eee880 | Refinement: user chooses from top 5 extracts |
+| (this commit) | Lock flashcard styles: blue bg standard (daily), white topical; body font Source Sans 3 1.125rem |
 
 ---
 
