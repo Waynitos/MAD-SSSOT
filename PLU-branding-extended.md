@@ -1,7 +1,7 @@
 # PLU-branding-extended.md
 # Extended Brand DNA — Phewphonics 3D Design Studio
-version: 1.3
-last-updated: 2026-10-31
+version: 1.4
+last-updated: 2026-11-01
 maintainer: Waynito (phewphonics@hotmail.com)
 
 ---
@@ -45,8 +45,8 @@ Panels/cards:   1px border card-border, 8px radius, 16px padding
 
 brand:          Phewphonics 3D Design Studio
 byline:         "SOUND BETTER?"
-version:        1.3
-last-updated:   2026-10-31
+version:        1.4
+last-updated:   2026-11-01
 brand-soul:     https://raw.githubusercontent.com/Waynitos/MAD-SSSOT/main/branding/phewphonics/BRAND-SOUL.md
 
 ### Colour Palette
@@ -78,40 +78,41 @@ danger:         #c0392b
 
 ### Typography
 
-font-display:   "Bauhaus 93", "Nunito", "Varela Round", sans-serif
+font-display:   "Bauhaus 93", "Oswald", "Nunito", sans-serif
   /* Bauhaus 93 — confirmed wordmark font for "phewphonics" lettering.
-     Not available on Google Fonts; use as installed system font or embed as woff2.
-     Fallback: Nunito 700+800 (Google Fonts) for web use where Bauhaus 93 unavailable */
+     Fallback: Oswald (free) for web/system use where Bauhaus 93 unavailable */
 
-font-subtitle:  "Rajdhani", "Barlow Condensed", "Arial Narrow", sans-serif
-  /* Tight spaced caps grotesque — matches "3D DESIGN STUDIO" subtitle treatment.
-     Load via Google Fonts: Rajdhani weight 600+700 */
+font-heading:   "Oswald", "Arial Narrow", sans-serif
+  /* Locked heading / subheading font. Bold condensed sans — precise, high-impact.
+     Preferred weights: 600 / 700. Free on Google Fonts. */
 
-font-byline:    "Troglodyte Pop", "Trebuchet MS", sans-serif
-  /* Confirmed byline font for "SOUND BETTER?" (and earlier geometric treatments such as "3D DESIGN SERVICES").
+font-subtitle:  "Oswald", "Rajdhani", "Arial Narrow", sans-serif
+  /* Subtitle treatment — Oswald preferred for consistency with headings */
+
+font-byline:    "Troglodyte", "Trebuchet MS", sans-serif
+  /* Confirmed byline font for "SOUND BETTER?".
      Designer: Graham Meade / Apostrophic Labs (2001).
-     Files typically: TROGLOP_.ttf (Pop) and TROGLO__.ttf (regular).
+     File: TROGLO__.ttf (regular Troglodyte — not the Pop variant).
      Originally listed in source PDF as "Trogldyte" and substituted with Trebuchet MS when missing.
-     Free display face — widely distributed; verify the included license file for commercial use before embedding or redistributing.
-     Not on Google Fonts; install locally or self-host woff2 for web. */
+     Free display face — verify license before commercial embedding.
+     Not on Google Fonts; install locally or self-host. */
 
-font-body:      "VAG Rounded Next", "Nunito", "Varela Round", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif
-  /* Confirmed body font for standard text and italics (flashcards, documents, UI).
-     Rounded geometric sans — approachable yet precise. Matches Phewphonics DNA for body copy.
-     Commercial font (Linotype/Monotype). Use licensed version or self-host. Fallback: Nunito / Varela Round for web where VAG Rounded Next unavailable.
-     Supports Regular + Italic well. */
+font-body:      "Source Sans 3", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif
+  /* Locked body font (regular + italic) for flashcards, documents, UI.
+     Clean humanist sans — precise yet approachable. Free on Google Fonts.
+     Body size: 1.125rem (~18px). */
 
 font-mono:      "SF Mono", "Cascadia Code", monospace
 
 font-size-display:  clamp(2rem, 5vw, 4rem)
 font-size-h1:       clamp(1.5rem, 3vw, 2.5rem)
 font-size-h2:       1.5rem
-font-size-body:     1.125rem   /* ~18px — comfortable reading size for flashcards and documents (basis from mockup) */
+font-size-body:     1.125rem   /* ~18px — comfortable reading size for flashcards and documents */
 font-size-small:    0.875rem
-font-size-subtitle: 0.75rem   /* for "3D DESIGN STUDIO"-style uppercase labels */
-font-size-byline:   clamp(1.25rem, 3vw, 2rem)   /* for "SOUND BETTER?" */
+font-size-subtitle: 0.75rem
+font-size-byline:   clamp(1.25rem, 3vw, 2rem)
 
-letter-spacing-subtitle: 0.12em   /* Wide tracking for subtitle caps treatment */
+letter-spacing-subtitle: 0.12em
 text-transform-subtitle: uppercase
 
 ### Logo
@@ -123,7 +124,7 @@ logo-note:              Current mark (satellite dish / speaker icon) is earmarke
                         without volume-symbol shorthand. See BRAND-SOUL.md for full brief.
 logo-icon:              Satellite dish + shooting star — top-right of wordmark
 logo-subtitle:          "3D DESIGN STUDIO" — spaced caps, below wordmark right-aligned
-logo-byline:            "SOUND BETTER?" — Troglodyte Pop
+logo-byline:            "SOUND BETTER?" — Troglodyte
 logo-colour-primary:    #4B2FA0 on white bg
 logo-colour-reversed:   #FFFFFF outline on #4B2FA0 bg (envelope/dark surface usage)
 logo-colour-outline:    outline stroke version — #4B2FA0 stroke, white fill (standard usage)
@@ -133,7 +134,7 @@ logo-min-width:         120px digital / 30mm print
 
 ### Spacing & Layout
 
-border-radius:      12px    /* Slightly more rounded than global default — matches logo style */
+border-radius:      12px
 border-radius-sm:   6px
 border-radius-pill: 999px
 
@@ -147,9 +148,9 @@ section-gap:    48px
 Buttons (primary):
   background: #4B2FA0
   color: #FFFFFF
-  border-radius: 999px       /* Pill shape — matches brand's rounded aesthetic */
+  border-radius: 999px
   padding: 10px 24px
-  font: font-subtitle, 600, letter-spacing 0.08em, uppercase
+  font: font-heading, 600, letter-spacing 0.08em, uppercase
   hover: background #3A2280
 
 Buttons (secondary):
@@ -174,21 +175,21 @@ Tags/badges:
   background: rgba(75,47,160,0.12)
   color: #4B2FA0
   border-radius: 999px
-  font: font-subtitle, uppercase, 0.7rem, letter-spacing 0.1em
+  font: font-heading, uppercase, 0.7rem, letter-spacing 0.1em
 
 ### Dark Mode
 
 bg-dark:        #1A1020
 card-dark:      #2A1E40
 text-dark:      #FFFFFF
-accent-dark:    #7B5ED4   /* Lighter purple for legibility on dark */
+accent-dark:    #7B5ED4
 border-dark:    rgba(255,255,255,0.1)
 
 ### Google Fonts Import
 
 ```html
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800&family=Rajdhani:wght@600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Source+Sans+3:ital,wght@0,400;0,600;1,400;1,600&display=swap" rel="stylesheet">
 ```
 
 ### CSS Custom Properties (ready to paste)
@@ -199,7 +200,7 @@ border-dark:    rgba(255,255,255,0.1)
   --pp-primary-dark:    #3A2280;
   --pp-primary-light:   #6B4FC8;
   --pp-accent:          #7B5ED4;
-  --pp-rhema-blue:      #1A1A8C;   /* Deep Rhema Blue — heavenly Word / precision accent. RGB 26, 26, 140. */
+  --pp-rhema-blue:      #1A1A8C;
   --pp-white:           #FFFFFF;
   --pp-dark:            #333333;
   --pp-bg:              #F5F5F7;
@@ -207,13 +208,14 @@ border-dark:    rgba(255,255,255,0.1)
   --pp-card:            #FFFFFF;
   --pp-card-dark:       #2A1E40;
 
-  --pp-font-display:    'Bauhaus 93', 'Nunito', 'Varela Round', sans-serif;
-  --pp-font-subtitle:   'Rajdhani', 'Barlow Condensed', 'Arial Narrow', sans-serif;
-  --pp-font-byline:     'Troglodyte Pop', 'Trebuchet MS', sans-serif;
-  --pp-font-body:       'VAG Rounded Next', 'Nunito', 'Varela Round', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --pp-font-display:    'Bauhaus 93', 'Oswald', 'Nunito', sans-serif;
+  --pp-font-heading:    'Oswald', 'Arial Narrow', sans-serif;
+  --pp-font-subtitle:   'Oswald', 'Rajdhani', 'Arial Narrow', sans-serif;
+  --pp-font-byline:     'Troglodyte', 'Trebuchet MS', sans-serif;
+  --pp-font-body:       'Source Sans 3', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --pp-font-mono:       'SF Mono', 'Cascadia Code', monospace;
 
-  --pp-font-size-body:  1.125rem;   /* ~18px */
+  --pp-font-size-body:  1.125rem;
 
   --pp-radius:          12px;
   --pp-radius-sm:       6px;
