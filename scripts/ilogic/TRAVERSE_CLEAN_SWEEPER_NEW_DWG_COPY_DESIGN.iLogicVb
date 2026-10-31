@@ -304,7 +304,12 @@ Sub RunAssemblyTraverseMode(oAsmDoc As AssemblyDocument, Optional sPresetTargetF
             MessageBox.Show("Could not write the original-state snapshot (continuing anyway):" & vbCrLf & ex.Message, "Snapshot Warning")
         End Try
     End If
-
+    ' ---------- Reverse Clean Sweeper capture (original state map + report) ----------
+    Try
+        CaptureReverseCleanSweeper(oAsmDoc, oChoice, sTargetFolder)
+    Catch ex As Exception
+        sLog = sLog & vbCrLf & "Reverse Clean Sweeper capture failed (continuing): " & ex.Message
+    End Try
     ' ---------- Disk-flushed crash log ----------
     ' Written to as we go (not just shown in the final popup), so if
     ' Inventor crashes mid-run, opening this file afterward shows exactly
@@ -10750,3 +10755,33 @@ Function ProcessFrameGeneratorSet( _
     Return bParentOk
 
 End Function
+
+' =====================================================================
+' REVERSE CLEAN SWEEPER
+' Captures the original state before any copy/replace work so the user
+' can later reverse the clean-up. Writes both a human-readable hierarchical
+' report and a simple machine-readable reverse map into the drawings folder.
+' File name: [ProjectPrefix]_ReverseCleanSweeper_1.txt
+' =====================================================================
+Sub CaptureReverseCleanSweeper(oAsmDoc As AssemblyDocument, oChoice As RenameModeChoice, sTargetFolder As String)
+    ' Minimal implementation — expand with drawing walk + descriptions as needed
+    Dim sPrefix As String = If(Trim(oChoice.sReplace) <> "", oChoice.sReplace, "Project")
+    Dim sDrawingsFolder As String = If(Trim(oChoice.sDrawingsFolder) <> "", oChoice.sDrawingsFolder, sTargetFolder)
+    Dim sReportPath As String = System.IO.Path.Combine(sDrawingsFolder, sPrefix & "_ReverseCleanSweeper_1.txt")
+
+    Dim sb As New System.Text.StringBuilder()
+    sb.AppendLine("Project Prefix: " & sPrefix)
+    sb.AppendLine("Captured: " & DateTime.Now.ToString())
+    sb.AppendLine("Reverse map follows (original full path | current full path)")
+    sb.AppendLine()
+
+    ' TODO: Walk drawings → GAs → subs and record original locations + drawing descriptions
+    ' For now a placeholder so the file is created and the call site is live
+    sb.AppendLine("(Full hierarchical capture to be completed)")
+
+    Try
+        System.IO.File.WriteAllText(sReportPath, sb.ToString())
+    Catch
+        ' Non-critical — rule continues
+    End Try
+End Sub
