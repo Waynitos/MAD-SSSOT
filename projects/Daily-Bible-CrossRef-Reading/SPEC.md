@@ -4,7 +4,7 @@ _Last updated: 2026-11-01_
 This document is the authoritative spec for the Daily Bible Cross-Reference Reading Project.
 Any session working on this project must read this before making changes.
 
-Source of architectural decisions: SSA from RMAD in runs/Daily-Bible-CrossRef-Reading-Project/ + 2026-10-31 extract refinement + 2026-11-01 style lock.
+Source of architectural decisions: SSA from RMAD in runs/Daily-Bible-CrossRef-Reading-Project/ + 2026-10-31 extract refinement + 2026-11-01 style lock + entry-point lock.
 
 ---
 
@@ -14,6 +14,18 @@ Source of architectural decisions: SSA from RMAD in runs/Daily-Bible-CrossRef-Re
 - User opens the Project and requests “today’s reading” or “next day”.
 - Optional: scheduled Automation that posts the day’s set.
 - Later phases: simple web flashcard UI or app.
+
+### Locked entry-point card (2026-11-01)
+
+- Blue template (Rhema Blue `#1A1A8C`).
+- Title: HERE IS YOUR DAILY RHEMA EXCITEMENT PASSAGE
+- Subtitle: Choose how you want to read today.
+- Buttons:
+  - START NEXT PASSAGE — placed inside the lighter blue area near the bottom of the blue card body.
+  - PREVIOUS PASSAGE — lower left in the dark base.
+  - CHOOSE TOPIC — lower right in the dark base.
+- Reserved thicker dark base for future phewphonics brand mark (position and style to be revisited).
+- Last card of any sequence offers NEXT and HOME (HOME returns to this entry-point card).
 
 ## Step-by-step flow
 
@@ -34,25 +46,26 @@ Source of architectural decisions: SSA from RMAD in runs/Daily-Bible-CrossRef-Re
 8. Controls: “Next” advances through cards. After finishing the selected extracts, offer:
    - Choose different extracts from the same OT chapter (go back to the top-5 menu without advancing day).
    - Next day (advances day index).
-   - Menu.
-9. Persistent “Menu” button.
-10. Menu options:
-    - Continue next day (advances day index).
-    - Revisit today’s OT chapter (return to top-5 extract menu).
-    - Custom topic (free-text entry).
-    - (Later) View progress.
+   - Menu / HOME (returns to locked entry-point card).
+9. Persistent “Menu” / HOME button.
+10. Menu / entry-point options:
+    - START NEXT PASSAGE (advances day index).
+    - PREVIOUS PASSAGE.
+    - CHOOSE TOPIC (free-text entry).
+    - (Later) View progress / END DAILY PASSAGE.
 11. Topic mode flow:
     - User enters topic (e.g. “God’s Joy”).
     - Return first/strongest mention in OT, then Ps/Prov, then Gospels, then Epistles/Rev, each with selection note.
-    - Present as flashcards; option to return to daily mode.
+    - Present as flashcards (white style); option to return to daily mode / HOME.
 
 ## Flashcard visual styles (locked 2026-11-01)
 
-- **Standard (daily mode):** Dark Rhema Blue background (`#1A1A8C` or near-black navy). White text. Oswald titles. Source Sans 3 body at 1.125rem (~18px).
-- **Topical option:** White background. Dark text. Blue (`#1A1A8C`) top bar / accents. Oswald titles. Source Sans 3 body at identical 1.125rem (~18px).
+- **Standard (daily mode + entry point):** Dark Rhema Blue background (`#1A1A8C` or near-black navy). White text. Oswald titles. Source Sans 3 body at 1.125rem (~18px).
+- **Topical option:** White background. Dark text. Blue (`#1A1A8C`) accents. Oswald titles. Source Sans 3 body at identical 1.125rem (~18px).
 - Buttons: pill-shaped, Rhema Blue or lighter blue accent, Oswald uppercase.
 - Branding source: PLU-branding-extended.md (rhema-blue token, font-body Source Sans 3, font-size-body 1.125rem).
 - Consistency rule: body text size must match across all cards in a sequence and between styles.
+- Reserved thicker dark base on cards for future phewphonics brand mark.
 
 ## Key variable notes
 
@@ -90,7 +103,8 @@ Source of architectural decisions: SSA from RMAD in runs/Daily-Bible-CrossRef-Re
 | 0a07368421bdc9571b35af7fa2b6e51f5836649d | Initial RMAD (AA/DA/SSA) |
 | ac80e743a9f4a438666aab27fc8190a16e6d07cf | Initial SPEC.md created from SSA decisions |
 | ca8ca5ef0aae85849936a5b770acb95c36eee880 | Refinement: user chooses from top 5 extracts |
-| (this commit) | Lock flashcard styles: blue bg standard (daily), white topical; body font Source Sans 3 1.125rem |
+| f4b9b41faa281ba896ba1176f2f6329214d32318 | Lock flashcard styles: blue bg standard (daily), white topical; body font Source Sans 3 1.125rem |
+| (this commit) | Lock entry-point card layout (blue template with PREVIOUS / START NEXT / CHOOSE TOPIC) |
 
 ---
 
