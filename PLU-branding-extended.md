@@ -1,6 +1,6 @@
 # PLU-branding-extended.md
 # Extended Brand DNA — Phewphonics 3D Design Studio
-version: 1.1
+version: 1.2
 last-updated: 2026-10-31
 maintainer: Waynito (phewphonics@hotmail.com)
 
@@ -45,7 +45,7 @@ Panels/cards:   1px border card-border, 8px radius, 16px padding
 
 brand:          Phewphonics 3D Design Studio
 byline:         "SOUND BETTER?"
-version:        1.1
+version:        1.2
 last-updated:   2026-10-31
 brand-soul:     https://raw.githubusercontent.com/Waynitos/MAD-SSSOT/main/branding/phewphonics/BRAND-SOUL.md
 
@@ -87,6 +87,14 @@ font-subtitle:  "Rajdhani", "Barlow Condensed", "Arial Narrow", sans-serif
   /* Tight spaced caps grotesque — matches "3D DESIGN STUDIO" subtitle treatment.
      Load via Google Fonts: Rajdhani weight 600+700 */
 
+font-byline:    "Troglodyte Pop", "Trebuchet MS", sans-serif
+  /* Confirmed byline font for "SOUND BETTER?" (and earlier geometric treatments such as "3D DESIGN SERVICES").
+     Designer: Graham Meade / Apostrophic Labs (2001).
+     Files typically: TROGLOP_.ttf (Pop) and TROGLO__.ttf (regular).
+     Originally listed in source PDF as "Trogldyte" and substituted with Trebuchet MS when missing.
+     Free display face — widely distributed; verify the included license file for commercial use before embedding or redistributing.
+     Not on Google Fonts; install locally or self-host woff2 for web. */
+
 font-body:      -apple-system, BlinkMacSystemFont, "Segoe UI", "Nunito", sans-serif
   /* Body copy — system stack with Nunito as fallback for brand consistency */
 
@@ -98,6 +106,7 @@ font-size-h2:       1.5rem
 font-size-body:     1rem
 font-size-small:    0.875rem
 font-size-subtitle: 0.75rem   /* for "3D DESIGN STUDIO"-style uppercase labels */
+font-size-byline:   clamp(1.25rem, 3vw, 2rem)   /* for "SOUND BETTER?" */
 
 letter-spacing-subtitle: 0.12em   /* Wide tracking for subtitle caps treatment */
 text-transform-subtitle: uppercase
@@ -111,6 +120,7 @@ logo-note:              Current mark (satellite dish / speaker icon) is earmarke
                         without volume-symbol shorthand. See BRAND-SOUL.md for full brief.
 logo-icon:              Satellite dish + shooting star — top-right of wordmark
 logo-subtitle:          "3D DESIGN STUDIO" — spaced caps, below wordmark right-aligned
+logo-byline:            "SOUND BETTER?" — Troglodyte Pop
 logo-colour-primary:    #4B2FA0 on white bg
 logo-colour-reversed:   #FFFFFF outline on #4B2FA0 bg (envelope/dark surface usage)
 logo-colour-outline:    outline stroke version — #4B2FA0 stroke, white fill (standard usage)
@@ -194,8 +204,9 @@ border-dark:    rgba(255,255,255,0.1)
   --pp-card:            #FFFFFF;
   --pp-card-dark:       #2A1E40;
 
-  --pp-font-display:    'Nunito', 'Varela Round', sans-serif;
+  --pp-font-display:    'Bauhaus 93', 'Nunito', 'Varela Round', sans-serif;
   --pp-font-subtitle:   'Rajdhani', 'Barlow Condensed', 'Arial Narrow', sans-serif;
+  --pp-font-byline:     'Troglodyte Pop', 'Trebuchet MS', sans-serif;
   --pp-font-body:       -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Nunito', sans-serif;
   --pp-font-mono:       'SF Mono', 'Cascadia Code', monospace;
 
