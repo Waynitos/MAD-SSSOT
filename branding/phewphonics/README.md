@@ -11,16 +11,15 @@ Full brand DNA: see [PLU-branding-extended.md](../../PLU-branding-extended.md)
 | `logo-solid-black.png` | Solid black fill on white | Print (B&W), emboss, single-colour jobs |
 | `logo-outline-black.png` | Outline/inline stroke — black on white | Print outlines, laser engraving |
 
-## Typography
-- **Wordmark "phewphonics":** Bauhaus 93
-- **Subtitle "3D DESIGN STUDIO":** Rajdhani (or similar spaced caps)
-- **Byline "SOUND BETTER?":** Troglodyte Pop (Graham Meade / Apostrophic Labs, 2001)
-  - Files: TROGLOP_.ttf (Pop) / TROGLO__.ttf
-  - Originally appeared as "Trogldyte" in source PDFs (substituted with Trebuchet MS when missing)
-  - Free display face — confirm license in the font package before commercial embedding
+## Typography (locked free stack — v1.4)
+- **Wordmark "phewphonics":** Bauhaus 93 (fallback: Oswald)
+- **Headings / Subheadings:** Oswald (Bold / SemiBold) — free on Google Fonts
+- **Body text (regular + italic):** Source Sans 3 — free on Google Fonts (~18px / 1.125rem)
+- **Byline "SOUND BETTER?":** Troglodyte (regular, TROGLO__.ttf) — Graham Meade / Apostrophic Labs, 2001
 
 ## Colours
 - Brand purple: `#4B2FA0`
+- Rhema blue: `#1A1A8C`
 - White: `#FFFFFF`
 - Black: `#1A1A1A`
 
