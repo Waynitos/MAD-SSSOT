@@ -1,6 +1,6 @@
 # PLU-branding-extended.md
 # Extended Brand DNA — Phewphonics 3D Design Studio
-version: 1.2
+version: 1.3
 last-updated: 2026-10-31
 maintainer: Waynito (phewphonics@hotmail.com)
 
@@ -45,7 +45,7 @@ Panels/cards:   1px border card-border, 8px radius, 16px padding
 
 brand:          Phewphonics 3D Design Studio
 byline:         "SOUND BETTER?"
-version:        1.2
+version:        1.3
 last-updated:   2026-10-31
 brand-soul:     https://raw.githubusercontent.com/Waynitos/MAD-SSSOT/main/branding/phewphonics/BRAND-SOUL.md
 
@@ -95,15 +95,18 @@ font-byline:    "Troglodyte Pop", "Trebuchet MS", sans-serif
      Free display face — widely distributed; verify the included license file for commercial use before embedding or redistributing.
      Not on Google Fonts; install locally or self-host woff2 for web. */
 
-font-body:      -apple-system, BlinkMacSystemFont, "Segoe UI", "Nunito", sans-serif
-  /* Body copy — system stack with Nunito as fallback for brand consistency */
+font-body:      "VAG Rounded Next", "Nunito", "Varela Round", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif
+  /* Confirmed body font for standard text and italics (flashcards, documents, UI).
+     Rounded geometric sans — approachable yet precise. Matches Phewphonics DNA for body copy.
+     Commercial font (Linotype/Monotype). Use licensed version or self-host. Fallback: Nunito / Varela Round for web where VAG Rounded Next unavailable.
+     Supports Regular + Italic well. */
 
 font-mono:      "SF Mono", "Cascadia Code", monospace
 
 font-size-display:  clamp(2rem, 5vw, 4rem)
 font-size-h1:       clamp(1.5rem, 3vw, 2.5rem)
 font-size-h2:       1.5rem
-font-size-body:     1rem
+font-size-body:     1.125rem   /* ~18px — comfortable reading size for flashcards and documents (basis from mockup) */
 font-size-small:    0.875rem
 font-size-subtitle: 0.75rem   /* for "3D DESIGN STUDIO"-style uppercase labels */
 font-size-byline:   clamp(1.25rem, 3vw, 2rem)   /* for "SOUND BETTER?" */
@@ -207,8 +210,10 @@ border-dark:    rgba(255,255,255,0.1)
   --pp-font-display:    'Bauhaus 93', 'Nunito', 'Varela Round', sans-serif;
   --pp-font-subtitle:   'Rajdhani', 'Barlow Condensed', 'Arial Narrow', sans-serif;
   --pp-font-byline:     'Troglodyte Pop', 'Trebuchet MS', sans-serif;
-  --pp-font-body:       -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Nunito', sans-serif;
+  --pp-font-body:       'VAG Rounded Next', 'Nunito', 'Varela Round', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --pp-font-mono:       'SF Mono', 'Cascadia Code', monospace;
+
+  --pp-font-size-body:  1.125rem;   /* ~18px */
 
   --pp-radius:          12px;
   --pp-radius-sm:       6px;
