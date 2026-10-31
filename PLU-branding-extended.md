@@ -57,7 +57,7 @@ primary-light:  #6B4FC8   /* Lighter purple for highlights/links */
 accent:         #7B5ED4   /* Mid-purple — active states, badges, tags */
 bg-brand:       #4B2FA0   /* Solid purple background (envelope/card usage) */
 
-rhema-blue:     #1A1A8C   /* Deep Rhema Blue — heavenly Word / precision accent (secondary to primary purple). From MAD run 2026-10-31. */
+rhema-blue:     #1A1A8C   /* Deep Rhema Blue — heavenly Word / precision accent (secondary to primary purple). RGB 26, 26, 140. From MAD run 2026-10-31. */
 
 neutral-dark:   #333333   /* Near-black text, icons on light backgrounds */
 neutral-mid:    #666666   /* Secondary text, captions */
@@ -186,7 +186,7 @@ border-dark:    rgba(255,255,255,0.1)
   --pp-primary-dark:    #3A2280;
   --pp-primary-light:   #6B4FC8;
   --pp-accent:          #7B5ED4;
-  --pp-rhema-blue:      #1A1A8C;   /* Deep Rhema Blue — heavenly Word / precision accent */
+  --pp-rhema-blue:      #1A1A8C;   /* Deep Rhema Blue — heavenly Word / precision accent. RGB 26, 26, 140. */
   --pp-white:           #FFFFFF;
   --pp-dark:            #333333;
   --pp-bg:              #F5F5F7;
