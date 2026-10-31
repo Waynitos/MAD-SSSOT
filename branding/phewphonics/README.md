@@ -13,7 +13,11 @@ Full brand DNA: see [PLU-branding-extended.md](../../PLU-branding-extended.md)
 
 ## Typography
 - **Wordmark "phewphonics":** Bauhaus 93
-- **Subtitle "3D DESIGN STUDIO":** Custom / unidentified — use file assets as reference
+- **Subtitle "3D DESIGN STUDIO":** Rajdhani (or similar spaced caps)
+- **Byline "SOUND BETTER?":** Troglodyte Pop (Graham Meade / Apostrophic Labs, 2001)
+  - Files: TROGLOP_.ttf (Pop) / TROGLO__.ttf
+  - Originally appeared as "Trogldyte" in source PDFs (substituted with Trebuchet MS when missing)
+  - Free display face — confirm license in the font package before commercial embedding
 
 ## Colours
 - Brand purple: `#4B2FA0`
