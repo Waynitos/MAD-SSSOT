@@ -10,6 +10,8 @@ Full brand DNA: see [PLU-branding-extended.md](../../PLU-branding-extended.md)
 | `logo-outline-purple.png` | Outline/inline stroke — purple on white | Lighter weight treatment, letterheads |
 | `logo-solid-black.png` | Solid black fill on white | Print (B&W), emboss, single-colour jobs |
 | `logo-outline-black.png` | Outline/inline stroke — black on white | Print outlines, laser engraving |
+| **Coloured version (RV1)** | Outline style in brand blue/purple with "SOUND BETTER?" byline | Preferred coloured lockup |
+| **Watermark** | Small, low-opacity (~35%) version of the coloured logo | Bottom-right corner of layouts, flashcards, documents |
 
 ## Typography (locked free stack — v1.4)
 - **Wordmark "phewphonics":** Bauhaus 93 (fallback: Oswald)
@@ -22,6 +24,12 @@ Full brand DNA: see [PLU-branding-extended.md](../../PLU-branding-extended.md)
 - Rhema blue: `#1A1A8C`
 - White: `#FFFFFF`
 - Black: `#1A1A1A`
+
+## Watermark usage
+- Place in the **bottom-right corner** of pages, flashcards, and documents.
+- Recommended size: ~120–180 px wide.
+- Opacity: 30–45% so it remains subtle.
+- Use the coloured outline version as the source.
 
 ## Raw URLs (for use in Claude sessions, CSS, docs)
 ```
