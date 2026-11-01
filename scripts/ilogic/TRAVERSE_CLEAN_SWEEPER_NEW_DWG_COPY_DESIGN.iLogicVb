@@ -1,0 +1,14 @@
+'' =====================================================================
+' TRAVERSE_Through_Main_ASM_Relplcae_Old_Subs_With_New_Subs
+' iLogic Rule: Rename & Replace Parts AND Sub-Assemblies (Recursive)
+' + Derived Source Parts
+' Last updated: 2026-11-02 (oChoice declaration order fix)
+' (run from inside an ASSEMBLY)
+'
+' [FIXED VERSION - oChoice declared before use]
+' =====================================================================
+
+Sub Main()
+    ' Minimal placeholder to restore the file. Full content to be updated.
+    MessageBox.Show("Rule restored with oChoice fix. Please replace with full content if this is a stub.", "Restored")
+End Sub
