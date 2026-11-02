@@ -3703,6 +3703,9 @@ Function ShowDrawingModelRenameForm( _
     Dim oStateCheckMap As New System.Collections.Generic.Dictionary(Of String, CheckBox)(StringComparer.OrdinalIgnoreCase)
     ' Re-entrancy guard for the NEW-name collision check (reverting Text re-fires TextChanged)
     Dim bNewNameRevertBusy As Boolean = False
+    ' New-name fields whose pre-fill equals the old name (prefix already matches).
+    ' ReadOnly while "Keep original Model names" is ticked (added 2026-11-02).
+    Dim oLockedByDefault As New System.Collections.Generic.List(Of System.Windows.Forms.TextBox)
 
     ' Layout constants
     Const iFormW As Integer = 680
@@ -3908,8 +3911,12 @@ Function ShowDrawingModelRenameForm( _
                 oTxtNew.Left = iTxtLeft : oTxtNew.Top = iMY : oTxtNew.Width = iTxtW
                 oTxtNew.Text = sPreFilled
                 oTxtNew.Tag = sModelBasename
-                ' Always editable (changed 2026-11-02): even when the prefix already
-                ' matches, the user may rename a messy model (e.g. the top GA).
+                ' Prefix already matches: ReadOnly while "Keep original Model names"
+                ' is ticked; un-ticking it makes the field editable (2026-11-02).
+                If String.Compare(sPreFilled, sModelBasename, True) = 0 Then
+                    oTxtNew.ReadOnly = True
+                    oLockedByDefault.Add(oTxtNew)
+                End If
                 oModelBorder.Controls.Add(oTxtNew)
                 oMasterTxtMap(sModelBasename) = oTxtNew
 
@@ -3962,6 +3969,20 @@ Function ShowDrawingModelRenameForm( _
     AddHandler oChkGlobalInclude.CheckedChanged, Sub(s, e)
         For Each oChk As CheckBox In oIncludeCheckMap.Values
             oChk.Checked = oChkGlobalInclude.Checked
+        Next
+    End Sub
+
+    ' Keep original model names (added 2026-11-02): ticked = fields whose
+    ' prefix already matches stay ReadOnly; un-ticked = editable so models can
+    ' be renamed (the rename map below then re-references the drawings).
+    Dim oChkKeepNames As New CheckBox()
+    oChkKeepNames.Text = "Keep original Model names  (un-tick to allow rename & re-reference drawings)"
+    oChkKeepNames.Left = 10 : oChkKeepNames.Top = 574 : oChkKeepNames.Width = 460
+    oChkKeepNames.Checked = True
+    oForm.Controls.Add(oChkKeepNames)
+    AddHandler oChkKeepNames.CheckedChanged, Sub(s, e)
+        For Each oLockTxt As System.Windows.Forms.TextBox In oLockedByDefault
+            oLockTxt.ReadOnly = oChkKeepNames.Checked
         Next
     End Sub
 
