@@ -2981,7 +2981,7 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument)
     Dim oCfgForm As New System.Windows.Forms.Form()
     oCfgForm.Text = "Drawing Copy Mode — New Project Prefix"
     oCfgForm.Width = 480
-    oCfgForm.Height = 200
+    oCfgForm.Height = 240
     oCfgForm.FormBorderStyle = System.Windows.Forms.FormBorderStyle.FixedDialog
     oCfgForm.MaximizeBox = False
     oCfgForm.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen
@@ -3006,14 +3006,23 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument)
     oCfgTxt.Enabled = Not bPrefixLocked
     oCfgForm.Controls.Add(oCfgTxt)
 
+    ' -- REPORT ONLY checkbox (unchecked by default) ----------------------
+    ' When checked: scan drawings/models as normal but write a report file
+    ' to the drawing folder and open it — NO copies, saves or repoints.
+    Dim oCfgChkReport As New System.Windows.Forms.CheckBox()
+    oCfgChkReport.Text = "Report Only — Drawing / Model Grab  (no changes made)"
+    oCfgChkReport.Left = 12 : oCfgChkReport.Top = 98 : oCfgChkReport.Width = 440 : oCfgChkReport.Height = 22
+    oCfgChkReport.Checked = False
+    oCfgForm.Controls.Add(oCfgChkReport)
+
     Dim oCfgOk As New System.Windows.Forms.Button()
-    oCfgOk.Text = "Continue" : oCfgOk.Left = 12 : oCfgOk.Top = 104 : oCfgOk.Width = 90 : oCfgOk.Height = 28
+    oCfgOk.Text = "Continue" : oCfgOk.Left = 12 : oCfgOk.Top = 136 : oCfgOk.Width = 90 : oCfgOk.Height = 28
     oCfgOk.DialogResult = System.Windows.Forms.DialogResult.OK
     oCfgForm.Controls.Add(oCfgOk)
     oCfgForm.AcceptButton = oCfgOk
 
     Dim oCfgCancel As New System.Windows.Forms.Button()
-    oCfgCancel.Text = "Cancel" : oCfgCancel.Left = 110 : oCfgCancel.Top = 104 : oCfgCancel.Width = 80 : oCfgCancel.Height = 28
+    oCfgCancel.Text = "Cancel" : oCfgCancel.Left = 110 : oCfgCancel.Top = 136 : oCfgCancel.Width = 80 : oCfgCancel.Height = 28
     oCfgCancel.DialogResult = System.Windows.Forms.DialogResult.Cancel
     oCfgForm.Controls.Add(oCfgCancel)
     oCfgForm.CancelButton = oCfgCancel
@@ -3023,13 +3032,14 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument)
         ThisApplication.SilentOperation = bOrigSilent
         Return
     End If
+    Dim bReportOnly As Boolean = oCfgChkReport.Checked
     sNewPrefix = Trim(oCfgTxt.Text)
     If sNewPrefix = "" Then
         MessageBox.Show("New prefix cannot be empty.", "Drawing Copy Mode")
         ThisApplication.SilentOperation = bOrigSilent
         Return
     End If
-    Try : System.IO.File.AppendAllText(sLogFilePath, "Old prefix: " & oOldPrefix & "  New prefix: " & sNewPrefix & vbCrLf) : Catch : End Try
+    Try : System.IO.File.AppendAllText(sLogFilePath, "Old prefix: " & oOldPrefix & "  New prefix: " & sNewPrefix & If(bReportOnly, "  [REPORT ONLY]", "") & vbCrLf) : Catch : End Try
 
     ' ── 3. Build Phase0Data for the rename form — one entry per drawing ──
     ' Format: List(Of Object()) where each entry = {sDwgBasename As String, List(Of sModelBasename_noExt)}
@@ -3070,6 +3080,66 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument)
         oPhase0Data.Add(New Object() {System.IO.Path.GetFileName(sAcadDwg), New System.Collections.Generic.List(Of String), "AUTOCAD", sAcadDesc})
         Try : System.IO.File.AppendAllText(sLogFilePath, "ACAD-INCLUDED: " & System.IO.Path.GetFileName(sAcadDwg) & If(sAcadDesc <> "", "  [" & sAcadDesc & "]", "") & vbCrLf) : Catch : End Try
     Next
+
+    ' ── REPORT ONLY EXIT ─────────────────────────────────────────────────
+    ' If the checkbox was ticked, write a plain-text report of all drawings
+    ' and their model refs to the drawing folder, open it in Notepad, then exit.
+    ' Nothing has been copied, renamed, saved or repointed at this point.
+    If bReportOnly Then
+        Dim sRptTimestamp As String = DateTime.Now.ToString("yyyy-MM-dd_HHmmss")
+        Dim sRptPath As String = System.IO.Path.Combine(sDwgFolder, "DrawingCopyMode_ReportOnly_" & sRptTimestamp & ".txt")
+        Dim oRptLines As New System.Collections.Generic.List(Of String)
+        oRptLines.Add("REPORT ONLY — Drawing / Model Grab")
+        oRptLines.Add("Generated     : " & DateTime.Now.ToString())
+        oRptLines.Add("Started from  : " & oDwgDoc.FullFileName)
+        oRptLines.Add("Drawing folder: " & sDwgFolder)
+        oRptLines.Add("Old prefix    : " & oOldPrefix)
+        oRptLines.Add("New prefix    : " & sNewPrefix & "  (proposed — no action taken)")
+        oRptLines.Add("Status        : No files were copied, modified, repointed or saved.")
+        oRptLines.Add(New String("="c, 100))
+        Dim iTotalRptDwgs As Integer = 0
+        Dim iTotalRptModels As Integer = 0
+        For Each oRptEntry As Object() In oPhase0Data
+            Dim sRptDwg As String = CStr(oRptEntry(0))
+            Dim oRptModels As System.Collections.Generic.List(Of String) = CType(oRptEntry(1), System.Collections.Generic.List(Of String))
+            Dim sRptType As String = If(oRptEntry.Length > 2, CStr(oRptEntry(2)), "")
+            Dim sRptDesc As String = If(oRptEntry.Length > 3, CStr(oRptEntry(3)), If(oRptEntry.Length > 2 AndAlso sRptType <> "AUTOCAD", CStr(oRptEntry(2)), ""))
+            ' For normal Inventor DWGs oRptEntry(2) holds the description, no "AUTOCAD" type
+            If sRptType = "AUTOCAD" Then
+                oRptLines.Add("DRAWING: " & sRptDwg & "  [AutoCAD — no model refs]" & If(sRptDesc <> "", "  [" & sRptDesc & "]", ""))
+            Else
+                ' oRptEntry layout: {dwgBasename, List(modelBasenames_noExt), description}
+                Dim sRptDwgDesc As String = If(oRptEntry.Length > 2, CStr(oRptEntry(2)), "")
+                oRptLines.Add("DRAWING: " & sRptDwg & If(sRptDwgDesc <> "", "  [" & sRptDwgDesc & "]", ""))
+                If oRptModels.Count = 0 Then
+                    oRptLines.Add("  (no .iam/.ipt model refs found)")
+                Else
+                    For Each sRptMdl As String In oRptModels
+                        Dim sRptMdlFull As String = If(oBasenameToFullPath.ContainsKey(sRptMdl), oBasenameToFullPath(sRptMdl), "")
+                        Dim sRptMdlExt As String = If(sRptMdlFull <> "", System.IO.Path.GetExtension(sRptMdlFull), "")
+                        oRptLines.Add("  Model: " & sRptMdl & sRptMdlExt)
+                        If sRptMdlFull <> "" Then oRptLines.Add("    Path : " & sRptMdlFull)
+                        iTotalRptModels += 1
+                    Next
+                End If
+                iTotalRptDwgs += 1
+            End If
+            oRptLines.Add("")
+        Next
+        oRptLines.Add(New String("="c, 100))
+        oRptLines.Add("Total Inventor drawings: " & iTotalRptDwgs)
+        oRptLines.Add("Total unique model refs : " & iTotalRptModels)
+        Try
+            System.IO.File.WriteAllLines(sRptPath, oRptLines.ToArray())
+            Try : System.IO.File.AppendAllText(sLogFilePath, "REPORT ONLY written: " & sRptPath & vbCrLf) : Catch : End Try
+            System.Diagnostics.Process.Start("notepad.exe", Chr(34) & sRptPath & Chr(34))
+            MessageBox.Show("Report Only complete." & vbCrLf & vbCrLf & "Report saved to:" & vbCrLf & sRptPath, "Drawing Copy Mode — Report Only")
+        Catch exRpt As Exception
+            MessageBox.Show("Could not write report: " & exRpt.Message, "Drawing Copy Mode — Report Only")
+        End Try
+        ThisApplication.SilentOperation = bOrigSilent
+        Return
+    End If
 
     ' ── 3b. Show the existing Drawing Model Renames form ───────────────
     ' oChoice.sReplace is already set to sNewPrefix so the form pre-fills correctly.
