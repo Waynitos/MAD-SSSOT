@@ -3908,10 +3908,8 @@ Function ShowDrawingModelRenameForm( _
                 oTxtNew.Left = iTxtLeft : oTxtNew.Top = iMY : oTxtNew.Width = iTxtW
                 oTxtNew.Text = sPreFilled
                 oTxtNew.Tag = sModelBasename
-                ' If the name isn't changing, lock the field to avoid accidental edits
-                If String.Compare(sPreFilled, sModelBasename, True) = 0 Then
-                    oTxtNew.ReadOnly = True
-                End If
+                ' Always editable (changed 2026-11-02): even when the prefix already
+                ' matches, the user may rename a messy model (e.g. the top GA).
                 oModelBorder.Controls.Add(oTxtNew)
                 oMasterTxtMap(sModelBasename) = oTxtNew
 
