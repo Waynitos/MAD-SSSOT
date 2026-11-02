@@ -3727,7 +3727,7 @@ Function ShowDrawingModelRenameForm( _
     oForm.MinimizeBox = False
     oForm.MaximizeBox = False
     oForm.Width = iFormW
-    oForm.Height = 640
+    oForm.Height = 670
 
     ' ---- Header label ----
     Dim oLblHdr As New Label()
@@ -3963,7 +3963,7 @@ Function ShowDrawingModelRenameForm( _
     ' Global include all / exclude all
     Dim oChkGlobalInclude As New CheckBox()
     oChkGlobalInclude.Text = "Include ALL drawings  (un-tick to exclude individual drawings above)"
-    oChkGlobalInclude.Left = 10 : oChkGlobalInclude.Top = 548 : oChkGlobalInclude.Width = 450
+    oChkGlobalInclude.Left = 10 : oChkGlobalInclude.Top = 572 : oChkGlobalInclude.Width = 450
     oChkGlobalInclude.Checked = True
     oForm.Controls.Add(oChkGlobalInclude)
     AddHandler oChkGlobalInclude.CheckedChanged, Sub(s, e)
@@ -3977,7 +3977,7 @@ Function ShowDrawingModelRenameForm( _
     ' be renamed (the rename map below then re-references the drawings).
     Dim oChkKeepNames As New CheckBox()
     oChkKeepNames.Text = "Keep original Model names  (un-tick to allow rename & re-reference drawings)"
-    oChkKeepNames.Left = 10 : oChkKeepNames.Top = 574 : oChkKeepNames.Width = 460
+    oChkKeepNames.Left = 10 : oChkKeepNames.Top = 548 : oChkKeepNames.Width = 460
     oChkKeepNames.Checked = True
     oForm.Controls.Add(oChkKeepNames)
     AddHandler oChkKeepNames.CheckedChanged, Sub(s, e)
@@ -3989,12 +3989,12 @@ Function ShowDrawingModelRenameForm( _
     ' ---- OK / Cancel — with bottom margin ----
     Dim oOk As New Button()
     oOk.Text = "OK" : oOk.DialogResult = DialogResult.OK
-    oOk.Left = 476 : oOk.Top = 576 : oOk.Width = 80
+    oOk.Left = 476 : oOk.Top = 600 : oOk.Width = 80
     oForm.Controls.Add(oOk) : oForm.AcceptButton = oOk
 
     Dim oCancel As New Button()
     oCancel.Text = "Cancel" : oCancel.DialogResult = DialogResult.Cancel
-    oCancel.Left = 568 : oCancel.Top = 576 : oCancel.Width = 80
+    oCancel.Left = 568 : oCancel.Top = 600 : oCancel.Width = 80
     oForm.Controls.Add(oCancel) : oForm.CancelButton = oCancel
 
     If oForm.ShowDialog() <> DialogResult.OK Then Return False
