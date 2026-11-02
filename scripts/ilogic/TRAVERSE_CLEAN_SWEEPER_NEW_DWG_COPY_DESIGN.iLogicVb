@@ -2749,6 +2749,8 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument)
                 Continue For
             End If
             Try : System.IO.File.AppendAllText(sLogFilePath, "DIAG-REF: " & sRefPath & vbCrLf) : Catch : End Try
+            ' Strip model-state suffix, e.g. "X.iam<DART SHUT>" -> "X.iam" (added 2026-11-02)
+            If sRefPath.IndexOf("<"c) > 0 Then sRefPath = Trim(sRefPath.Substring(0, sRefPath.IndexOf("<"c)))
             Dim sExt As String = System.IO.Path.GetExtension(sRefPath).ToUpper()
             If sExt = ".IAM" OrElse sExt = ".IPT" Then
                 If Not oScanRefs.Contains(sRefPath) Then oScanRefs.Add(sRefPath)
@@ -2781,6 +2783,8 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument)
                         Continue For
                     End If
                     Try : System.IO.File.AppendAllText(sLogFilePath, "DIAG-VIEW: " & oFbSheet.Name & " / " & oFbView.Name & " : " & sFbPath & vbCrLf) : Catch : End Try
+                    ' Strip model-state suffix (added 2026-11-02)
+                    If sFbPath.IndexOf("<"c) > 0 Then sFbPath = Trim(sFbPath.Substring(0, sFbPath.IndexOf("<"c)))
                     Dim sFbExt As String = System.IO.Path.GetExtension(sFbPath).ToUpper()
                     If sFbExt = ".IAM" OrElse sFbExt = ".IPT" Then
                         If Not oScanRefs.Contains(sFbPath) Then oScanRefs.Add(sFbPath)
@@ -2823,6 +2827,8 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument)
                 Dim sSibRefPath As String = ""
                 Try : sSibRefPath = oSibRef.FullDocumentName : Catch : Continue For : End Try
                 If Trim(sSibRefPath) = "" Then Continue For
+                ' Strip model-state suffix, e.g. "X.iam<DART SHUT>" -> "X.iam" (added 2026-11-02)
+                If sSibRefPath.IndexOf("<"c) > 0 Then sSibRefPath = Trim(sSibRefPath.Substring(0, sSibRefPath.IndexOf("<"c)))
                 Dim sSibExt As String = System.IO.Path.GetExtension(sSibRefPath).ToUpper()
                 If sSibExt = ".IAM" OrElse sSibExt = ".IPT" Then
                     If Not oSibRefs.Contains(sSibRefPath) Then oSibRefs.Add(sSibRefPath)
