@@ -2947,7 +2947,16 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument)
         Dim sP0DwgPath As String = oAllDwgPaths(iP0Idx)
         If Not oAllDwgRefs.ContainsKey(sP0DwgPath) Then Continue For
         Dim oP0Refs As System.Collections.Generic.List(Of String) = oAllDwgRefs(sP0DwgPath)
-        If oP0Refs.Count = 0 Then Continue For
+        If oP0Refs.Count = 0 Then
+            ' AutoCAD-created DWG (no .iam/.ipt refs): list it greyed in the rename form
+            ' with its DRAWING_DESCRIPTION_2 attribute; never processed or repointed.
+            If IsAutoCADDwg(sP0DwgPath) Then
+                Dim sAcadDesc0 As String = GetAcadDrawingDescription(sP0DwgPath)
+                oPhase0Data.Add(New Object() {System.IO.Path.GetFileName(sP0DwgPath), New System.Collections.Generic.List(Of String), "AUTOCAD", sAcadDesc0})
+                Try : System.IO.File.AppendAllText(sLogFilePath, "ACAD-INCLUDED: " & System.IO.Path.GetFileName(sP0DwgPath) & If(sAcadDesc0 <> "", "  [" & sAcadDesc0 & "]", "") & vbCrLf) : Catch : End Try
+            End If
+            Continue For
+        End If
         Dim sP0DwgBase As String = System.IO.Path.GetFileName(sP0DwgPath)
         Dim oP0ModelList As New System.Collections.Generic.List(Of String)
         Dim iP0RefIdx As Integer
@@ -2962,7 +2971,9 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument)
     Next
     ' AutoCAD DWGs: shown greyed in the rename form, excluded from all processing
     For Each sAcadDwg As String In oAcadDwgPaths
-        oPhase0Data.Add(New Object() {System.IO.Path.GetFileName(sAcadDwg), New System.Collections.Generic.List(Of String), "AUTOCAD"})
+        Dim sAcadDesc As String = GetAcadDrawingDescription(sAcadDwg)
+        oPhase0Data.Add(New Object() {System.IO.Path.GetFileName(sAcadDwg), New System.Collections.Generic.List(Of String), "AUTOCAD", sAcadDesc})
+        Try : System.IO.File.AppendAllText(sLogFilePath, "ACAD-INCLUDED: " & System.IO.Path.GetFileName(sAcadDwg) & If(sAcadDesc <> "", "  [" & sAcadDesc & "]", "") & vbCrLf) : Catch : End Try
     Next
 
     ' ── 3b. Show the existing Drawing Model Renames form ───────────────
@@ -3673,6 +3684,11 @@ Function ShowDrawingModelRenameForm( _
 
             Dim oLblDwgAcad As New Label()
             oLblDwgAcad.Text = sDwgBasename & "  —  Autocad Created Drawing – not included in This Clean Sweep"
+            If oEntry.Length > 3 Then
+                Dim sAcadLblDesc As String = ""
+                Try : sAcadLblDesc = Trim(CStr(oEntry(3))) : Catch : End Try
+                If sAcadLblDesc <> "" Then oLblDwgAcad.Text = oLblDwgAcad.Text & "  —  " & sAcadLblDesc
+            End If
             oLblDwgAcad.Left = 46 : oLblDwgAcad.Top = iY : oLblDwgAcad.Width = 390 : oLblDwgAcad.Height = 20
             oPanel.Controls.Add(oLblDwgAcad)
 
@@ -4290,6 +4306,55 @@ Function IsAutoCADDwg(sPath As String) As Boolean
     Catch
         Return False
     End Try
+End Function
+
+' Read-only: returns the value of the AutoCAD block attribute tag
+' DRAWING_DESCRIPTION_2 from an AutoCAD-created .dwg (first non-blank hit
+' across Sheets -> AutoCADBlocks -> GetPromptTextValues). Opens the file
+' invisibly if it is not already open and closes it again WITHOUT saving.
+' Returns "" if the tag is absent or anything fails.
+Function GetAcadDrawingDescription(sPath As String) As String
+    Dim sResult As String = ""
+    Dim oAcadDoc As Document = Nothing
+    Dim bOpenedHere As Boolean = False
+    Try
+        For Each oOpen As Document In ThisApplication.Documents
+            If String.Compare(oOpen.FullFileName, sPath, True) = 0 Then oAcadDoc = oOpen : Exit For
+        Next
+        If oAcadDoc Is Nothing Then
+            oAcadDoc = ThisApplication.Documents.Open(sPath, False)
+            bOpenedHere = True
+        End If
+        If oAcadDoc.DocumentType = DocumentTypeEnum.kDrawingDocumentObject Then
+            Dim oAcadDwg As DrawingDocument = CType(oAcadDoc, DrawingDocument)
+            For Each oAcadSheet As Sheet In oAcadDwg.Sheets
+                For Each oAcadBlk As AutoCADBlock In oAcadSheet.AutoCADBlocks
+                    Try
+                        Dim oTags() As String = {}
+                        Dim oVals() As String = {}
+                        oAcadBlk.GetPromptTextValues(oTags, oVals)
+                        Dim iTag As Integer
+                        For iTag = 0 To oTags.Length - 1
+                            If String.Compare(Trim(oTags(iTag)), "DRAWING_DESCRIPTION_2", True) = 0 Then
+                                If iTag < oVals.Length AndAlso Trim(oVals(iTag)) <> "" Then
+                                    sResult = Trim(oVals(iTag))
+                                    Exit For
+                                End If
+                            End If
+                        Next
+                    Catch
+                    End Try
+                    If sResult <> "" Then Exit For
+                Next
+                If sResult <> "" Then Exit For
+            Next
+        End If
+    Catch
+    End Try
+    If bOpenedHere AndAlso oAcadDoc IsNot Nothing Then
+        Try : oAcadDoc.Close(True) : Catch : End Try
+    End If
+    Return sResult
 End Function
 
 
