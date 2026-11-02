@@ -2722,11 +2722,33 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument)
 
     ' Helper: add model refs from a DrawingDocument into oAllDwgRefs
     Dim oScanRefs As New System.Collections.Generic.List(Of String)
+    ' DIAG (added 2026-11-02): explain a "0 model refs" result in the log.
+    Try
+        Dim sDiagRefCount As String = "?"
+        Dim sDiagReqUpd As String = "?"
+        Dim sDiagInvDwg As String = "n/a"
+        Try : sDiagRefCount = CStr(oDwgDoc.ReferencedDocuments.Count) : Catch exDc As Exception : sDiagRefCount = "ERR " & exDc.Message : End Try
+        Try : sDiagReqUpd = CStr(oDwgDoc.RequiresUpdate) : Catch exDu As Exception : sDiagReqUpd = "ERR " & exDu.Message : End Try
+        If System.IO.Path.GetExtension(sActiveDwgPath).ToUpper() = ".DWG" Then
+            Try : sDiagInvDwg = CStr(ThisApplication.FileManager.IsInventorDWG(sActiveDwgPath)) : Catch exDi As Exception : sDiagInvDwg = "ERR " & exDi.Message : End Try
+        End If
+        System.IO.File.AppendAllText(sLogFilePath, "DIAG: active drawing " & System.IO.Path.GetFileName(sActiveDwgPath) & " ReferencedDocuments.Count=" & sDiagRefCount & " RequiresUpdate=" & sDiagReqUpd & " IsInventorDWG=" & sDiagInvDwg & vbCrLf)
+    Catch
+    End Try
     Try
         For Each oRef As Document In oDwgDoc.ReferencedDocuments
             Dim sRefPath As String = ""
-            Try : sRefPath = oRef.FullDocumentName : Catch : Continue For : End Try
-            If Trim(sRefPath) = "" Then Continue For
+            Try
+                sRefPath = oRef.FullDocumentName
+            Catch exRp As Exception
+                Try : System.IO.File.AppendAllText(sLogFilePath, "DIAG-REF: exception reading FullDocumentName: " & exRp.Message & vbCrLf) : Catch : End Try
+                Continue For
+            End Try
+            If Trim(sRefPath) = "" Then
+                Try : System.IO.File.AppendAllText(sLogFilePath, "DIAG-REF: empty FullDocumentName" & vbCrLf) : Catch : End Try
+                Continue For
+            End If
+            Try : System.IO.File.AppendAllText(sLogFilePath, "DIAG-REF: " & sRefPath & vbCrLf) : Catch : End Try
             Dim sExt As String = System.IO.Path.GetExtension(sRefPath).ToUpper()
             If sExt = ".IAM" OrElse sExt = ".IPT" Then
                 If Not oScanRefs.Contains(sRefPath) Then oScanRefs.Add(sRefPath)
@@ -2738,6 +2760,38 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument)
         ThisApplication.SilentOperation = bOrigSilent
         Return
     End Try
+    ' Fallback (added 2026-11-02): if ReferencedDocuments gave no .iam/.ipt,
+    ' walk Sheets -> DrawingViews -> ReferencedDocument. Every view ref is
+    ' logged; only .iam/.ipt paths are added to the real collection.
+    If oScanRefs.Count = 0 Then
+        Try : System.IO.File.AppendAllText(sLogFilePath, "DIAG: ReferencedDocuments gave 0 model refs - trying Sheets/DrawingViews fallback" & vbCrLf) : Catch : End Try
+        Try
+            For Each oFbSheet As Sheet In oDwgDoc.Sheets
+                For Each oFbView As DrawingView In oFbSheet.DrawingViews
+                    Dim sFbPath As String = ""
+                    Try
+                        Dim oFbRefDoc As Document = oFbView.ReferencedDocumentDescriptor.ReferencedDocument
+                        If oFbRefDoc IsNot Nothing Then sFbPath = oFbRefDoc.FullDocumentName
+                    Catch exFb As Exception
+                        Try : System.IO.File.AppendAllText(sLogFilePath, "DIAG-VIEW: " & oFbSheet.Name & " / " & oFbView.Name & " : exception " & exFb.Message & vbCrLf) : Catch : End Try
+                        Continue For
+                    End Try
+                    If Trim(sFbPath) = "" Then
+                        Try : System.IO.File.AppendAllText(sLogFilePath, "DIAG-VIEW: " & oFbSheet.Name & " / " & oFbView.Name & " : empty FullDocumentName" & vbCrLf) : Catch : End Try
+                        Continue For
+                    End If
+                    Try : System.IO.File.AppendAllText(sLogFilePath, "DIAG-VIEW: " & oFbSheet.Name & " / " & oFbView.Name & " : " & sFbPath & vbCrLf) : Catch : End Try
+                    Dim sFbExt As String = System.IO.Path.GetExtension(sFbPath).ToUpper()
+                    If sFbExt = ".IAM" OrElse sFbExt = ".IPT" Then
+                        If Not oScanRefs.Contains(sFbPath) Then oScanRefs.Add(sFbPath)
+                        If Not oAllModelPaths.Contains(sFbPath) Then oAllModelPaths.Add(sFbPath)
+                    End If
+                Next
+            Next
+        Catch exFbAll As Exception
+            Try : System.IO.File.AppendAllText(sLogFilePath, "DIAG: DrawingViews fallback failed: " & exFbAll.Message & vbCrLf) : Catch : End Try
+        End Try
+    End If
     oAllDwgRefs(sActiveDwgPath) = oScanRefs
     ' Read TB1_EN5_TYPE description from active drawing
     Dim sActiveDesc As String = ""
