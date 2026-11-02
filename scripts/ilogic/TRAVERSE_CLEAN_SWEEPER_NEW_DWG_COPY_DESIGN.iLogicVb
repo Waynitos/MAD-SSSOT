@@ -4419,6 +4419,58 @@ Function GetAcadDrawingDescription(sPath As String, Optional sLogPath As String 
         If sTagLine = "" Then sTagLine = "(no AutoCADBlocks / no tags)"
         Try : System.IO.File.AppendAllText(sLogPath, "ACAD-TAGS: " & System.IO.Path.GetFileName(sPath) & " : " & sTagLine & vbCrLf) : Catch : End Try
     End If
+    ' Fallback (added 2026-11-02): Sheet.AutoCADBlocks returns nothing for
+    ' native AutoCAD drawings, so read block attributes from the underlying
+    ' AutoCAD database via ContainingDWGDocument (late-bound Object, no
+    ' AutoCAD type library needed). Layouts -> Block -> AcDbBlockReference ->
+    ' GetAttributes(). Logs ACAD-DB-TAGS, or ACAD-DB-FAIL on error.
+    If sResult = "" AndAlso oAcadDoc IsNot Nothing Then
+        Dim sDbResult As String = ""
+        Dim sDbFallback As String = ""
+        Dim oDbTagLog As New System.Text.StringBuilder()
+        Try
+            Dim oDbDwg As Object = oAcadDoc
+            Dim oDbDoc As Object = oDbDwg.ContainingDWGDocument
+            For Each oDbLayout As Object In oDbDoc.Layouts
+                Dim oDbBlock As Object = oDbLayout.Block
+                For Each oDbEnt As Object In oDbBlock
+                    Dim sDbObjName As String = ""
+                    Try : sDbObjName = CStr(oDbEnt.ObjectName) : Catch : End Try
+                    If sDbObjName = "AcDbBlockReference" Then
+                        Try
+                            Dim oDbAtts As Object = oDbEnt.GetAttributes()
+                            For Each oDbAtt As Object In oDbAtts
+                                Dim sDbTag As String = ""
+                                Dim sDbVal As String = ""
+                                Try : sDbTag = Trim(CStr(oDbAtt.TagString)) : Catch : End Try
+                                Try : sDbVal = Trim(CStr(oDbAtt.TextString)) : Catch : End Try
+                                oDbTagLog.Append(sDbTag & "='" & sDbVal & "'; ")
+                                If sDbResult = "" AndAlso sDbVal <> "" AndAlso String.Compare(sDbTag, "DRAWING_DESCRIPTION_2", True) = 0 Then
+                                    sDbResult = sDbVal
+                                End If
+                                If sDbFallback = "" AndAlso sDbVal <> "" Then
+                                    Dim sDbTagUp As String = sDbTag.ToUpper()
+                                    If sDbTagUp.Contains("DESCRIPTION") OrElse sDbTagUp.Contains("DRAWING") Then sDbFallback = sDbVal
+                                End If
+                            Next
+                        Catch
+                        End Try
+                    End If
+                Next
+            Next
+            If sDbResult = "" Then sDbResult = sDbFallback
+            If sDbResult <> "" Then sResult = sDbResult
+            If sLogPath <> "" Then
+                Dim sDbTagLine As String = oDbTagLog.ToString().Trim()
+                If sDbTagLine = "" Then sDbTagLine = "(no block references / no attributes)"
+                Try : System.IO.File.AppendAllText(sLogPath, "ACAD-DB-TAGS: " & System.IO.Path.GetFileName(sPath) & " : " & sDbTagLine & vbCrLf) : Catch : End Try
+            End If
+        Catch exDb As Exception
+            If sLogPath <> "" Then
+                Try : System.IO.File.AppendAllText(sLogPath, "ACAD-DB-FAIL: " & System.IO.Path.GetFileName(sPath) & " : " & exDb.Message & vbCrLf) : Catch : End Try
+            End If
+        End Try
+    End If
     If bOpenedHere AndAlso oAcadDoc IsNot Nothing Then
         Try : oAcadDoc.Close(True) : Catch : End Try
     End If
