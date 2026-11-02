@@ -5001,34 +5001,13 @@ Function ShowCopyDesignConfigForm(ByRef oChoice As RenameModeChoice, Optional sS
     oForm.Controls.Add(oTxtPrefix)
 
     Dim oLblSeg As New Label()
-    oLblSeg.Text = "Optional segment replaces (up to 5) - applied AFTER prefix swap:"
+    oLblSeg.Text = "Optional segment replaces - applied AFTER prefix swap:"
     oLblSeg.Left = 15 : oLblSeg.Top = 75 : oLblSeg.Width = 500
     oForm.Controls.Add(oLblSeg)
 
-    ' 5 Find/Replace row pairs (rows spaced 30px apart starting at top=100)
-    Dim oTxtF1 As New System.Windows.Forms.TextBox() : oTxtF1.Left = 15 : oTxtF1.Top = 100 : oTxtF1.Width = 220
-    Dim oTxtR1 As New System.Windows.Forms.TextBox() : oTxtR1.Left = 250 : oTxtR1.Top = 100 : oTxtR1.Width = 220
-    Dim oTxtF2 As New System.Windows.Forms.TextBox() : oTxtF2.Left = 15 : oTxtF2.Top = 130 : oTxtF2.Width = 220
-    Dim oTxtR2 As New System.Windows.Forms.TextBox() : oTxtR2.Left = 250 : oTxtR2.Top = 130 : oTxtR2.Width = 220
-    Dim oTxtF3 As New System.Windows.Forms.TextBox() : oTxtF3.Left = 15 : oTxtF3.Top = 160 : oTxtF3.Width = 220
-    Dim oTxtR3 As New System.Windows.Forms.TextBox() : oTxtR3.Left = 250 : oTxtR3.Top = 160 : oTxtR3.Width = 220
-    Dim oTxtF4 As New System.Windows.Forms.TextBox() : oTxtF4.Left = 15 : oTxtF4.Top = 190 : oTxtF4.Width = 220
-    Dim oTxtR4 As New System.Windows.Forms.TextBox() : oTxtR4.Left = 250 : oTxtR4.Top = 190 : oTxtR4.Width = 220
-    Dim oTxtF5 As New System.Windows.Forms.TextBox() : oTxtF5.Left = 15 : oTxtF5.Top = 220 : oTxtF5.Width = 220
-    Dim oTxtR5 As New System.Windows.Forms.TextBox() : oTxtR5.Left = 250 : oTxtR5.Top = 220 : oTxtR5.Width = 220
-
-    Dim oLblArrow1 As New Label() : oLblArrow1.Text = "->" : oLblArrow1.Left = 238 : oLblArrow1.Top = 103 : oLblArrow1.Width = 20
-    Dim oLblArrow2 As New Label() : oLblArrow2.Text = "->" : oLblArrow2.Left = 238 : oLblArrow2.Top = 133 : oLblArrow2.Width = 20
-    Dim oLblArrow3 As New Label() : oLblArrow3.Text = "->" : oLblArrow3.Left = 238 : oLblArrow3.Top = 163 : oLblArrow3.Width = 20
-    Dim oLblArrow4 As New Label() : oLblArrow4.Text = "->" : oLblArrow4.Left = 238 : oLblArrow4.Top = 193 : oLblArrow4.Width = 20
-    Dim oLblArrow5 As New Label() : oLblArrow5.Text = "->" : oLblArrow5.Left = 238 : oLblArrow5.Top = 223 : oLblArrow5.Width = 20
-
-    ' Pre-fill rows from history (will be overridden slot-by-slot by auto-detect below)
-    oTxtF1.Text = g_sLastF1 : oTxtR1.Text = g_sLastR1
-    oTxtF2.Text = g_sLastF2 : oTxtR2.Text = g_sLastR2
-    oTxtF3.Text = g_sLastF3 : oTxtR3.Text = g_sLastR3
-    oTxtF4.Text = g_sLastF4 : oTxtR4.Text = g_sLastR4
-    oTxtF5.Text = g_sLastF5 : oTxtR5.Text = g_sLastR5
+    ' Find/Replace rows are built dynamically below (2026-11-02): one row per
+    ' remaining auto-detected mismatch (cap 10), then last-run history rows,
+    ' then 2 blank custom rows. Rows start at top=118, spaced 30px apart.
 
     ' ---- AUTO-DETECT SEGMENT ANOMALIES FROM FULL TREE ----
     ' Walks AllOccurrences (Vault-proof) + the GA folder for filenames that
@@ -5186,7 +5165,7 @@ Function ShowCopyDesignConfigForm(ByRef oChoice As RenameModeChoice, Optional sS
                      End Function)
         Dim iAdded As Integer = 0
         For Each kvp As System.Collections.Generic.KeyValuePair(Of String, Integer) In oSorted
-            If iAdded >= 5 Then Exit For
+            If iAdded >= 10 Then Exit For
             If sCanonMiddle = "" Then Exit For
             If Not oSeenTokens.Contains(kvp.Key) Then
                 oSeenTokens.Add(kvp.Key)
@@ -5199,64 +5178,75 @@ Function ShowCopyDesignConfigForm(ByRef oChoice As RenameModeChoice, Optional sS
         ' Auto-detect is best-effort; any failure leaves history values in place
     End Try
 
-    ' Merge auto-suggestions into text box slots.
-    ' Slots 1..N get auto-detected pairs (highlighted yellow); remaining slots keep history.
-    Dim oTxtFs() As System.Windows.Forms.TextBox = {oTxtF1, oTxtF2, oTxtF3, oTxtF4, oTxtF5}
-    Dim oTxtRs() As System.Windows.Forms.TextBox = {oTxtR1, oTxtR2, oTxtR3, oTxtR4, oTxtR5}
+    ' ---- Build dynamic Find/Replace rows (2026-11-02) ----
     Dim oHistFs() As String = {g_sLastF1, g_sLastF2, g_sLastF3, g_sLastF4, g_sLastF5}
     Dim oHistRs() As String = {g_sLastR1, g_sLastR2, g_sLastR3, g_sLastR4, g_sLastR5}
-
-    ' Fill auto-detect rows first
-    For i As Integer = 0 To Math.Min(oAutoFinds.Count, 5) - 1
-        oTxtFs(i).Text = oAutoFinds(i)
-        oTxtRs(i).Text = oAutoReplaces(i)
-        ' Note: System.Drawing.Color not available in iLogic sandbox — no BackColor tint
+    Dim oRowFinds As New System.Collections.Generic.List(Of String)
+    Dim oRowReplaces As New System.Collections.Generic.List(Of String)
+    ' a) auto-detected mismatches (cap 10)
+    iAutoCount = Math.Min(oAutoFinds.Count, 10)
+    For i As Integer = 0 To iAutoCount - 1
+        oRowFinds.Add(oAutoFinds(i)) : oRowReplaces.Add(oAutoReplaces(i))
     Next
-    iAutoCount = Math.Min(oAutoFinds.Count, 5)
-
-    ' Fill remaining slots with history, skipping any already placed by auto-detect
-    Dim iHistSlot As Integer = iAutoCount
+    ' b) last-run history rows not already covered by auto-detect
+    Dim iHistCount As Integer = 0
     For h As Integer = 0 To 4
-        If iHistSlot >= 5 Then Exit For
-        If oHistFs(h) = "" Then Continue For
+        If Trim(oHistFs(h)) = "" Then Continue For
         Dim bDupe As Boolean = False
-        For a As Integer = 0 To iAutoCount - 1
-            If String.Compare(oTxtFs(a).Text, oHistFs(h), True) = 0 Then bDupe = True : Exit For
+        For a As Integer = 0 To oRowFinds.Count - 1
+            If String.Compare(oRowFinds(a), oHistFs(h), True) = 0 Then bDupe = True : Exit For
         Next
         If Not bDupe Then
-            oTxtFs(iHistSlot).Text = oHistFs(h)
-            oTxtRs(iHistSlot).Text = oHistRs(h)
-            iHistSlot += 1
+            oRowFinds.Add(oHistFs(h)) : oRowReplaces.Add(oHistRs(h))
+            iHistCount += 1
         End If
     Next
+    ' c) 2 blank custom rows
+    oRowFinds.Add("") : oRowReplaces.Add("")
+    oRowFinds.Add("") : oRowReplaces.Add("")
+
+    Dim oLblSegCount As New Label()
+    oLblSegCount.Text = "Remaining mismatches detected: " & oAutoFinds.Count & _
+        If(oAutoFinds.Count > 10, "  (showing first 10)", "") & "   |   Rows: " & oRowFinds.Count & _
+        " (" & iAutoCount & " auto, " & iHistCount & " last run, 2 blank custom)"
+    oLblSegCount.Left = 15 : oLblSegCount.Top = 95 : oLblSegCount.Width = 520
+    oForm.Controls.Add(oLblSegCount)
+
+    Dim oTxtFs As New System.Collections.Generic.List(Of System.Windows.Forms.TextBox)
+    Dim oTxtRs As New System.Collections.Generic.List(Of System.Windows.Forms.TextBox)
+    Dim iRowTop As Integer = 118
+    For r As Integer = 0 To oRowFinds.Count - 1
+        Dim oTxtF As New System.Windows.Forms.TextBox()
+        oTxtF.Left = 15 : oTxtF.Top = iRowTop : oTxtF.Width = 220 : oTxtF.Text = oRowFinds(r)
+        Dim oLblArrow As New Label()
+        oLblArrow.Text = "->" : oLblArrow.Left = 238 : oLblArrow.Top = iRowTop + 3 : oLblArrow.Width = 20
+        Dim oTxtR As New System.Windows.Forms.TextBox()
+        oTxtR.Left = 250 : oTxtR.Top = iRowTop : oTxtR.Width = 220 : oTxtR.Text = oRowReplaces(r)
+        oForm.Controls.Add(oTxtF) : oForm.Controls.Add(oLblArrow) : oForm.Controls.Add(oTxtR)
+        oTxtFs.Add(oTxtF) : oTxtRs.Add(oTxtR)
+        iRowTop += 30
+    Next
+    Dim iBelowSeg As Integer = iRowTop + 4
 
     Dim oLblHint As New Label()
     oLblHint.Text = "Find (left)  ->  Replace (right). Leave blank to skip a row." & vbCrLf & _
         "e.g.:  343-V0 -> 3431-6-V0     343-10 -> 3431-6-10     _ReferenceCopy -> _Duplicate"
-    oLblHint.Left = 15 : oLblHint.Top = 252 : oLblHint.Width = 520 : oLblHint.Height = 36
+    oLblHint.Left = 15 : oLblHint.Top = iBelowSeg : oLblHint.Width = 520 : oLblHint.Height = 36
 
     Dim oLblHistory As New Label()
     If iAutoCount > 0 Then
-        oLblHistory.Text = "* Rows 1-" & iAutoCount & " AUTO-DETECTED (middle section vs GA). Remaining from last run."
+        oLblHistory.Text = "* Rows 1-" & iAutoCount & " AUTO-DETECTED (middle section vs GA). Remaining from last run / blank."
     Else
         oLblHistory.Text = "* Fields pre-filled from last run this session."
     End If
-    oLblHistory.Left = 15 : oLblHistory.Top = 290 : oLblHistory.Width = 520
+    oLblHistory.Left = 15 : oLblHistory.Top = iBelowSeg + 38 : oLblHistory.Width = 520
 
-    oForm.Controls.Add(oTxtF1) : oForm.Controls.Add(oTxtR1)
-    oForm.Controls.Add(oTxtF2) : oForm.Controls.Add(oTxtR2)
-    oForm.Controls.Add(oTxtF3) : oForm.Controls.Add(oTxtR3)
-    oForm.Controls.Add(oTxtF4) : oForm.Controls.Add(oTxtR4)
-    oForm.Controls.Add(oTxtF5) : oForm.Controls.Add(oTxtR5)
-    oForm.Controls.Add(oLblArrow1) : oForm.Controls.Add(oLblArrow2)
-    oForm.Controls.Add(oLblArrow3) : oForm.Controls.Add(oLblArrow4)
-    oForm.Controls.Add(oLblArrow5)
     oForm.Controls.Add(oLblHint)
     oForm.Controls.Add(oLblHistory)
 
     Dim oChkNonStd As New CheckBox()
     oChkNonStd.Text = "Localize non-std parts (non-PJ names) into Non Std Parts with new prefix"
-    oChkNonStd.Left = 15 : oChkNonStd.Top = 330 : oChkNonStd.Width = 520
+    oChkNonStd.Left = 15 : oChkNonStd.Top = iBelowSeg + 78 : oChkNonStd.Width = 520
     oChkNonStd.Checked = g_bLastNonStd
     oForm.Controls.Add(oChkNonStd)
 
@@ -5264,15 +5254,15 @@ Function ShowCopyDesignConfigForm(ByRef oChoice As RenameModeChoice, Optional sS
     ' Height = 34 so the two-line wrap fits without clipping.
     Dim oChkKeepDwgNames As New CheckBox()
     oChkKeepDwgNames.Text = "Keep existing drawing model names (skip rename step — string rules still run on subs below)"
-    oChkKeepDwgNames.Left = 15 : oChkKeepDwgNames.Top = 355 : oChkKeepDwgNames.Width = 520 : oChkKeepDwgNames.Height = 34
+    oChkKeepDwgNames.Left = 15 : oChkKeepDwgNames.Top = iBelowSeg + 103 : oChkKeepDwgNames.Width = 520 : oChkKeepDwgNames.Height = 34
     oChkKeepDwgNames.Checked = False   ' default OFF: show rename form
     oForm.Controls.Add(oChkKeepDwgNames)
 
     ' ---- FOLDER STRUCTURE OPTIONS ----
-    ' Top pushed down to 397 (355 + 34 + 8 gap) so it clears the checkbox.
+    ' Top = checkbox top + 34 + 8 gap so it clears the checkbox (relative to iBelowSeg).
     Dim oGrpFolder As New GroupBox()
     oGrpFolder.Text = "FOLDER STRUCTURE"
-    oGrpFolder.Left = 15 : oGrpFolder.Top = 397 : oGrpFolder.Width = 520 : oGrpFolder.Height = 92
+    oGrpFolder.Left = 15 : oGrpFolder.Top = iBelowSeg + 145 : oGrpFolder.Width = 520 : oGrpFolder.Height = 92
     oForm.Controls.Add(oGrpFolder)
 
     Dim oRbClean As New RadioButton()
@@ -5314,7 +5304,7 @@ Function ShowCopyDesignConfigForm(ByRef oChoice As RenameModeChoice, Optional sS
 
     Dim oLblNote As New Label()
     oLblNote.Text = "Next: scan tree for old P-prefixes to swap. One map, one pass."
-    oLblNote.Left = 15 : oLblNote.Top = 498 : oLblNote.Width = 500
+    oLblNote.Left = 15 : oLblNote.Top = iBelowSeg + 246 : oLblNote.Width = 500
     oForm.Controls.Add(oLblNote)
 
     ' Drawing Update section removed 2026-10-28:
@@ -5322,16 +5312,17 @@ Function ShowCopyDesignConfigForm(ByRef oChoice As RenameModeChoice, Optional sS
     ' The folder is auto-set from ThisDoc.FullFileName before this form is shown.
     ' No checkbox or folder browse needed here.
 
-    oForm.Height = 594
+    ' Grows with the dynamic rows; +360 keeps OK/Cancel clear of the bottom edge.
+    oForm.Height = Math.Max(900, iBelowSeg + 360)
 
     Dim oOk As New Button()
     oOk.Text = "OK" : oOk.DialogResult = DialogResult.OK
-    oOk.Left = 350 : oOk.Top = 529 : oOk.Width = 90
+    oOk.Left = 350 : oOk.Top = iBelowSeg + 277 : oOk.Width = 90
     oForm.Controls.Add(oOk) : oForm.AcceptButton = oOk
 
     Dim oCancel As New Button()
     oCancel.Text = "Cancel" : oCancel.DialogResult = DialogResult.Cancel
-    oCancel.Left = 450 : oCancel.Top = 529 : oCancel.Width = 90
+    oCancel.Left = 450 : oCancel.Top = iBelowSeg + 277 : oCancel.Width = 90
     oForm.Controls.Add(oCancel) : oForm.CancelButton = oCancel
 
     If oForm.ShowDialog() <> DialogResult.OK Then Return False
@@ -5344,11 +5335,18 @@ Function ShowCopyDesignConfigForm(ByRef oChoice As RenameModeChoice, Optional sS
 
     ' Save to history variables and persist to INI file for next Inventor session
     g_sLastPrefix = sPrefix
-    g_sLastF1 = Trim(oTxtF1.Text) : g_sLastR1 = Trim(oTxtR1.Text)
-    g_sLastF2 = Trim(oTxtF2.Text) : g_sLastR2 = Trim(oTxtR2.Text)
-    g_sLastF3 = Trim(oTxtF3.Text) : g_sLastR3 = Trim(oTxtR3.Text)
-    g_sLastF4 = Trim(oTxtF4.Text) : g_sLastR4 = Trim(oTxtR4.Text)
-    g_sLastF5 = Trim(oTxtF5.Text) : g_sLastR5 = Trim(oTxtR5.Text)
+    ' History keeps the first 5 dynamic rows (blank if fewer rows)
+    Dim oSaveF(4) As String
+    Dim oSaveR(4) As String
+    For k As Integer = 0 To 4
+        oSaveF(k) = "" : oSaveR(k) = ""
+        If k < oTxtFs.Count Then oSaveF(k) = Trim(oTxtFs(k).Text) : oSaveR(k) = Trim(oTxtRs(k).Text)
+    Next
+    g_sLastF1 = oSaveF(0) : g_sLastR1 = oSaveR(0)
+    g_sLastF2 = oSaveF(1) : g_sLastR2 = oSaveR(1)
+    g_sLastF3 = oSaveF(2) : g_sLastR3 = oSaveR(2)
+    g_sLastF4 = oSaveF(3) : g_sLastR4 = oSaveR(3)
+    g_sLastF5 = oSaveF(4) : g_sLastR5 = oSaveR(4)
     g_bLastNonStd = oChkNonStd.Checked
     g_bLastHonourFolder = oRbHonour.Checked
     SaveMode6History()   ' write to %TEMP%\CleanSweeper_Mode6History.ini
@@ -5363,26 +5361,12 @@ Function ShowCopyDesignConfigForm(ByRef oChoice As RenameModeChoice, Optional sS
     ' form opens (Step 1 in Sub Main) — not captured here.
     oChoice.oSegFinds.Clear()
     oChoice.oSegReplaces.Clear()
-    If Trim(oTxtF1.Text) <> "" Then
-        oChoice.oSegFinds.Add(Trim(oTxtF1.Text))
-        oChoice.oSegReplaces.Add(Trim(oTxtR1.Text))
-    End If
-    If Trim(oTxtF2.Text) <> "" Then
-        oChoice.oSegFinds.Add(Trim(oTxtF2.Text))
-        oChoice.oSegReplaces.Add(Trim(oTxtR2.Text))
-    End If
-    If Trim(oTxtF3.Text) <> "" Then
-        oChoice.oSegFinds.Add(Trim(oTxtF3.Text))
-        oChoice.oSegReplaces.Add(Trim(oTxtR3.Text))
-    End If
-    If Trim(oTxtF4.Text) <> "" Then
-        oChoice.oSegFinds.Add(Trim(oTxtF4.Text))
-        oChoice.oSegReplaces.Add(Trim(oTxtR4.Text))
-    End If
-    If Trim(oTxtF5.Text) <> "" Then
-        oChoice.oSegFinds.Add(Trim(oTxtF5.Text))
-        oChoice.oSegReplaces.Add(Trim(oTxtR5.Text))
-    End If
+    For r As Integer = 0 To oTxtFs.Count - 1
+        If Trim(oTxtFs(r).Text) <> "" Then
+            oChoice.oSegFinds.Add(Trim(oTxtFs(r).Text))
+            oChoice.oSegReplaces.Add(Trim(oTxtRs(r).Text))
+        End If
+    Next
     Return True
 End Function
 
