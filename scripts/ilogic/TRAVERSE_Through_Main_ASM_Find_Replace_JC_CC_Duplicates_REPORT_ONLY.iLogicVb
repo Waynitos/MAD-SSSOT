@@ -235,7 +235,15 @@ Sub Main()
     If bReportOnly Then
         Try
             WriteInvestigateDuplicatesReport(oAsmDoc, oMatches, oInternalGroups, sLogFilePath)
-            Dim sReportPath As String = System.IO.Path.ChangeExtension(sLogFilePath, "_Investigate_Duplicates.txt")
+            Dim sReportPath As String = ""
+            Try
+                Dim sAsmName As String = System.IO.Path.GetFileNameWithoutExtension(oAsmDoc.FullFileName)
+                Dim oProjMatch As System.Text.RegularExpressions.Match = System.Text.RegularExpressions.Regex.Match(sAsmName, "^[A-Z]{1,4}\d{3,6}")
+                Dim sProjectPrefix As String = If(oProjMatch.Success, oProjMatch.Value.ToUpper(), "UNKNOWN")
+                sReportPath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(sLogFilePath), sProjectPrefix & "_Investigate_Duplicates_" & DateTime.Now.ToString("yyyyMMdd_HHmmss") & ".txt")
+            Catch
+                sReportPath = System.IO.Path.ChangeExtension(sLogFilePath, "_Investigate_Duplicates.txt")
+            End Try
             MessageBox.Show("Report-only mode complete." & vbCrLf & "Investigation report written and will open:" & vbCrLf & sReportPath, "Report Only")
             ' Open the report in the default text editor
             Try
@@ -1384,7 +1392,18 @@ End Function
 ' =====================================================================
 Sub WriteInvestigateDuplicatesReport(oAsmDoc As AssemblyDocument, oMatches As List(Of JcMatch), _
                                      oInternalGroups As List(Of InternalDupGroup), sLogFilePath As String)
-    Dim sReportPath As String = System.IO.Path.ChangeExtension(sLogFilePath, "_Investigate_Duplicates.txt")
+    ' Prefix report filename with project number extracted from top assembly name
+    Dim sProjectPrefix As String = "UNKNOWN"
+    Try
+        Dim sAsmName As String = System.IO.Path.GetFileNameWithoutExtension(oAsmDoc.FullFileName)
+        Dim oProjMatch As System.Text.RegularExpressions.Match = _
+            System.Text.RegularExpressions.Regex.Match(sAsmName, "^[A-Z]{1,4}\d{3,6}")
+        If oProjMatch.Success Then sProjectPrefix = oProjMatch.Value.ToUpper()
+    Catch
+    End Try
+    Dim sReportFolder As String = System.IO.Path.GetDirectoryName(sLogFilePath)
+    Dim sReportPath As String = System.IO.Path.Combine(sReportFolder, _
+        sProjectPrefix & "_Investigate_Duplicates_" & DateTime.Now.ToString("yyyyMMdd_HHmmss") & ".txt")
     Dim sb As New System.Text.StringBuilder()
 
     ' Header with thick separators
