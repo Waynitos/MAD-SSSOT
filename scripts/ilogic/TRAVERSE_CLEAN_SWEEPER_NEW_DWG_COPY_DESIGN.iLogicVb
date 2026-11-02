@@ -5183,27 +5183,40 @@ Function ShowCopyDesignConfigForm(ByRef oChoice As RenameModeChoice, Optional sS
     Dim oHistRs() As String = {g_sLastR1, g_sLastR2, g_sLastR3, g_sLastR4, g_sLastR5}
     Dim oRowFinds As New System.Collections.Generic.List(Of String)
     Dim oRowReplaces As New System.Collections.Generic.List(Of String)
+    ' Loop counters declared once here (no For-scoped Dim, no colon chaining)
+    Dim iRow As Integer
+    Dim iHistIdx As Integer
+    Dim iDupIdx As Integer
+    Dim bDupe As Boolean
     ' a) auto-detected mismatches (cap 10)
     iAutoCount = Math.Min(oAutoFinds.Count, 10)
-    For i As Integer = 0 To iAutoCount - 1
-        oRowFinds.Add(oAutoFinds(i)) : oRowReplaces.Add(oAutoReplaces(i))
+    For iRow = 0 To iAutoCount - 1
+        oRowFinds.Add(oAutoFinds(iRow))
+        oRowReplaces.Add(oAutoReplaces(iRow))
     Next
     ' b) last-run history rows not already covered by auto-detect
     Dim iHistCount As Integer = 0
-    For h As Integer = 0 To 4
-        If Trim(oHistFs(h)) = "" Then Continue For
-        Dim bDupe As Boolean = False
-        For a As Integer = 0 To oRowFinds.Count - 1
-            If String.Compare(oRowFinds(a), oHistFs(h), True) = 0 Then bDupe = True : Exit For
-        Next
-        If Not bDupe Then
-            oRowFinds.Add(oHistFs(h)) : oRowReplaces.Add(oHistRs(h))
-            iHistCount += 1
+    For iHistIdx = 0 To 4
+        If Trim(oHistFs(iHistIdx)) <> "" Then
+            bDupe = False
+            For iDupIdx = 0 To oRowFinds.Count - 1
+                If String.Compare(oRowFinds(iDupIdx), oHistFs(iHistIdx), True) = 0 Then
+                    bDupe = True
+                    Exit For
+                End If
+            Next
+            If Not bDupe Then
+                oRowFinds.Add(oHistFs(iHistIdx))
+                oRowReplaces.Add(oHistRs(iHistIdx))
+                iHistCount = iHistCount + 1
+            End If
         End If
     Next
     ' c) 2 blank custom rows
-    oRowFinds.Add("") : oRowReplaces.Add("")
-    oRowFinds.Add("") : oRowReplaces.Add("")
+    oRowFinds.Add("")
+    oRowReplaces.Add("")
+    oRowFinds.Add("")
+    oRowReplaces.Add("")
 
     Dim oLblSegCount As New Label()
     oLblSegCount.Text = "Remaining mismatches detected: " & oAutoFinds.Count & _
@@ -5215,16 +5228,31 @@ Function ShowCopyDesignConfigForm(ByRef oChoice As RenameModeChoice, Optional sS
     Dim oTxtFs As New System.Collections.Generic.List(Of System.Windows.Forms.TextBox)
     Dim oTxtRs As New System.Collections.Generic.List(Of System.Windows.Forms.TextBox)
     Dim iRowTop As Integer = 118
-    For r As Integer = 0 To oRowFinds.Count - 1
-        Dim oTxtF As New System.Windows.Forms.TextBox()
-        oTxtF.Left = 15 : oTxtF.Top = iRowTop : oTxtF.Width = 220 : oTxtF.Text = oRowFinds(r)
-        Dim oLblArrow As New Label()
-        oLblArrow.Text = "->" : oLblArrow.Left = 238 : oLblArrow.Top = iRowTop + 3 : oLblArrow.Width = 20
-        Dim oTxtR As New System.Windows.Forms.TextBox()
-        oTxtR.Left = 250 : oTxtR.Top = iRowTop : oTxtR.Width = 220 : oTxtR.Text = oRowReplaces(r)
-        oForm.Controls.Add(oTxtF) : oForm.Controls.Add(oLblArrow) : oForm.Controls.Add(oTxtR)
-        oTxtFs.Add(oTxtF) : oTxtRs.Add(oTxtR)
-        iRowTop += 30
+    Dim oF As System.Windows.Forms.TextBox
+    Dim oR As System.Windows.Forms.TextBox
+    Dim oArr As System.Windows.Forms.Label
+    For iRow = 0 To oRowFinds.Count - 1
+        oF = New System.Windows.Forms.TextBox()
+        oF.Left = 15
+        oF.Top = iRowTop
+        oF.Width = 220
+        oF.Text = oRowFinds(iRow)
+        oArr = New System.Windows.Forms.Label()
+        oArr.Text = "->"
+        oArr.Left = 238
+        oArr.Top = iRowTop + 3
+        oArr.Width = 20
+        oR = New System.Windows.Forms.TextBox()
+        oR.Left = 250
+        oR.Top = iRowTop
+        oR.Width = 220
+        oR.Text = oRowReplaces(iRow)
+        oForm.Controls.Add(oF)
+        oForm.Controls.Add(oArr)
+        oForm.Controls.Add(oR)
+        oTxtFs.Add(oF)
+        oTxtRs.Add(oR)
+        iRowTop = iRowTop + 30
     Next
     Dim iBelowSeg As Integer = iRowTop + 4
 
@@ -5338,9 +5366,13 @@ Function ShowCopyDesignConfigForm(ByRef oChoice As RenameModeChoice, Optional sS
     ' History keeps the first 5 dynamic rows (blank if fewer rows)
     Dim oSaveF(4) As String
     Dim oSaveR(4) As String
-    For k As Integer = 0 To 4
-        oSaveF(k) = "" : oSaveR(k) = ""
-        If k < oTxtFs.Count Then oSaveF(k) = Trim(oTxtFs(k).Text) : oSaveR(k) = Trim(oTxtRs(k).Text)
+    For iRow = 0 To 4
+        oSaveF(iRow) = ""
+        oSaveR(iRow) = ""
+        If iRow < oTxtFs.Count Then
+            oSaveF(iRow) = Trim(oTxtFs(iRow).Text)
+            oSaveR(iRow) = Trim(oTxtRs(iRow).Text)
+        End If
     Next
     g_sLastF1 = oSaveF(0) : g_sLastR1 = oSaveR(0)
     g_sLastF2 = oSaveF(1) : g_sLastR2 = oSaveR(1)
@@ -5361,10 +5393,10 @@ Function ShowCopyDesignConfigForm(ByRef oChoice As RenameModeChoice, Optional sS
     ' form opens (Step 1 in Sub Main) — not captured here.
     oChoice.oSegFinds.Clear()
     oChoice.oSegReplaces.Clear()
-    For r As Integer = 0 To oTxtFs.Count - 1
-        If Trim(oTxtFs(r).Text) <> "" Then
-            oChoice.oSegFinds.Add(Trim(oTxtFs(r).Text))
-            oChoice.oSegReplaces.Add(Trim(oTxtRs(r).Text))
+    For iRow = 0 To oTxtFs.Count - 1
+        If Trim(oTxtFs(iRow).Text) <> "" Then
+            oChoice.oSegFinds.Add(Trim(oTxtFs(iRow).Text))
+            oChoice.oSegReplaces.Add(Trim(oTxtRs(iRow).Text))
         End If
     Next
     Return True
