@@ -187,6 +187,30 @@
 ' of your project folder before running this on live data.
 ' =====================================================================
 
+' =====================================================================
+' SETTINGS - DUPLICATE INVESTIGATION (REPORT ONLY)      added 2026-11-02
+' ---------------------------------------------------------------------
+' DUPINV_ENABLED (inside DupInv_IsEnabled below)
+'   True  = at the start of every run, before ANY copy/rename work, write
+'           a read-only hierarchical duplicate investigation report:
+'             Drawing -> Model(s) referenced -> Sub-assembly / part ->
+'             items to investigate (JC parts, SJD parts, and Content
+'             Center matches in the official library folders).
+'   False = skip the scan entirely (no report file is written).
+' The scan is STRICTLY READ-ONLY: it never repoints, replaces, copies,
+' saves, deletes or renames anything. Any failure inside it is caught
+' and logged; the main traverse always carries on.
+' Output: "<run log name>_DupInvestigation.txt", written next to the
+' run's Desktop log (Traverse_Rename_Log_*.txt / DrawingCopyMode_Log_*.txt).
+' The official library folder constants live in DupInv_InitContext and
+' are copied verbatim from
+' TRAVERSE_Through_Main_ASM_Find_Replace_JC_CC_Duplicates_REPORT_ONLY.
+' =====================================================================
+Function DupInv_IsEnabled() As Boolean
+    Const DUPINV_ENABLED As Boolean = True
+    Return DUPINV_ENABLED
+End Function
+
 ' ---------------------------------------------------------------------
 ' MODE 4 HELPERS
 ' ---------------------------------------------------------------------
@@ -538,6 +562,27 @@ Sub RunAssemblyTraverseMode(oAsmDoc As AssemblyDocument, Optional sPresetTargetF
             sLog = sLog & vbCrLf & "Phase 0: drawings folder not found — drawing repoint will be skipped"
             oChoice.bUpdateDrawings = False
         End If  ' End of sPresetOldPrefix guard (If/ElseIf/Else block)
+
+        ' ======================================================================
+        ' DUPLICATE INVESTIGATION (REPORT ONLY) - added 2026-11-02
+        ' Read-only Drawing -> Model -> Sub report of JC / SJD / Content Center
+        ' duplicate candidates. Runs on the ORIGINAL source tree, before any
+        ' copy/rename work. Never repoints, copies, saves or deletes anything.
+        ' Skipped on a Full Sweep (Drawing Copy Mode already wrote the report).
+        ' Toggle: DUPINV_ENABLED in DupInv_IsEnabled (near the top of the file).
+        ' ======================================================================
+        If DupInv_IsEnabled() AndAlso Trim(sPresetOldPrefix) = "" Then
+            Try
+                Dim oDupInvDwgModels As System.Collections.Generic.List(Of Object()) = _
+                    DupInv_BuildDrawingModelListFromPhase0(oAsmDoc, oPhase0Data, oChoice.sDrawingsFolder)
+                Dim sDupInvPath As String = DupInv_RunReport(oDupInvDwgModels, sTopAssemblyFullName, sLogFilePath, "ASSEMBLY TRAVERSE (Mode 6 Clean Sweeper)")
+                sLog = sLog & vbCrLf & "DUP-INVESTIGATION (report only): " & sDupInvPath
+                Try : System.IO.File.AppendAllText(sLogFilePath, "DUP-INVESTIGATION (report only) written: " & sDupInvPath & vbCrLf) : Catch : End Try
+            Catch exDupInv As Exception
+                sLog = sLog & vbCrLf & "DUP-INVESTIGATION failed (non-critical, traverse continues): " & exDupInv.Message
+                Try : System.IO.File.AppendAllText(sLogFilePath, "DUP-INVESTIGATION failed (non-critical): " & exDupInv.Message & vbCrLf) : Catch : End Try
+            End Try
+        End If
 
         ' ══════════════════════════════════════════════════════════════════════
         ' STEP 4 — Old prefix token scan + confirmation
@@ -2732,6 +2777,30 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument)
     End If
 
     Try : System.IO.File.AppendAllText(sLogFilePath, "Total unique model refs across all drawings: " & oAllModelPaths.Count & vbCrLf) : Catch : End Try
+
+    ' -- 1b. DUPLICATE INVESTIGATION (REPORT ONLY) - added 2026-11-02 ------
+    ' Read-only Drawing -> Model -> Sub report of JC / SJD / Content Center
+    ' duplicate candidates, built from the ORIGINAL drawing references above
+    ' before anything is copied. Never repoints, copies, saves or deletes.
+    ' Toggle: DUPINV_ENABLED in DupInv_IsEnabled (near the top of the file).
+    If DupInv_IsEnabled() Then
+        Dim bDupInvOrigSilent As Boolean = ThisApplication.SilentOperation
+        Try
+            ThisApplication.SilentOperation = True
+            Dim oDupInvDwgModels As New System.Collections.Generic.List(Of Object())
+            For Each sDupInvDwg As String In oAllDwgPaths
+                Dim oDupInvModels As New System.Collections.Generic.List(Of String)
+                If oAllDwgRefs.ContainsKey(sDupInvDwg) Then oDupInvModels.AddRange(oAllDwgRefs(sDupInvDwg))
+                oDupInvDwgModels.Add(New Object() {sDupInvDwg, oDupInvModels})
+            Next
+            Dim sDupInvPath As String = DupInv_RunReport(oDupInvDwgModels, oDwgDoc.FullFileName, sLogFilePath, "DRAWING COPY MODE")
+            Try : System.IO.File.AppendAllText(sLogFilePath, "DUP-INVESTIGATION (report only) written: " & sDupInvPath & vbCrLf) : Catch : End Try
+        Catch exDupInv As Exception
+            Try : System.IO.File.AppendAllText(sLogFilePath, "DUP-INVESTIGATION failed (non-critical, continuing): " & exDupInv.Message & vbCrLf) : Catch : End Try
+        Finally
+            ThisApplication.SilentOperation = bDupInvOrigSilent
+        End Try
+    End If
 
     ' ── 2a. Target folder picker ────────────────────────────────────────
     Dim sFirstModelFolder As String = System.IO.Path.GetDirectoryName(oAllModelPaths(0))
@@ -10786,3 +10855,776 @@ Sub CaptureReverseCleanSweeper(oAsmDoc As AssemblyDocument, oChoice As RenameMod
         ' Non-critical — rule continues
     End Try
 End Sub
+
+' =====================================================================
+' DUPLICATE INVESTIGATION (REPORT ONLY)                 added 2026-11-02
+' ---------------------------------------------------------------------
+' Ported from TRAVERSE_Through_Main_ASM_Find_Replace_JC_CC_Duplicates_
+' REPORT_ONLY.iLogicVb (report-only mode). Writes a hierarchical text
+' report:  Drawing -> Model(s) referenced -> Sub-assembly / part ->
+' items to investigate as potential duplicates of official library files.
+'
+' Detection (same rules as the REPORT_ONLY rule):
+'   JC / SJD - file name contains "JC" or "SJD" (case-insensitive).
+'              JC00\d+ token -> JC catalogue token matches (+ geometry
+'              confirmation) when JC_Library_Catalogue.txt exists, else a
+'              filename token match against a one-time index of the JC
+'              Library folder. Items with no candidate are still listed
+'              for manual review.
+'   CC       - only for files NOT already in the global Content Center
+'              folder: geometry + material/spec match against
+'              CC_Catalogue.txt (when it exists, parts only), plus the
+'              fastener-keyword filename match against a one-time index
+'              of the Content Center folder.
+'   Files already inside the official library folders (REPORT_ONLY
+'   IsInExcludedFolder paths) are originals: never listed, never walked.
+'
+' STRICTLY READ-ONLY: no Replace / ReplaceReference, no File.Copy /
+' Delete, no Save / Save2 / SaveAs, no property writes. Catalogues are
+' only READ - they are never auto-built here (building opens every
+' library file; use the REPORT_ONLY rule to build them). Library folder
+' indexes and catalogues are built/loaded ONCE per run and cached in
+' DupInv_Context. Models not already in session are opened invisibly
+' via OpenDocTracked and closed again via CloseIfOpenedHere (no save).
+' =====================================================================
+
+Class DupInv_CatEntry
+    Public sToken As String = ""
+    Public sName As String = ""
+    Public sFullPath As String = ""
+    Public dMass As Double = 0
+    Public dArea As Double = 0
+    Public dVolume As Double = 0
+    Public dCOMx As Double = 0
+    Public dCOMy As Double = 0
+    Public dCOMz As Double = 0
+    Public sDocType As String = ""
+    Public bHasGeo As Boolean = False
+    Public sMaterial As String = ""
+    Public sSpec As String = ""
+End Class
+
+Class DupInv_Sig
+    Public sDocType As String = ""
+    Public dMass As Double = 0
+    Public dVolume As Double = 0
+    Public dArea As Double = 0
+    Public dCX As Double = 0
+    Public dCY As Double = 0
+    Public dCZ As Double = 0
+End Class
+
+Class DupInv_Candidate
+    Public sPath As String = ""
+    Public sNote As String = ""
+End Class
+
+Class DupInv_Hit
+    Public sKind As String = ""        ' JC / SJD / CC
+    Public sFullPath As String = ""
+    Public sToken As String = ""
+    Public sReason As String = ""
+    Public sPartNumber As String = ""
+    Public sDescription As String = ""
+    Public sSpecification As String = ""
+    Public oCandidates As New System.Collections.Generic.List(Of DupInv_Candidate)
+End Class
+
+Class DupInv_Context
+    Public sLibraryFolder As String = ""
+    Public sContentCenterFolder As String = ""
+    Public sTokenPattern As String = ""
+    Public sJCCatalogueFile As String = ""
+    Public sCCCatalogueFile As String = ""
+    Public oFastenerKeywords As String() = New String() {}
+    Public bJCCatLoaded As Boolean = False
+    Public bCCCatLoaded As Boolean = False
+    Public oJCEntries As New System.Collections.Generic.List(Of DupInv_CatEntry)
+    Public oJCMassBucket As New System.Collections.Generic.Dictionary(Of String, System.Collections.Generic.List(Of DupInv_CatEntry))
+    Public oCCEntries As New System.Collections.Generic.List(Of DupInv_CatEntry)
+    Public oCCMassBucket As New System.Collections.Generic.Dictionary(Of String, System.Collections.Generic.List(Of DupInv_CatEntry))
+    Public oJCFileIndex As System.Collections.Generic.List(Of String) = Nothing   ' lazy, built once per run
+    Public oCCFileIndex As System.Collections.Generic.List(Of String) = Nothing   ' lazy, built once per run
+    Public oHitCache As New System.Collections.Generic.Dictionary(Of String, DupInv_Hit)(StringComparer.OrdinalIgnoreCase)
+    Public oSigCache As New System.Collections.Generic.Dictionary(Of String, DupInv_Sig)(StringComparer.OrdinalIgnoreCase)
+    Public oAsmHasHits As New System.Collections.Generic.Dictionary(Of String, Boolean)(StringComparer.OrdinalIgnoreCase)
+    Public oPrintedHits As New System.Collections.Generic.HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+    Public iJC As Integer = 0
+    Public iSJD As Integer = 0
+    Public iCC As Integer = 0
+    Public iDrawings As Integer = 0
+    Public iModels As Integer = 0
+    Public iModelsSkipped As Integer = 0
+End Class
+
+' Builds the per-run context: official folder constants (verbatim from the
+' REPORT_ONLY rule) and the catalogues, loaded once if they exist.
+Function DupInv_InitContext() As DupInv_Context
+    Dim ctx As New DupInv_Context()
+
+    ' ---------- Config (verbatim from REPORT_ONLY rule) ----------
+    Dim sLibraryFolder       As String = "C:\Vault\Libraries\JC Library"
+    Dim sContentCenterFolder As String = "C:\Vault\Content Center Files"
+    Dim sTokenPattern        As String = "JC00\d+"
+    Dim sJCCatalogueFile     As String = System.IO.Path.Combine(sLibraryFolder, "JC_Library_Catalogue.txt")
+    Dim sCCCatalogueFile     As String = System.IO.Path.Combine(sContentCenterFolder, "CC_Catalogue.txt")
+
+    ' Fastener/hardware keywords for Content Center live-scan duplicate detection
+    Dim oFastenerKeywords As String() = New String() { _
+        "M6", "M8", "M10", "M12", "M16", "M20", "M24", "M27", "M30", _
+        "DIN", "ISO", "ASTM", "AS ", "AS1", "AS4", _
+        "FLANGE", "WASHER", "NUT", "BOLT", "SCREW", "STUD", _
+        "GASKET", "NYLOCK", "DRIVE SCREW", "BLIND FLANGE"}
+
+    ctx.sLibraryFolder = sLibraryFolder
+    ctx.sContentCenterFolder = sContentCenterFolder
+    ctx.sTokenPattern = sTokenPattern
+    ctx.sJCCatalogueFile = sJCCatalogueFile
+    ctx.sCCCatalogueFile = sCCCatalogueFile
+    ctx.oFastenerKeywords = oFastenerKeywords
+
+    ' Catalogues are READ only - never auto-built from this rule.
+    Try
+        If System.IO.File.Exists(sJCCatalogueFile) Then
+            DupInv_LoadCatalogue(sJCCatalogueFile, ctx.oJCEntries, ctx.oJCMassBucket)
+            ctx.bJCCatLoaded = (ctx.oJCEntries.Count > 0)
+        End If
+    Catch
+        ctx.bJCCatLoaded = False
+    End Try
+    Try
+        If System.IO.File.Exists(sCCCatalogueFile) Then
+            DupInv_LoadCatalogue(sCCCatalogueFile, ctx.oCCEntries, ctx.oCCMassBucket)
+            ctx.bCCCatLoaded = (ctx.oCCEntries.Count > 0)
+        End If
+    Catch
+        ctx.bCCCatLoaded = False
+    End Try
+
+    Return ctx
+End Function
+
+' Same tab-separated format as the REPORT_ONLY rule's LoadCatalogue.
+Sub DupInv_LoadCatalogue(sCatalogueFile As String, _
+                         oEntries As System.Collections.Generic.List(Of DupInv_CatEntry), _
+                         oBuckets As System.Collections.Generic.Dictionary(Of String, System.Collections.Generic.List(Of DupInv_CatEntry)))
+    Try
+        For Each sLine As String In System.IO.File.ReadAllLines(sCatalogueFile)
+            If sLine.StartsWith("#") Then Continue For
+            If Trim(sLine) = "" Then Continue For
+            Dim oParts As String() = sLine.Split(Chr(9))
+            If oParts.Length < 10 Then Continue For
+            Dim oE As New DupInv_CatEntry
+            oE.sToken    = oParts(0).Trim().ToUpper()
+            oE.sName     = oParts(1).Trim()
+            oE.sFullPath = oParts(2).Trim()
+            oE.sDocType  = oParts(9).Trim().ToUpper()
+            oE.sMaterial = If(oParts.Length > 10, oParts(10).Trim(), "")
+            oE.sSpec     = If(oParts.Length > 11, oParts(11).Trim(), "")
+            Dim dM As Double = 0
+            Dim dA As Double = 0
+            Dim dV As Double = 0
+            Dim dX As Double = 0
+            Dim dY As Double = 0
+            Dim dZ As Double = 0
+            If Double.TryParse(oParts(3), dM) AndAlso Double.TryParse(oParts(4), dA) AndAlso Double.TryParse(oParts(5), dV) Then
+                oE.dMass = dM : oE.dArea = dA : oE.dVolume = dV
+                Double.TryParse(oParts(6), dX) : oE.dCOMx = dX
+                Double.TryParse(oParts(7), dY) : oE.dCOMy = dY
+                Double.TryParse(oParts(8), dZ) : oE.dCOMz = dZ
+                oE.bHasGeo = True
+            End If
+            oEntries.Add(oE)
+            Dim sBucket As String = dM.ToString("F3")
+            If Not oBuckets.ContainsKey(sBucket) Then oBuckets(sBucket) = New System.Collections.Generic.List(Of DupInv_CatEntry)()
+            oBuckets(sBucket).Add(oE)
+        Next
+    Catch
+    End Try
+End Sub
+
+' Official library originals (REPORT_ONLY rule's IsInExcludedFolder paths,
+' verbatim). These are never listed as duplicates and never walked into.
+Function DupInv_IsLibraryOriginal(sFullFileName As String) As Boolean
+    Dim sU As String = sFullFileName.ToUpper()
+    If sU.Contains("VAULT\PROJECTS\JAMESON CELL\SJD00-GT STANDARD") Then Return True
+    If sU.Contains("C:\VAULT\LIBRARIES\JC LIBRARY") Then Return True
+    If sU.Contains("VAULT\CONTENT CENTER FILES") Then Return True
+    Return False
+End Function
+
+' True if sFullPath sits under sFolder (case-insensitive prefix test).
+Function DupInv_IsUnderFolder(sFullPath As String, sFolder As String) As Boolean
+    If Trim(sFolder) = "" Then Return False
+    Return sFullPath.ToUpper().StartsWith(sFolder.ToUpper())
+End Function
+
+' Strips a model-state suffix such as "<Master>" from a FullDocumentName.
+Function DupInv_CleanPath(sPath As String) As String
+    If sPath Is Nothing Then Return ""
+    Dim iLt As Integer = sPath.IndexOf("<"c)
+    If iLt > 0 Then Return sPath.Substring(0, iLt).Trim()
+    Return sPath.Trim()
+End Function
+
+' Reads an iProperty by name from any property set (read-only).
+Function DupInv_GetProp(oDoc As Document, sPropName As String) As String
+    Try
+        For Each oSet As Inventor.PropertySet In oDoc.PropertySets
+            Try
+                Dim oProp As Inventor.Property = oSet.Item(sPropName)
+                If oProp IsNot Nothing Then
+                    Dim oVal As Object = oProp.Value
+                    If oVal Is Nothing Then Return ""
+                    Return oVal.ToString()
+                End If
+            Catch
+            End Try
+        Next
+    Catch
+    End Try
+    Return ""
+End Function
+
+' Mass signature (mass, volume, area, centre of mass), cached per file.
+Function DupInv_GetSig(ctx As DupInv_Context, oDoc As Document, sFull As String) As DupInv_Sig
+    If ctx.oSigCache.ContainsKey(sFull) Then Return ctx.oSigCache(sFull)
+    Dim oSig As DupInv_Sig = Nothing
+    Try
+        Dim oMP As MassProperties = Nothing
+        Dim sType As String = ""
+        If oDoc.DocumentType = kPartDocumentObject Then
+            oMP = CType(oDoc, PartDocument).ComponentDefinition.MassProperties : sType = "PART"
+        ElseIf oDoc.DocumentType = kAssemblyDocumentObject Then
+            oMP = CType(oDoc, AssemblyDocument).ComponentDefinition.MassProperties : sType = "ASM"
+        End If
+        If oMP IsNot Nothing Then
+            oSig = New DupInv_Sig
+            oSig.sDocType = sType
+            oSig.dMass = oMP.Mass : oSig.dVolume = oMP.Volume : oSig.dArea = oMP.Area
+            Dim oCog As Inventor.Point = oMP.CenterOfMass
+            oSig.dCX = oCog.X : oSig.dCY = oCog.Y : oSig.dCZ = oCog.Z
+        End If
+    Catch
+        oSig = Nothing
+    End Try
+    ctx.oSigCache(sFull) = oSig
+    Return oSig
+End Function
+
+Function DupInv_RelClose(x As Double, y As Double) As Boolean
+    Dim dDenom As Double = Math.Max(Math.Abs(x), Math.Abs(y))
+    If dDenom < 0.0000001 Then Return True
+    Return (Math.Abs(x - y) / dDenom) <= 0.001
+End Function
+
+Function DupInv_AbsClose(x As Double, y As Double) As Boolean
+    Return Math.Abs(x - y) <= 0.01
+End Function
+
+' Geometry + material/spec fingerprint match against a catalogue
+' (same tolerances and rules as REPORT_ONLY FindCatalogueCandidates).
+Function DupInv_FindCatalogueGeoMatches(ctx As DupInv_Context, oSourceDoc As Document, sSourceFile As String, _
+    oCatMassBucket As System.Collections.Generic.Dictionary(Of String, System.Collections.Generic.List(Of DupInv_CatEntry))) _
+    As System.Collections.Generic.List(Of DupInv_CatEntry)
+    Dim oResults As New System.Collections.Generic.List(Of DupInv_CatEntry)
+    Try
+        Dim oSig As DupInv_Sig = DupInv_GetSig(ctx, oSourceDoc, sSourceFile)
+        If oSig Is Nothing Then Return oResults
+
+        Dim sSrcMaterial As String = DupInv_GetProp(oSourceDoc, "Material").Trim().ToUpper()
+        Dim sSrcSpec As String = DupInv_GetProp(oSourceDoc, "SPECIFICATION").Trim().ToUpper()
+        If sSrcSpec = "" Then sSrcSpec = DupInv_GetProp(oSourceDoc, "Specification").Trim().ToUpper()
+
+        Dim oCandidates As New System.Collections.Generic.List(Of DupInv_CatEntry)
+        For iBucket As Integer = -1 To 1
+            Dim sBk As String = (oSig.dMass + iBucket * 0.001).ToString("F3")
+            If oCatMassBucket.ContainsKey(sBk) Then oCandidates.AddRange(oCatMassBucket(sBk))
+        Next
+        For Each oE As DupInv_CatEntry In oCandidates
+            If Not oE.bHasGeo Then Continue For
+            If String.Compare(oE.sFullPath, sSourceFile, True) = 0 Then Continue For
+            If oE.sDocType <> oSig.sDocType Then Continue For
+            If Not DupInv_RelClose(oSig.dMass, oE.dMass) Then Continue For
+            If Not DupInv_RelClose(oSig.dVolume, oE.dVolume) Then Continue For
+            If Not DupInv_RelClose(oSig.dArea, oE.dArea) Then Continue For
+            If Not DupInv_AbsClose(oSig.dCX, oE.dCOMx) Then Continue For
+            If Not DupInv_AbsClose(oSig.dCY, oE.dCOMy) Then Continue For
+            If Not DupInv_AbsClose(oSig.dCZ, oE.dCOMz) Then Continue For
+            Dim sEntryMat As String = oE.sMaterial.Trim().ToUpper()
+            Dim sEntrySpec As String = oE.sSpec.Trim().ToUpper()
+            If (sSrcMaterial <> "" OrElse sEntryMat <> "") AndAlso sSrcMaterial <> sEntryMat Then Continue For
+            If (sSrcSpec <> "" OrElse sEntrySpec <> "") AndAlso sSrcSpec <> sEntrySpec Then Continue For
+            oResults.Add(oE)
+        Next
+    Catch
+    End Try
+    Return oResults
+End Function
+
+' One-time (per run) list of every .ipt / .iam under a library folder,
+' skipping OldVersions folders. Replaces the REPORT_ONLY rule's repeated
+' Directory.GetFiles calls per item.
+Function DupInv_BuildFileIndex(sFolder As String) As System.Collections.Generic.List(Of String)
+    Dim oList As New System.Collections.Generic.List(Of String)
+    Try
+        If Not System.IO.Directory.Exists(sFolder) Then Return oList
+        For Each sPattern As String In New String() {"*.ipt", "*.iam"}
+            For Each sF As String In System.IO.Directory.GetFiles(sFolder, sPattern, System.IO.SearchOption.AllDirectories)
+                Dim sU As String = sF.ToUpper()
+                If sU.Contains("\OLDVERSIONS\") OrElse sU.Contains("\OLD VERSIONS\") Then Continue For
+                oList.Add(sF)
+            Next
+        Next
+    Catch
+    End Try
+    Return oList
+End Function
+
+Function DupInv_GetJCIndex(ctx As DupInv_Context) As System.Collections.Generic.List(Of String)
+    If ctx.oJCFileIndex Is Nothing Then ctx.oJCFileIndex = DupInv_BuildFileIndex(ctx.sLibraryFolder)
+    Return ctx.oJCFileIndex
+End Function
+
+Function DupInv_GetCCIndex(ctx As DupInv_Context) As System.Collections.Generic.List(Of String)
+    If ctx.oCCFileIndex Is Nothing Then ctx.oCCFileIndex = DupInv_BuildFileIndex(ctx.sContentCenterFolder)
+    Return ctx.oCCFileIndex
+End Function
+
+' Adds a candidate unless the same path is already listed.
+Sub DupInv_AddCandidate(oList As System.Collections.Generic.List(Of DupInv_Candidate), sPath As String, sNote As String)
+    For Each oC As DupInv_Candidate In oList
+        If String.Compare(oC.sPath, sPath, True) = 0 Then Return
+    Next
+    Dim oNew As New DupInv_Candidate
+    oNew.sPath = sPath
+    oNew.sNote = sNote
+    oList.Add(oNew)
+End Sub
+
+' Classifies one file as a JC / SJD / CC duplicate candidate (or Nothing).
+' Result is cached per file for the whole run.
+Function DupInv_Classify(ctx As DupInv_Context, oDoc As Document, sFull As String) As DupInv_Hit
+    If ctx.oHitCache.ContainsKey(sFull) Then Return ctx.oHitCache(sFull)
+    Dim oHit As DupInv_Hit = Nothing
+    Try
+        If DupInv_IsLibraryOriginal(sFull) Then
+            ctx.oHitCache(sFull) = Nothing
+            Return Nothing
+        End If
+
+        Dim sName As String = System.IO.Path.GetFileNameWithoutExtension(sFull)
+        Dim sNameUpper As String = sName.ToUpper()
+        Dim bIsJCCandidate As Boolean = sNameUpper.Contains("JC") OrElse sNameUpper.Contains("SJD")
+
+        ' ---------- JC / SJD ----------
+        If bIsJCCandidate Then
+            Dim oTok As System.Text.RegularExpressions.Match = _
+                System.Text.RegularExpressions.Regex.Match(sName, ctx.sTokenPattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase)
+            Dim sToken As String = If(oTok.Success, oTok.Value.ToUpper(), "")
+            oHit = New DupInv_Hit
+            oHit.sFullPath = sFull
+            oHit.sKind = If(sToken <> "", "JC", If(sNameUpper.Contains("SJD"), "SJD", "JC"))
+            oHit.sToken = If(sToken <> "", sToken, sName)
+
+            If ctx.bJCCatLoaded Then
+                ' 1. Token matches from the catalogue
+                If sToken <> "" Then
+                    For Each oE As DupInv_CatEntry In ctx.oJCEntries
+                        If oE.sToken = sToken AndAlso String.Compare(oE.sFullPath, sFull, True) <> 0 Then
+                            DupInv_AddCandidate(oHit.oCandidates, oE.sFullPath, "[JC catalogue token match]" & If(oE.sSpec <> "", "  Spec='" & oE.sSpec & "'", ""))
+                        End If
+                    Next
+                End If
+                ' 2. Geometry confirmation / extra geometry matches
+                Dim oGeoHits As System.Collections.Generic.List(Of DupInv_CatEntry) = _
+                    DupInv_FindCatalogueGeoMatches(ctx, oDoc, sFull, ctx.oJCMassBucket)
+                For Each oE As DupInv_CatEntry In oGeoHits
+                    Dim bUpgraded As Boolean = False
+                    For Each oC As DupInv_Candidate In oHit.oCandidates
+                        If String.Compare(oC.sPath, oE.sFullPath, True) = 0 Then
+                            oC.sNote = "[JC catalogue token + geometry confirmed]" & If(oE.sSpec <> "", "  Spec='" & oE.sSpec & "'", "")
+                            bUpgraded = True
+                            Exit For
+                        End If
+                    Next
+                    If Not bUpgraded Then
+                        DupInv_AddCandidate(oHit.oCandidates, oE.sFullPath, "[JC catalogue geometry confirmed]" & If(oE.sSpec <> "", "  Spec='" & oE.sSpec & "'", ""))
+                    End If
+                Next
+                oHit.sReason = "JC/SJD name; checked against JC catalogue (token + geometry)"
+            ElseIf sToken <> "" Then
+                For Each sLib As String In DupInv_GetJCIndex(ctx)
+                    If String.Compare(sLib, sFull, True) = 0 Then Continue For
+                    If System.IO.Path.GetFileName(sLib).ToUpper().Contains(sToken) Then
+                        DupInv_AddCandidate(oHit.oCandidates, sLib, "[JC library filename token match - geometry not checked]")
+                    End If
+                Next
+                oHit.sReason = "JC/SJD name; JC catalogue not found - JC Library filename token match only"
+            Else
+                oHit.sReason = "JC/SJD name without a JC00 token; JC catalogue not found - review manually"
+            End If
+        End If
+
+        ' ---------- Content Center ----------
+        ' Mirrors REPORT_ONLY order: CC is only checked when there is no JC hit,
+        ' and never for files already in the global Content Center folder.
+        Dim bJCHasCandidates As Boolean = (oHit IsNot Nothing AndAlso oHit.oCandidates.Count > 0)
+        If Not bJCHasCandidates AndAlso Not DupInv_IsUnderFolder(sFull, ctx.sContentCenterFolder) Then
+            Dim oCCCands As New System.Collections.Generic.List(Of DupInv_Candidate)
+            Dim sCCReason As String = ""
+            If ctx.bCCCatLoaded AndAlso oDoc IsNot Nothing AndAlso oDoc.DocumentType = kPartDocumentObject Then
+                For Each oE As DupInv_CatEntry In DupInv_FindCatalogueGeoMatches(ctx, oDoc, sFull, ctx.oCCMassBucket)
+                    DupInv_AddCandidate(oCCCands, oE.sFullPath, "[CC catalogue geometry + material/spec match]" & If(oE.sSpec <> "", "  Spec='" & oE.sSpec & "'", ""))
+                Next
+                If oCCCands.Count > 0 Then sCCReason = "CC catalogue geometry + material/spec match"
+            End If
+            Dim bIsFastener As Boolean = False
+            For Each sKw As String In ctx.oFastenerKeywords
+                If sNameUpper.Contains(sKw.ToUpper()) Then bIsFastener = True : Exit For
+            Next
+            If bIsFastener Then
+                Dim iBefore As Integer = oCCCands.Count
+                For Each sLib As String In DupInv_GetCCIndex(ctx)
+                    If String.Compare(sLib, sFull, True) = 0 Then Continue For
+                    If System.IO.Path.GetFileName(sLib).ToUpper().Contains(sNameUpper) Then
+                        DupInv_AddCandidate(oCCCands, sLib, "[CC filename match (fastener keyword) - geometry not checked]")
+                    End If
+                Next
+                If oCCCands.Count > iBefore Then
+                    sCCReason = If(sCCReason <> "", sCCReason & " + fastener-keyword filename match", "fastener-keyword name; Content Center filename match")
+                End If
+            End If
+            If oCCCands.Count > 0 Then
+                If oHit Is Nothing Then
+                    oHit = New DupInv_Hit
+                    oHit.sFullPath = sFull
+                    oHit.sToken = sName
+                    oHit.sReason = sCCReason
+                Else
+                    oHit.sReason = sCCReason & " (file is also JC/SJD-named, no JC library match)"
+                End If
+                oHit.sKind = "CC"
+                oHit.oCandidates.AddRange(oCCCands)
+            End If
+        End If
+
+        If oHit IsNot Nothing AndAlso oDoc IsNot Nothing Then
+            oHit.sPartNumber = DupInv_GetProp(oDoc, "Part Number")
+            oHit.sDescription = DupInv_GetProp(oDoc, "Description")
+            oHit.sSpecification = DupInv_GetProp(oDoc, "SPECIFICATION")
+        End If
+    Catch
+    End Try
+    ctx.oHitCache(sFull) = oHit
+    Return oHit
+End Function
+
+' Writes one "item to investigate" block. A file already printed earlier
+' in the report gets a one-line back-reference instead of full detail.
+Sub DupInv_AppendHit(ctx As DupInv_Context, sb As System.Text.StringBuilder, oHit As DupInv_Hit, sIndent As String)
+    Dim sTag As String = "[" & oHit.sKind & "]"
+    Dim sName As String = System.IO.Path.GetFileName(oHit.sFullPath)
+    If ctx.oPrintedHits.Contains(oHit.sFullPath) Then
+        sb.AppendLine(sIndent & ">> " & sTag & " " & sName & "   (same file - details listed earlier in this report)")
+        Return
+    End If
+    ctx.oPrintedHits.Add(oHit.sFullPath)
+    If oHit.sKind = "JC" Then
+        ctx.iJC += 1
+    ElseIf oHit.sKind = "SJD" Then
+        ctx.iSJD += 1
+    Else
+        ctx.iCC += 1
+    End If
+    sb.AppendLine(sIndent & ">> " & sTag & " " & sName & "   (" & oHit.oCandidates.Count & " library candidate(s))")
+    sb.AppendLine(sIndent & "     Current : " & oHit.sFullPath)
+    If oHit.sToken <> "" AndAlso String.Compare(oHit.sToken, System.IO.Path.GetFileNameWithoutExtension(oHit.sFullPath), True) <> 0 Then
+        sb.AppendLine(sIndent & "     Token   : " & oHit.sToken)
+    End If
+    sb.AppendLine(sIndent & "     Reason  : " & oHit.sReason)
+    sb.AppendLine(sIndent & "     Props   : PN='" & oHit.sPartNumber & "'  Desc='" & oHit.sDescription & "'  Spec='" & oHit.sSpecification & "'")
+    If oHit.oCandidates.Count = 0 Then
+        sb.AppendLine(sIndent & "     Compare : (no library candidate found - review manually)")
+    Else
+        For Each oC As DupInv_Candidate In oHit.oCandidates
+            sb.AppendLine(sIndent & "     Compare : " & oC.sPath & "  " & oC.sNote)
+        Next
+    End If
+End Sub
+
+' Walks one assembly level (read-only) and returns the report text for it,
+' or "" when nothing beneath it needs investigating.
+Function DupInv_WalkLevel(ctx As DupInv_Context, oCompDef As ComponentDefinition, iDepth As Integer, _
+    oPathStack As System.Collections.Generic.HashSet(Of String)) As String
+    Dim sb As New System.Text.StringBuilder()
+    Dim sIndent As String = New String(" "c, 4 + iDepth * 4)
+    Dim oSeenHere As New System.Collections.Generic.HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+    Dim sParentFull As String = ""
+    Try : sParentFull = oCompDef.Document.FullFileName : Catch : End Try
+    Dim oOccs As ComponentOccurrences = Nothing
+    Try : oOccs = oCompDef.Occurrences : Catch : oOccs = Nothing : End Try
+    If oOccs Is Nothing Then Return ""
+
+    For Each oOcc As ComponentOccurrence In oOccs
+        Try
+            If oOcc.Suppressed Then Continue For
+            Dim oDoc As Document = Nothing
+            Try : oDoc = oOcc.Definition.Document : Catch : oDoc = Nothing : End Try
+            If oDoc Is Nothing Then Continue For
+            Dim sFull As String = ""
+            Try : sFull = oDoc.FullFileName : Catch : sFull = "" : End Try
+            If Trim(sFull) = "" OrElse sFull.Contains("*") Then Continue For
+            ' Virtual component / synthetic pattern member - no independent file
+            If String.Compare(sFull, sParentFull, True) = 0 Then Continue For
+            If IsSyntheticPatternMemberName(sFull) Then Continue For
+            If oSeenHere.Contains(sFull) Then Continue For
+            oSeenHere.Add(sFull)
+            ' Official library originals: never listed, never walked into
+            If DupInv_IsLibraryOriginal(sFull) Then Continue For
+
+            Dim oHit As DupInv_Hit = DupInv_Classify(ctx, oDoc, sFull)
+            If oHit IsNot Nothing Then DupInv_AppendHit(ctx, sb, oHit, sIndent)
+
+            If oDoc.DocumentType = kAssemblyDocumentObject Then
+                Dim sSubText As String = DupInv_WalkSub(ctx, CType(oDoc, AssemblyDocument), sFull, iDepth, oPathStack)
+                If sSubText <> "" Then
+                    sb.AppendLine(sIndent & "[SUB] " & System.IO.Path.GetFileName(sFull))
+                    sb.Append(sSubText)
+                End If
+            End If
+        Catch
+        End Try
+    Next
+    Return sb.ToString()
+End Function
+
+' Recurses into a sub-assembly with a current-path cycle guard. A shared
+' sub-assembly is expanded once; later appearances get a back-reference.
+Function DupInv_WalkSub(ctx As DupInv_Context, oSubDoc As AssemblyDocument, sFull As String, iDepth As Integer, _
+    oPathStack As System.Collections.Generic.HashSet(Of String)) As String
+    If oPathStack.Contains(sFull) Then Return ""
+    Dim sChildIndent As String = New String(" "c, 4 + (iDepth + 1) * 4)
+    If ctx.oAsmHasHits.ContainsKey(sFull) Then
+        If ctx.oAsmHasHits(sFull) Then
+            Return sChildIndent & "(candidates inside this sub-assembly are already listed earlier in this report)" & vbCrLf
+        End If
+        Return ""
+    End If
+    Dim sText As String = ""
+    oPathStack.Add(sFull)
+    Try
+        sText = DupInv_WalkLevel(ctx, oSubDoc.ComponentDefinition, iDepth + 1, oPathStack)
+    Catch
+        sText = ""
+    Finally
+        oPathStack.Remove(sFull)
+    End Try
+    ctx.oAsmHasHits(sFull) = (sText <> "")
+    Return sText
+End Function
+
+' Writes one MODEL block (and everything under it) for a drawing.
+Sub DupInv_AppendModel(ctx As DupInv_Context, sb As System.Text.StringBuilder, sModelRaw As String)
+    If sModelRaw.StartsWith("UNRESOLVED|") Then
+        sb.AppendLine("  MODEL: " & sModelRaw.Substring(11) & "   (not found in this GA tree - not scanned)")
+        ctx.iModelsSkipped += 1
+        Return
+    End If
+    Dim sModelPath As String = DupInv_CleanPath(sModelRaw)
+    sb.AppendLine("  MODEL: " & System.IO.Path.GetFileName(sModelPath))
+    sb.AppendLine("    Path : " & sModelPath)
+    If DupInv_IsLibraryOriginal(sModelPath) Then
+        sb.AppendLine("    (model is itself an official library file - not investigated)")
+        ctx.iModelsSkipped += 1
+        Return
+    End If
+
+    Dim bOpenedHere As Boolean = False
+    Dim oModelDoc As Document = OpenDocTracked(sModelPath, bOpenedHere)
+    If oModelDoc Is Nothing Then
+        sb.AppendLine("    (could not open model read-only - not scanned)")
+        ctx.iModelsSkipped += 1
+        Return
+    End If
+    ctx.iModels += 1
+    Try
+        Dim sKey As String = sModelPath
+        Try
+            If Trim(oModelDoc.FullFileName) <> "" Then sKey = oModelDoc.FullFileName
+        Catch
+        End Try
+        Dim sbModel As New System.Text.StringBuilder()
+        Dim oSelfHit As DupInv_Hit = DupInv_Classify(ctx, oModelDoc, sKey)
+        If oSelfHit IsNot Nothing Then DupInv_AppendHit(ctx, sbModel, oSelfHit, "    ")
+        If oModelDoc.DocumentType = kAssemblyDocumentObject Then
+            Dim sSub As String = ""
+            If ctx.oAsmHasHits.ContainsKey(sKey) Then
+                If ctx.oAsmHasHits(sKey) Then sSub = "    (candidates in this model are already listed under an earlier drawing in this report)" & vbCrLf
+            Else
+                Dim oStack As New System.Collections.Generic.HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+                oStack.Add(sKey)
+                sSub = DupInv_WalkLevel(ctx, CType(oModelDoc, AssemblyDocument).ComponentDefinition, 0, oStack)
+                ctx.oAsmHasHits(sKey) = (sSub <> "")
+            End If
+            sbModel.Append(sSub)
+        End If
+        If sbModel.Length = 0 Then
+            sb.AppendLine("    (no JC / SJD / Content Center duplicate candidates found)")
+        Else
+            sb.Append(sbModel.ToString())
+        End If
+    Catch exM As Exception
+        sb.AppendLine("    (model scan failed: " & exM.Message & ")")
+    Finally
+        CloseIfOpenedHere(oModelDoc, bOpenedHere)
+    End Try
+End Sub
+
+' Assembly-run entry: turns Phase 0 data (drawing basename -> model
+' basenames) into drawing -> model full paths, resolving basenames against
+' the GA and its referenced documents. With no drawings, the GA itself is
+' reported under a pseudo-drawing node.
+Function DupInv_BuildDrawingModelListFromPhase0(oAsmDoc As AssemblyDocument, _
+    oPhase0Data As System.Collections.Generic.List(Of Object()), sDrawingsFolder As String) _
+    As System.Collections.Generic.List(Of Object())
+    Dim oResult As New System.Collections.Generic.List(Of Object())
+    Dim oByBase As New System.Collections.Generic.Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase)
+    Try
+        oByBase(System.IO.Path.GetFileNameWithoutExtension(oAsmDoc.FullFileName)) = oAsmDoc.FullFileName
+        For Each oD As Document In oAsmDoc.AllReferencedDocuments
+            Try
+                Dim sP As String = oD.FullFileName
+                If Trim(sP) = "" Then Continue For
+                Dim sExt As String = System.IO.Path.GetExtension(sP).ToUpper()
+                If sExt <> ".IAM" AndAlso sExt <> ".IPT" Then Continue For
+                Dim sB As String = System.IO.Path.GetFileNameWithoutExtension(sP)
+                If Not oByBase.ContainsKey(sB) Then oByBase(sB) = sP
+            Catch
+            End Try
+        Next
+    Catch
+    End Try
+
+    If oPhase0Data IsNot Nothing Then
+        For Each oEntry As Object() In oPhase0Data
+            Try
+                Dim sDwg As String = CStr(oEntry(0))
+                If Trim(sDrawingsFolder) <> "" Then sDwg = System.IO.Path.Combine(sDrawingsFolder, sDwg)
+                Dim oBases As System.Collections.Generic.List(Of String) = TryCast(oEntry(1), System.Collections.Generic.List(Of String))
+                Dim oModels As New System.Collections.Generic.List(Of String)
+                If oBases IsNot Nothing Then
+                    For Each sB As String In oBases
+                        If oByBase.ContainsKey(sB) Then
+                            oModels.Add(oByBase(sB))
+                        Else
+                            oModels.Add("UNRESOLVED|" & sB)
+                        End If
+                    Next
+                End If
+                oResult.Add(New Object() {sDwg, oModels})
+            Catch
+            End Try
+        Next
+    End If
+
+    If oResult.Count = 0 Then
+        Dim oTop As New System.Collections.Generic.List(Of String)
+        oTop.Add(oAsmDoc.FullFileName)
+        oResult.Add(New Object() {"(no drawings scanned - run started from the assembly)", oTop})
+    End If
+    Return oResult
+End Function
+
+' Main entry: builds the whole report and writes it next to the run log.
+' oDwgModels: each Object() = { drawing full path or label, List(Of String) model paths }.
+' Returns the report path. Read-only apart from writing the report file.
+Function DupInv_RunReport(oDwgModels As System.Collections.Generic.List(Of Object()), sStartedFrom As String, _
+    sLogFilePath As String, sRunContext As String) As String
+    Dim dStart As DateTime = DateTime.Now
+    Dim sReportPath As String = ""
+    Try
+        sReportPath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(sLogFilePath), _
+            System.IO.Path.GetFileNameWithoutExtension(sLogFilePath) & "_DupInvestigation.txt")
+    Catch
+        sReportPath = System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.Desktop), _
+            "DupInvestigation_" & DateTime.Now.ToString("yyyy-MM-dd_HHmmss") & ".txt")
+    End Try
+
+    Dim ctx As DupInv_Context = DupInv_InitContext()
+    Dim sbBody As New System.Text.StringBuilder()
+
+    If oDwgModels IsNot Nothing Then
+        For Each oEntry As Object() In oDwgModels
+            Try
+                Dim sDwg As String = CStr(oEntry(0))
+                Dim oModels As System.Collections.Generic.List(Of String) = TryCast(oEntry(1), System.Collections.Generic.List(Of String))
+                ctx.iDrawings += 1
+                sbBody.AppendLine(New String("="c, 100))
+                If System.IO.Path.IsPathRooted(sDwg) Then
+                    sbBody.AppendLine("DRAWING: " & System.IO.Path.GetFileName(sDwg))
+                    sbBody.AppendLine("  Path : " & sDwg)
+                Else
+                    sbBody.AppendLine("DRAWING: " & sDwg)
+                End If
+                sbBody.AppendLine(New String("="c, 100))
+                If oModels Is Nothing OrElse oModels.Count = 0 Then
+                    sbBody.AppendLine("  (no .iam / .ipt model references)")
+                Else
+                    For Each sModelRaw As String In oModels
+                        Try
+                            DupInv_AppendModel(ctx, sbBody, sModelRaw)
+                        Catch exModel As Exception
+                            sbBody.AppendLine("  (model section failed: " & exModel.Message & ")")
+                        End Try
+                    Next
+                End If
+                sbBody.AppendLine()
+            Catch exDwg As Exception
+                sbBody.AppendLine("  (drawing section failed: " & exDwg.Message & ")")
+            End Try
+        Next
+    End If
+
+    Dim dSecs As Double = (DateTime.Now - dStart).TotalSeconds
+    Dim sb As New System.Text.StringBuilder()
+    sb.AppendLine(New String("="c, 100))
+    sb.AppendLine("DUPLICATE INVESTIGATION REPORT (report-only - JC / SJD / Content Center)")
+    sb.AppendLine(New String("="c, 100))
+    sb.AppendLine("Generated     : " & DateTime.Now.ToString())
+    sb.AppendLine("Run context   : " & sRunContext)
+    sb.AppendLine("Started from  : " & sStartedFrom)
+    sb.AppendLine("Report file   : " & sReportPath)
+    sb.AppendLine("Status        : No files were modified, copied, saved, deleted or repointed.")
+    sb.AppendLine("Scan time     : " & dSecs.ToString("F1") & " s")
+    sb.AppendLine(New String("-"c, 100))
+    sb.AppendLine("OFFICIAL LIBRARY LOCATIONS")
+    sb.AppendLine("  JC Library     : " & ctx.sLibraryFolder & If(System.IO.Directory.Exists(ctx.sLibraryFolder), "", "   [FOLDER NOT FOUND]"))
+    sb.AppendLine("  JC catalogue   : " & ctx.sJCCatalogueFile & If(ctx.bJCCatLoaded, "   [loaded, " & ctx.oJCEntries.Count & " entries]", "   [not found - filename token match only]"))
+    sb.AppendLine("  Content Center : " & ctx.sContentCenterFolder & If(System.IO.Directory.Exists(ctx.sContentCenterFolder), "", "   [FOLDER NOT FOUND]"))
+    sb.AppendLine("  CC catalogue   : " & ctx.sCCCatalogueFile & If(ctx.bCCCatLoaded, "   [loaded, " & ctx.oCCEntries.Count & " entries]", "   [not found - fastener-keyword filename match only]"))
+    sb.AppendLine(New String("-"c, 100))
+    sb.AppendLine("SUMMARY")
+    sb.AppendLine("  Drawings listed              : " & ctx.iDrawings)
+    sb.AppendLine("  Models scanned               : " & ctx.iModels & "   (not scanned: " & ctx.iModelsSkipped & ")")
+    sb.AppendLine("  Distinct items to investigate: " & (ctx.iJC + ctx.iSJD + ctx.iCC) & "   (JC: " & ctx.iJC & "  SJD: " & ctx.iSJD & "  CC: " & ctx.iCC & ")")
+    sb.AppendLine(New String("-"c, 100))
+    sb.AppendLine("LEGEND")
+    sb.AppendLine("  >> [JC]  file name has a JC00 token / contains 'JC'")
+    sb.AppendLine("  >> [SJD] file name contains 'SJD' (no JC00 token)")
+    sb.AppendLine("  >> [CC]  local copy that matches a Content Center file (catalogue geometry or fastener filename)")
+    sb.AppendLine("  Compare : official library file(s) to compare against before deciding to repoint")
+    sb.AppendLine("  Files already inside the official library folders are originals and are not listed.")
+    sb.AppendLine("  A file or sub-assembly that appears more than once is detailed only the first time.")
+    sb.AppendLine(New String("-"c, 100))
+    sb.AppendLine("HIERARCHY (Drawing -> Model -> Sub-assembly -> items to investigate)")
+    sb.AppendLine(New String("-"c, 100))
+    sb.AppendLine()
+    sb.Append(sbBody.ToString())
+    sb.AppendLine(New String("="c, 100))
+    sb.AppendLine("END OF REPORT")
+    sb.AppendLine(New String("="c, 100))
+
+    System.IO.File.WriteAllText(sReportPath, sb.ToString())
+    Return sReportPath
+End Function

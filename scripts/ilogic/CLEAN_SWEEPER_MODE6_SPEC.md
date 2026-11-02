@@ -1,5 +1,5 @@
 # Clean Sweeper — Mode 6 (Copy Design) Flow Spec
-_Last updated: 2026-10-28_
+_Last updated: 2026-11-02_
 
 This document is the authoritative spec for Mode 6. Any session working on
 TRAVERSE_fixed.iLogicVb must read this before making changes.
@@ -148,6 +148,32 @@ User opens GA drawing → runs rule from GA drawing
   `oPhase0Data` MUST be declared at Sub Main top level (before any `If` block).
 - VB.NET `If`/`Else` same scope: cannot declare same variable name in both branches.
   Declare once before the `If`.
+
+---
+
+## Duplicate investigation (report only)
+
+- **2026-11-02** — Added a read-only JC / SJD / Content Center duplicate
+  investigation section to `TRAVERSE_CLEAN_SWEEPER_NEW_DWG_COPY_DESIGN.iLogicVb`,
+  ported from `TRAVERSE_Through_Main_ASM_Find_Replace_JC_CC_Duplicates_REPORT_ONLY.iLogicVb`.
+  - Flag: `DUPINV_ENABLED` (a `Const` inside `DupInv_IsEnabled()`, in the
+    SETTINGS block just above `Sub Main`). Default `True`; set `False` to skip.
+  - Runs BEFORE any copy/rename work, on the original source tree:
+    Drawing Copy Mode → right after the drawing reference scan (step 1b);
+    assembly traverse → right after Step 3 (Phase 0 scan + rename form),
+    skipped on a Full Sweep because Drawing Copy Mode already wrote it.
+  - Hierarchy: Drawing → Model(s) referenced → Sub-assembly → `>> [JC]`,
+    `>> [SJD]`, `>> [CC]` items, each with the official library file(s) to compare.
+  - Library paths (verbatim from the REPORT_ONLY rule): `C:\Vault\Libraries\JC Library`
+    (+ `JC_Library_Catalogue.txt`), `C:\Vault\Content Center Files`
+    (+ `CC_Catalogue.txt`). Catalogues are read if present, never built here;
+    folder indexes are built once per run and cached.
+  - Output: `<run log name>_DupInvestigation.txt` next to the Desktop run log
+    (`Traverse_Rename_Log_*.txt` or `DrawingCopyMode_Log_*.txt`); the path is
+    also written to the run log.
+  - Strictly read-only (no Replace/ReplaceReference, copy, delete, save or
+    repoint). All `DupInv_*` members are wrapped in Try/Catch so a failure
+    never stops the main traverse.
 
 ---
 
