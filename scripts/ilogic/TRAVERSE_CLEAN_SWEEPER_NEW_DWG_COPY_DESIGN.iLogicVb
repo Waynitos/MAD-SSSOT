@@ -2986,7 +2986,7 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument)
             ' AutoCAD-created DWG (no .iam/.ipt refs): list it greyed in the rename form
             ' with its DRAWING_DESCRIPTION_2 attribute; never processed or repointed.
             If IsAutoCADDwg(sP0DwgPath) Then
-                Dim sAcadDesc0 As String = GetAcadDrawingDescription(sP0DwgPath)
+                Dim sAcadDesc0 As String = GetAcadDrawingDescription(sP0DwgPath, sLogFilePath)
                 oPhase0Data.Add(New Object() {System.IO.Path.GetFileName(sP0DwgPath), New System.Collections.Generic.List(Of String), "AUTOCAD", sAcadDesc0})
                 Try : System.IO.File.AppendAllText(sLogFilePath, "ACAD-INCLUDED: " & System.IO.Path.GetFileName(sP0DwgPath) & If(sAcadDesc0 <> "", "  [" & sAcadDesc0 & "]", "") & vbCrLf) : Catch : End Try
             End If
@@ -3006,7 +3006,7 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument)
     Next
     ' AutoCAD DWGs: shown greyed in the rename form, excluded from all processing
     For Each sAcadDwg As String In oAcadDwgPaths
-        Dim sAcadDesc As String = GetAcadDrawingDescription(sAcadDwg)
+        Dim sAcadDesc As String = GetAcadDrawingDescription(sAcadDwg, sLogFilePath)
         oPhase0Data.Add(New Object() {System.IO.Path.GetFileName(sAcadDwg), New System.Collections.Generic.List(Of String), "AUTOCAD", sAcadDesc})
         Try : System.IO.File.AppendAllText(sLogFilePath, "ACAD-INCLUDED: " & System.IO.Path.GetFileName(sAcadDwg) & If(sAcadDesc <> "", "  [" & sAcadDesc & "]", "") & vbCrLf) : Catch : End Try
     Next
@@ -4366,8 +4366,14 @@ End Function
 ' across Sheets -> AutoCADBlocks -> GetPromptTextValues). Opens the file
 ' invisibly if it is not already open and closes it again WITHOUT saving.
 ' Returns "" if the tag is absent or anything fails.
-Function GetAcadDrawingDescription(sPath As String) As String
+' Diagnostics (added 2026-11-02): if sLogPath is given, every tag/value pair
+' found is logged as "ACAD-TAGS: file : TAG='val'; ..." (or "(no AutoCADBlocks
+' / no tags)"). Exact DRAWING_DESCRIPTION_2 is preferred; otherwise the first
+' non-blank tag whose name contains DESCRIPTION or DRAWING is used as fallback.
+Function GetAcadDrawingDescription(sPath As String, Optional sLogPath As String = "") As String
     Dim sResult As String = ""
+    Dim sFallback As String = ""
+    Dim oTagLog As New System.Text.StringBuilder()
     Dim oAcadDoc As Document = Nothing
     Dim bOpenedHere As Boolean = False
     Try
@@ -4388,22 +4394,31 @@ Function GetAcadDrawingDescription(sPath As String) As String
                         oAcadBlk.GetPromptTextValues(oTags, oVals)
                         Dim iTag As Integer
                         For iTag = 0 To oTags.Length - 1
-                            If String.Compare(Trim(oTags(iTag)), "DRAWING_DESCRIPTION_2", True) = 0 Then
-                                If iTag < oVals.Length AndAlso Trim(oVals(iTag)) <> "" Then
-                                    sResult = Trim(oVals(iTag))
-                                    Exit For
-                                End If
+                            Dim sTagName As String = Trim(oTags(iTag))
+                            Dim sTagVal As String = ""
+                            If iTag < oVals.Length AndAlso oVals(iTag) IsNot Nothing Then sTagVal = Trim(oVals(iTag))
+                            oTagLog.Append(sTagName & "='" & sTagVal & "'; ")
+                            If sResult = "" AndAlso sTagVal <> "" AndAlso String.Compare(sTagName, "DRAWING_DESCRIPTION_2", True) = 0 Then
+                                sResult = sTagVal
+                            End If
+                            If sFallback = "" AndAlso sTagVal <> "" Then
+                                Dim sTagUp As String = sTagName.ToUpper()
+                                If sTagUp.Contains("DESCRIPTION") OrElse sTagUp.Contains("DRAWING") Then sFallback = sTagVal
                             End If
                         Next
                     Catch
                     End Try
-                    If sResult <> "" Then Exit For
                 Next
-                If sResult <> "" Then Exit For
             Next
         End If
     Catch
     End Try
+    If sResult = "" Then sResult = sFallback
+    If sLogPath <> "" Then
+        Dim sTagLine As String = oTagLog.ToString().Trim()
+        If sTagLine = "" Then sTagLine = "(no AutoCADBlocks / no tags)"
+        Try : System.IO.File.AppendAllText(sLogPath, "ACAD-TAGS: " & System.IO.Path.GetFileName(sPath) & " : " & sTagLine & vbCrLf) : Catch : End Try
+    End If
     If bOpenedHere AndAlso oAcadDoc IsNot Nothing Then
         Try : oAcadDoc.Close(True) : Catch : End Try
     End If
