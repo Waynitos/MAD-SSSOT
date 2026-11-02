@@ -1,0 +1,184 @@
+' =====================================================================
+' iLogic Rule: JC_LIBRARY_CATALOGUE_BUILDER (and CC helper)
+' Version: 2026-11-02
+'
+' PURPOSE:
+'   Builds or reuses the geometry catalogue files that the duplicate
+'   checker reads instead of opening library files live.
+'
+' BEHAVIOUR:
+'   - If the catalogue file already exists, it is left alone and the
+'     rule exits with a message (no rebuild).
+'   - If it does not exist, the library is scanned once and the
+'     catalogue is written.
+'
+' OUTPUT:
+'   JC:  C:\Vault\Libraries\JC Library\JC_Library_Catalogue.txt
+'   CC:  C:\Vault\Content Center Files\CC_Catalogue.txt
+'
+' Columns (tab-delimited):
+'   Token | DisplayName | FullPath | MassKg | SurfaceArea | Volume |
+'   COMx | COMy | COMz | DocType | Material | Specification
+' =====================================================================
+
+Sub Main()
+
+    Dim sJCFolder As String = "C:\Vault\Libraries\JC Library"
+    Dim sCCFolder As String = "C:\Vault\Content Center Files"
+    Dim sJCCat    As String = System.IO.Path.Combine(sJCFolder, "JC_Library_Catalogue.txt")
+    Dim sCCCat    As String = System.IO.Path.Combine(sCCFolder, "CC_Catalogue.txt")
+
+    Dim oChoice As DialogResult = MessageBox.Show( _
+        "Catalogue builder" & vbCrLf & vbCrLf & _
+        "JC catalogue : " & sJCCat & vbCrLf & _
+        "CC catalogue : " & sCCCat & vbCrLf & vbCrLf & _
+        "If a catalogue already exists it will be left alone." & vbCrLf & _
+        "Only missing catalogues will be built." & vbCrLf & vbCrLf & _
+        "Build missing catalogues now?", _
+        "Build Catalogues", MessageBoxButtons.YesNo, MessageBoxIcon.Question)
+
+    If oChoice <> DialogResult.Yes Then Exit Sub
+
+    Dim sSummary As String = ""
+
+    ' ---- JC ----
+    If System.IO.File.Exists(sJCCat) Then
+        sSummary &= "JC catalogue already exists - skipped." & vbCrLf & sJCCat & vbCrLf & vbCrLf
+    Else
+        sSummary &= BuildOneCatalogue(sJCFolder, sJCCat, True) & vbCrLf & vbCrLf
+    End If
+
+    ' ---- CC ----
+    If System.IO.File.Exists(sCCCat) Then
+        sSummary &= "CC catalogue already exists - skipped." & vbCrLf & sCCCat & vbCrLf
+    Else
+        sSummary &= BuildOneCatalogue(sCCFolder, sCCCat, False)
+    End If
+
+    MessageBox.Show(sSummary, "Catalogue Builder")
+End Sub
+
+Function BuildOneCatalogue(sFolder As String, sCatalogueFile As String, bIncludeAsm As Boolean) As String
+    If Not System.IO.Directory.Exists(sFolder) Then
+        Return "Folder not found: " & sFolder
+    End If
+
+    Dim oAllFiles As New List(Of String)
+    Try
+        For Each sF As String In System.IO.Directory.GetFiles(sFolder, "*.ipt", System.IO.SearchOption.AllDirectories)
+            If sF.ToUpper().Contains("\OLDVERSIONS\") OrElse sF.ToUpper().Contains("\OLD VERSIONS\") Then Continue For
+            oAllFiles.Add(sF)
+        Next
+        If bIncludeAsm Then
+            For Each sF As String In System.IO.Directory.GetFiles(sFolder, "*.iam", System.IO.SearchOption.AllDirectories)
+                If sF.ToUpper().Contains("\OLDVERSIONS\") OrElse sF.ToUpper().Contains("\OLD VERSIONS\") Then Continue For
+                oAllFiles.Add(sF)
+            Next
+        End If
+    Catch ex As Exception
+        Return "Error scanning " & sFolder & ": " & ex.Message
+    End Try
+
+    If oAllFiles.Count = 0 Then Return "No files found in " & sFolder
+
+    Dim oLines As New List(Of String)
+    oLines.Add("#CATALOGUE v2026-11-02")
+    oLines.Add("#Generated: " & DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"))
+    oLines.Add("#Library: " & sFolder)
+    oLines.Add("#Columns: Token" & Chr(9) & "DisplayName" & Chr(9) & "FullPath" & Chr(9) & _
+               "MassKg" & Chr(9) & "SurfaceArea" & Chr(9) & "Volume" & Chr(9) & _
+               "COMx" & Chr(9) & "COMy" & Chr(9) & "COMz" & Chr(9) & "DocType" & Chr(9) & _
+               "Material" & Chr(9) & "Specification")
+
+    Dim iDone As Integer = 0
+    Dim iFailed As Integer = 0
+
+    For Each sFilePath As String In oAllFiles
+        Dim sName As String = System.IO.Path.GetFileNameWithoutExtension(sFilePath)
+        Dim sExt  As String = System.IO.Path.GetExtension(sFilePath).ToUpper()
+        Dim sDocType As String = If(sExt = ".IPT", "PART", "ASM")
+
+        Dim sToken As String = ""
+        Dim oTok As System.Text.RegularExpressions.Match = _
+            System.Text.RegularExpressions.Regex.Match(sName, "JC00\d+", System.Text.RegularExpressions.RegexOptions.IgnoreCase)
+        If oTok.Success Then sToken = oTok.Value.ToUpper()
+
+        Dim oDoc As Document = Nothing
+        Dim bWasOpen As Boolean = False
+        Try
+            For Each oOpen As Document In ThisApplication.Documents
+                If String.Compare(oOpen.FullFileName, sFilePath, True) = 0 Then
+                    oDoc = oOpen : bWasOpen = True : Exit For
+                End If
+            Next
+            If oDoc Is Nothing Then oDoc = ThisApplication.Documents.Open(sFilePath, False)
+        Catch
+            iFailed += 1
+            oLines.Add(sToken & Chr(9) & sName & Chr(9) & sFilePath & Chr(9) & _
+                       "" & Chr(9) & "" & Chr(9) & "" & Chr(9) & "" & Chr(9) & "" & Chr(9) & "" & Chr(9) & _
+                       sDocType & Chr(9) & "" & Chr(9) & "")
+            Continue For
+        End Try
+
+        Try
+            Dim oMP As MassProperties = Nothing
+            If oDoc.DocumentType = kPartDocumentObject Then
+                Try : oMP = CType(oDoc, PartDocument).ComponentDefinition.MassProperties : Catch : End Try
+            ElseIf oDoc.DocumentType = kAssemblyDocumentObject Then
+                Try : oMP = CType(oDoc, AssemblyDocument).ComponentDefinition.MassProperties : Catch : End Try
+            End If
+
+            Dim sMass = "" : Dim sArea = "" : Dim sVol = "" : Dim sCX = "" : Dim sCY = "" : Dim sCZ = ""
+            If oMP IsNot Nothing Then
+                Try : sMass = oMP.Mass.ToString("F6") : Catch : End Try
+                Try : sArea = oMP.Area.ToString("F4") : Catch : End Try
+                Try : sVol  = oMP.Volume.ToString("F4") : Catch : End Try
+                Try : sCX   = oMP.CenterOfMass.X.ToString("F4") : Catch : End Try
+                Try : sCY   = oMP.CenterOfMass.Y.ToString("F4") : Catch : End Try
+                Try : sCZ   = oMP.CenterOfMass.Z.ToString("F4") : Catch : End Try
+            End If
+
+            Dim sMat As String = GetProp(oDoc, "Material")
+            Dim sSpec As String = GetProp(oDoc, "SPECIFICATION")
+            If sSpec = "" Then sSpec = GetProp(oDoc, "Specification")
+
+            oLines.Add(sToken & Chr(9) & sName & Chr(9) & sFilePath & Chr(9) & _
+                       sMass & Chr(9) & sArea & Chr(9) & sVol & Chr(9) & _
+                       sCX & Chr(9) & sCY & Chr(9) & sCZ & Chr(9) & sDocType & Chr(9) & _
+                       sMat & Chr(9) & sSpec)
+            iDone += 1
+        Catch
+            iFailed += 1
+            oLines.Add(sToken & Chr(9) & sName & Chr(9) & sFilePath & Chr(9) & _
+                       "" & Chr(9) & "" & Chr(9) & "" & Chr(9) & "" & Chr(9) & "" & Chr(9) & "" & Chr(9) & _
+                       sDocType & Chr(9) & "" & Chr(9) & "")
+        Finally
+            If Not bWasOpen AndAlso oDoc IsNot Nothing Then
+                Try : oDoc.Close(False) : Catch : End Try
+            End If
+        End Try
+    Next
+
+    Try
+        System.IO.File.WriteAllLines(sCatalogueFile, oLines.ToArray())
+    Catch ex As Exception
+        Return "Failed to write " & sCatalogueFile & " : " & ex.Message
+    End Try
+
+    Return "Built " & sCatalogueFile & vbCrLf & _
+           "  Catalogued: " & iDone & vbCrLf & _
+           "  Failed: " & iFailed & vbCrLf & _
+           "  Total: " & oAllFiles.Count
+End Function
+
+Function GetProp(oDoc As Document, sName As String) As String
+    Try
+        Return oDoc.PropertySets.Item("Inventor User Defined Properties").Item(sName).Value.ToString()
+    Catch
+    End Try
+    Try
+        Return oDoc.PropertySets.Item("Design Tracking Properties").Item(sName).Value.ToString()
+    Catch
+    End Try
+    Return ""
+End Function
