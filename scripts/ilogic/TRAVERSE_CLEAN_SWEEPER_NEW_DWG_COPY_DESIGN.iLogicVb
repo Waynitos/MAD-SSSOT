@@ -5046,6 +5046,16 @@ Function ShowCopyDesignConfigForm(ByRef oChoice As RenameModeChoice, Optional sS
             ' Skip middles that do not look like a convention segment
             ' (must start with a digit or contain xx / another PJ)
             Dim sMidTrim As String = sMiddle.Trim("-"c)
+            ' Skip dangerous short numeric middles (added 2026-11-02): 1-2 chars,
+            ' all digits ("-01-", "-02-", "-00-", "-1-"). These are common in item
+            ' name tails and match far too many files to be safe Find suggestions.
+            If sMidTrim.Length >= 1 AndAlso sMidTrim.Length <= 2 Then
+                Dim bMidAllDigits As Boolean = True
+                For Each cMid As Char In sMidTrim
+                    If Not Char.IsDigit(cMid) Then bMidAllDigits = False : Exit For
+                Next
+                If bMidAllDigits Then Continue For
+            End If
             Dim bLooksLikeConvention As Boolean = False
             If sMidTrim.Length > 0 AndAlso Char.IsDigit(sMidTrim(0)) Then bLooksLikeConvention = True
             If sMiddle.ToUpper().Contains("XX") Then bLooksLikeConvention = True
