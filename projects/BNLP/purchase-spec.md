@@ -15,28 +15,30 @@
 | Neural Engine | 16-core |
 | Unified Memory | **48GB** ✅ (RMAD-confirmed decision) |
 | Storage | 1TB SSD |
-| Display | **PROLED XDR — Nano-texture glass** ⚠️ (see note) |
+| Display | **Standard Liquid Retina XDR** ✅ |
 | Power Adapter | 140W USB-C |
 | Keyboard | US English Backlit Magic Keyboard with Touch ID |
 | Ports | 3× Thunderbolt 5, MagSafe 3, 3.5mm headphone jack, HDMI, SDXC card slot |
 | Wireless | Wi-Fi 7, Bluetooth 6 |
 | External displays | Up to 3 |
-| **Cart price** | **A$6,624.00** |
+| **Cart price** | **A$5,699** ✅ (verified apple.com/au 2026-11-03) |
 | Shipping | 2–3 weeks, free |
 
 ---
 
-## ⚠️ Price Flag — Nano-texture Glass Upgrade
+## ✅ Display Decision — Standard Liquid Retina XDR
 
-The RMAD-locked spec was: **MBP 16" M5 Pro 48GB 1TB @ A$4,899**
-Cart price is: **A$6,624 — a $1,725 delta**
+Standard Liquid Retina XDR display confirmed. Display options reviewed and rejected:
+- **PROLED XDR + nano-texture glass** — A$6,624 (A$925 premium, separate product line)
+- **Standard MBP + nano-texture glass** — A$5,924 (A$225 upgrade)
+- **Standard MBP + standard display** — **A$5,699 ✅ CONFIRMED**
 
-The most likely cause is the **Nano-texture glass display upgrade**, which was not in the original spec. Nano-texture is a premium anti-glare coating (genuine matte etching, not a filter) that reduces glare in bright/outdoor environments at the cost of slightly reduced colour vibrancy.
+## ⚠️ Price History Note
 
-**Questions to resolve before purchase:**
-- Is nano-texture glass intentional, or did it get selected accidentally?
-- If intentional: is the $1,725 premium justified for your environment (office/home with controlled lighting)?
-- Standard display alternative: A$4,899 (saves $1,725)
+An earlier RMAD run (2026-10-24) cited the price as **A$4,899** — sourced from a third-party AU retailer aggregator. That figure was incorrect.
+
+**Verified price:** A$5,699 at apple.com/au (2026-11-03)
+**See:** `checklists/hardware-purchase-verification.md` for the process fix applied.
 
 ---
 
