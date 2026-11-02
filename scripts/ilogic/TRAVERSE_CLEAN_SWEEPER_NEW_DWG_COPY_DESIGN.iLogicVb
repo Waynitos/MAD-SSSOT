@@ -3671,16 +3671,27 @@ Function ShowDrawingModelRenameForm( _
         ' AutoCAD-created DWG: show greyed (disabled, unticked), no model rows,
         ' and keep it OUT of oIncludeCheckMap / oStateCheckMap so it is never selected.
         If oEntry.Length > 2 AndAlso CStr(oEntry(2)) = "AUTOCAD" Then
+            ' Bordered box around the AutoCAD header row so it reads as distinct
+            ' from the Inventor drawings (which have their own bordered model panel).
+            ' Child controls are positioned relative to this panel.
+            Dim oAcadBorder As New System.Windows.Forms.Panel()
+            oAcadBorder.Left = iOldLeft : oAcadBorder.Top = iY - 3
+            oAcadBorder.Width = iPanelW - iOldLeft * 2 - 4
+            oAcadBorder.Height = 26
+            oAcadBorder.BorderStyle = BorderStyle.FixedSingle
+            oPanel.Controls.Add(oAcadBorder)
+            Dim iAcadOffX As Integer = iOldLeft + 1
+            Dim iAcadY As Integer = 2
             Dim oLblNumAcad As New Label()
             oLblNumAcad.Text = iDrawingNum.ToString() & "."
-            oLblNumAcad.Left = 4 : oLblNumAcad.Top = iY : oLblNumAcad.Width = 22 : oLblNumAcad.Height = 20
-            oPanel.Controls.Add(oLblNumAcad)
+            oLblNumAcad.Left = 2 : oLblNumAcad.Top = iAcadY : oLblNumAcad.Width = 22 : oLblNumAcad.Height = 20
+            oAcadBorder.Controls.Add(oLblNumAcad)
 
             Dim oChkIncludeAcad As New CheckBox()
-            oChkIncludeAcad.Left = 26 : oChkIncludeAcad.Top = iY - 1 : oChkIncludeAcad.Width = 18 : oChkIncludeAcad.Height = 20
+            oChkIncludeAcad.Left = 26 - iAcadOffX : oChkIncludeAcad.Top = iAcadY - 1 : oChkIncludeAcad.Width = 18 : oChkIncludeAcad.Height = 20
             oChkIncludeAcad.Checked = False
             oChkIncludeAcad.Enabled = False
-            oPanel.Controls.Add(oChkIncludeAcad)
+            oAcadBorder.Controls.Add(oChkIncludeAcad)
 
             Dim oLblDwgAcad As New Label()
             oLblDwgAcad.Text = sDwgBasename & "  —  Autocad Created Drawing – not included in This Clean Sweep"
@@ -3689,17 +3700,17 @@ Function ShowDrawingModelRenameForm( _
                 Try : sAcadLblDesc = Trim(CStr(oEntry(3))) : Catch : End Try
                 If sAcadLblDesc <> "" Then oLblDwgAcad.Text = oLblDwgAcad.Text & "  —  " & sAcadLblDesc
             End If
-            oLblDwgAcad.Left = 46 : oLblDwgAcad.Top = iY : oLblDwgAcad.Width = 390 : oLblDwgAcad.Height = 20
-            oPanel.Controls.Add(oLblDwgAcad)
+            oLblDwgAcad.Left = 46 - iAcadOffX : oLblDwgAcad.Top = iAcadY : oLblDwgAcad.Width = 390 : oLblDwgAcad.Height = 20
+            oAcadBorder.Controls.Add(oLblDwgAcad)
 
             Dim oChkStateAcad As New CheckBox()
             oChkStateAcad.Text = "Match model states?"
-            oChkStateAcad.Left = 440 : oChkStateAcad.Top = iY - 1 : oChkStateAcad.Width = 180 : oChkStateAcad.Height = 20
+            oChkStateAcad.Left = 440 - iAcadOffX : oChkStateAcad.Top = iAcadY - 1 : oChkStateAcad.Width = 180 : oChkStateAcad.Height = 20
             oChkStateAcad.Checked = False
             oChkStateAcad.Enabled = False
-            oPanel.Controls.Add(oChkStateAcad)
+            oAcadBorder.Controls.Add(oChkStateAcad)
 
-            iY = iY + 24 + 8   ' header row + gap, no model panel
+            iY = iY + 26 + 8   ' bordered header row + gap, no model panel
             Continue For
         End If
 
