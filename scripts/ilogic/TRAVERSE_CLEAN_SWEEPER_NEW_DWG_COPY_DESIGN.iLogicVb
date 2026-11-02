@@ -3562,6 +3562,8 @@ Function ShowDrawingModelRenameForm( _
     Dim oIncludeCheckMap As New System.Collections.Generic.Dictionary(Of String, CheckBox)(StringComparer.OrdinalIgnoreCase)
     ' Per-drawing state-match checkboxes (right side of each header)
     Dim oStateCheckMap As New System.Collections.Generic.Dictionary(Of String, CheckBox)(StringComparer.OrdinalIgnoreCase)
+    ' Re-entrancy guard for the NEW-name collision check (reverting Text re-fires TextChanged)
+    Dim bNewNameRevertBusy As Boolean = False
 
     ' Layout constants
     Const iFormW As Integer = 680
@@ -3720,6 +3722,38 @@ Function ShowDrawingModelRenameForm( _
                 End If
                 oModelBorder.Controls.Add(oTxtNew)
                 oMasterTxtMap(sModelBasename) = oTxtNew
+
+                ' Collision guard (added 2026-11-02): a NEW name may not equal the
+                ' NEW name already claimed by a DIFFERENT model. On collision the
+                ' field reverts to its pre-filled value and a warning is shown.
+                ' (Same-model repeats are still handled by the locked mirrors above.)
+                Dim oThisTxt As System.Windows.Forms.TextBox = oTxtNew
+                Dim sThisOld As String = sModelBasename
+                Dim sThisOriginal As String = sPreFilled
+                AddHandler oThisTxt.TextChanged, Sub(s, e)
+                    If bNewNameRevertBusy Then Exit Sub
+                    Dim sCand As String = Trim(oThisTxt.Text)
+                    If sCand = "" Then Exit Sub   ' blank = keep original; checked again on OK
+                    For Each kvpOther As System.Collections.Generic.KeyValuePair(Of String, System.Windows.Forms.TextBox) In oMasterTxtMap
+                        If String.Compare(kvpOther.Key, sThisOld, True) = 0 Then Continue For
+                        Dim sOtherNew As String = Trim(kvpOther.Value.Text)
+                        If sOtherNew = "" Then sOtherNew = kvpOther.Key
+                        If String.Compare(sOtherNew, sCand, True) = 0 Then
+                            bNewNameRevertBusy = True
+                            Try
+                                oThisTxt.Text = sThisOriginal
+                                oThisTxt.SelectionStart = oThisTxt.Text.Length
+                            Finally
+                                bNewNameRevertBusy = False
+                            End Try
+                            MessageBox.Show(oForm, "That new name is already used higher in the list by model '" & _
+                                kvpOther.Key & "'." & vbCrLf & vbCrLf & _
+                                "The field has been reverted to '" & sThisOriginal & "'.", _
+                                "Duplicate New Name", MessageBoxButtons.OK, MessageBoxIcon.Warning)
+                            Exit For
+                        End If
+                    Next
+                End Sub
             End If
 
             iMY = iMY + 26
@@ -3753,6 +3787,27 @@ Function ShowDrawingModelRenameForm( _
     oForm.Controls.Add(oCancel) : oForm.CancelButton = oCancel
 
     If oForm.ShowDialog() <> DialogResult.OK Then Return False
+
+    ' ---- Final uniqueness check (added 2026-11-02) ----
+    ' Every model's effective NEW name (blank = keep original) must be unique.
+    ' If any duplicate remains, show an error and cancel the form.
+    Dim oNewNameOwner As New System.Collections.Generic.Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase)
+    Dim sDupMsg As String = ""
+    For Each kvp As System.Collections.Generic.KeyValuePair(Of String, System.Windows.Forms.TextBox) In oMasterTxtMap
+        Dim sEffNew As String = Trim(kvp.Value.Text)
+        If sEffNew = "" Then sEffNew = kvp.Key
+        If oNewNameOwner.ContainsKey(sEffNew) Then
+            sDupMsg = sDupMsg & "  " & sEffNew & "   <-   '" & oNewNameOwner(sEffNew) & "' and '" & kvp.Key & "'" & vbCrLf
+        Else
+            oNewNameOwner(sEffNew) = kvp.Key
+        End If
+    Next
+    If sDupMsg <> "" Then
+        MessageBox.Show("Two or more models were given the same NEW name:" & vbCrLf & vbCrLf & _
+            sDupMsg & vbCrLf & "Nothing has been renamed. Please run the rule again and give each model a unique new name.", _
+            "Duplicate New Names - Cancelled", MessageBoxButtons.OK, MessageBoxIcon.Error)
+        Return False
+    End If
 
     ' ---- Collect results ----
     oChoice.oExplicitModelRenameMap.Clear()
