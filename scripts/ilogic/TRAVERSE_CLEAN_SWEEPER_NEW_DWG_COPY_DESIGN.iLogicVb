@@ -2824,16 +2824,51 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument)
     ' ── 2a. Target folder picker ────────────────────────────────────────
     Dim sFirstModelFolder As String = System.IO.Path.GetDirectoryName(oAllModelPaths(0))
 
-    Dim oFbd As New FolderBrowserDialog()
-    oFbd.Description = "DRAWING COPY MODE — Select folder for new model copies"
-    Dim sSeedFolder As String = If(System.IO.Directory.Exists(sFirstModelFolder), sFirstModelFolder, sDwgFolder)
-    If System.IO.Directory.Exists(sSeedFolder) Then oFbd.SelectedPath = sSeedFolder
-    If oFbd.ShowDialog() <> DialogResult.OK Then
-        MessageBox.Show("Cancelled — no changes made.", "Drawing Copy Mode")
-        ThisApplication.SilentOperation = bOrigSilent
-        Return
+    ' Re-run lock (added 2026-11-02): the first run saves the chosen target folder
+    ' to a sidecar file in the drawings folder. On a re-run, if that folder still
+    ' holds a renamed copy of the first model (same suffix after the first dash),
+    ' the folder is locked and the picker is skipped. Otherwise the picker shows.
+    Dim sTargetSidecar As String = System.IO.Path.Combine(sDwgFolder, "_CleanSweeper_TargetFolder.txt")
+    Dim sTargetFolder As String = ""
+    Dim bTargetLocked As Boolean = False
+    Try
+        If System.IO.File.Exists(sTargetSidecar) Then
+            Dim sSavedTarget As String = Trim(System.IO.File.ReadAllText(sTargetSidecar))
+            If sSavedTarget <> "" AndAlso System.IO.Directory.Exists(sSavedTarget) Then
+                Dim sLkBase As String = System.IO.Path.GetFileNameWithoutExtension(oAllModelPaths(0))
+                Dim sLkExt As String = System.IO.Path.GetExtension(oAllModelPaths(0))
+                Dim iLkDash As Integer = sLkBase.IndexOf("-"c)
+                If iLkDash > 0 Then
+                    Dim sLkSuffixUp As String = (sLkBase.Substring(iLkDash) & sLkExt).ToUpper()
+                    For Each sLkFile As String In System.IO.Directory.GetFiles(sSavedTarget, "*" & sLkExt)
+                        If System.IO.Path.GetFileName(sLkFile).ToUpper().EndsWith(sLkSuffixUp) Then
+                            sTargetFolder = sSavedTarget
+                            bTargetLocked = True
+                            Exit For
+                        End If
+                    Next
+                End If
+            End If
+        End If
+    Catch
+    End Try
+
+    If bTargetLocked Then
+        Try : System.IO.File.AppendAllText(sLogFilePath, "Target folder LOCKED (re-run - copy of first model found; picker skipped): " & sTargetFolder & vbCrLf) : Catch : End Try
+    Else
+        Dim oFbd As New FolderBrowserDialog()
+        oFbd.Description = "DRAWING COPY MODE — Select folder for new model copies"
+        Dim sSeedFolder As String = If(System.IO.Directory.Exists(sFirstModelFolder), sFirstModelFolder, sDwgFolder)
+        If System.IO.Directory.Exists(sSeedFolder) Then oFbd.SelectedPath = sSeedFolder
+        If oFbd.ShowDialog() <> DialogResult.OK Then
+            MessageBox.Show("Cancelled — no changes made.", "Drawing Copy Mode")
+            ThisApplication.SilentOperation = bOrigSilent
+            Return
+        End If
+        sTargetFolder = oFbd.SelectedPath
+        ' Remember the choice for re-runs
+        Try : System.IO.File.WriteAllText(sTargetSidecar, sTargetFolder) : Catch : End Try
     End If
-    Dim sTargetFolder As String = oFbd.SelectedPath
     If Not System.IO.Directory.Exists(sTargetFolder) Then
         Try
             System.IO.Directory.CreateDirectory(sTargetFolder)
