@@ -2176,7 +2176,14 @@ AfterSingleTraversal:
                             Dim sCandPath As String = System.IO.Path.Combine(sParent, sCandidate)
                             If System.IO.Directory.Exists(sCandPath) Then
                                 Dim oCandFiles As String() = System.IO.Directory.GetFiles(sCandPath, "*.idw")
-                                If oCandFiles.Length = 0 Then oCandFiles = System.IO.Directory.GetFiles(sCandPath, "*.dwg")
+                                If oCandFiles.Length = 0 Then
+                                    ' AutoCAD-created .dwg files do not count as Inventor drawings
+                                    Dim oCandInvDwgs As New System.Collections.Generic.List(Of String)
+                                    For Each sCandDwg As String In System.IO.Directory.GetFiles(sCandPath, "*.dwg")
+                                        If Not IsAutoCADDwg(sCandDwg) Then oCandInvDwgs.Add(sCandDwg)
+                                    Next
+                                    oCandFiles = oCandInvDwgs.ToArray()
+                                End If
                                 If oCandFiles.Length > 0 Then
                                     sAutoDrawingFolder = sCandPath
                                     Exit For
@@ -2423,7 +2430,10 @@ Function ShowDrawingSelectionForm( _
     Dim oIdwFiles As New System.Collections.Generic.List(Of String)
     Try
         oIdwFiles.AddRange(System.IO.Directory.GetFiles(sDrawingsFolder, "*.idw"))
-        oIdwFiles.AddRange(System.IO.Directory.GetFiles(sDrawingsFolder, "*.dwg"))
+        ' AutoCAD-created .dwg files are excluded from the update checklist
+        For Each sSelDwg As String In System.IO.Directory.GetFiles(sDrawingsFolder, "*.dwg")
+            If Not IsAutoCADDwg(sSelDwg) Then oIdwFiles.Add(sSelDwg)
+        Next
     Catch
         Return Nothing
     End Try
@@ -2443,6 +2453,7 @@ Function ShowDrawingSelectionForm( _
     Dim oPhase0Basenames As New System.Collections.Generic.HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
     If oPhase0Data IsNot Nothing Then
         For Each oEntry As Object() In oPhase0Data
+            If oEntry.Length > 2 AndAlso CStr(oEntry(2)) = "AUTOCAD" Then Continue For   ' AutoCAD DWG - never pre-ticked
             oPhase0Basenames.Add(CStr(oEntry(0)))   ' entry(0) = drawing basename WITH extension
         Next
     End If
@@ -2688,9 +2699,16 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument)
     Dim sActiveDwgPath As String = oDwgDoc.FullFileName
     Dim oAllDwgPaths As New System.Collections.Generic.List(Of String)
     oAllDwgPaths.Add(sActiveDwgPath)
+    ' AutoCAD-created .dwg siblings: never opened or repointed, only listed (greyed) in the rename form
+    Dim oAcadDwgPaths As New System.Collections.Generic.List(Of String)
     Try
         For Each sDwgFile As String In System.IO.Directory.GetFiles(sDwgFolder, "*.dwg")
             If String.Compare(sDwgFile, sActiveDwgPath, True) <> 0 Then
+                If IsAutoCADDwg(sDwgFile) Then
+                    oAcadDwgPaths.Add(sDwgFile)
+                    Try : System.IO.File.AppendAllText(sLogFilePath, "SCAN-SKIP (AutoCAD DWG): " & System.IO.Path.GetFileName(sDwgFile) & vbCrLf) : Catch : End Try
+                    Continue For
+                End If
                 oAllDwgPaths.Add(sDwgFile)
             End If
         Next
@@ -2941,6 +2959,10 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument)
         Next
         Dim sP0Desc As String = If(oDwgDescriptions.ContainsKey(sP0DwgPath), oDwgDescriptions(sP0DwgPath), "")
         oPhase0Data.Add(New Object() {sP0DwgBase, oP0ModelList, sP0Desc})
+    Next
+    ' AutoCAD DWGs: shown greyed in the rename form, excluded from all processing
+    For Each sAcadDwg As String In oAcadDwgPaths
+        oPhase0Data.Add(New Object() {System.IO.Path.GetFileName(sAcadDwg), New System.Collections.Generic.List(Of String), "AUTOCAD"})
     Next
 
     ' ── 3b. Show the existing Drawing Model Renames form ───────────────
@@ -3305,6 +3327,10 @@ Sub RunDrawingUpdatePass( _
     ThisApplication.SilentOperation = True
 
     For Each sDrawPath As String In oIdwFiles
+        If IsAutoCADDwg(sDrawPath) Then
+            sLog = sLog & vbCrLf & "DRAW-SKIP (AutoCAD DWG): " & System.IO.Path.GetFileName(sDrawPath)
+            Continue For
+        End If
         Dim oDrawDoc As DrawingDocument = Nothing
         Try
             ' Open drawing without showing it in the UI
@@ -3482,6 +3508,7 @@ End Sub
 Function RunPhase0DrawingScan(sDrawingsFolder As String, ByRef sLog As String, sLogFilePath As String) _
     As System.Collections.Generic.List(Of Object())
     ' Each Object() = { sDrawingBasename As String, List(Of String) modelBasenames }
+    ' AutoCAD-created .dwg: { sDrawingBasename, empty List(Of String), "AUTOCAD" } (never opened)
 
     Dim oResult As New System.Collections.Generic.List(Of Object())
 
@@ -3498,6 +3525,12 @@ Function RunPhase0DrawingScan(sDrawingsFolder As String, ByRef sLog As String, s
 
     For Each sIdwPath As String In oIdwFiles
         Dim sDwgBasename As String = System.IO.Path.GetFileName(sIdwPath)
+        If IsAutoCADDwg(sIdwPath) Then
+            oResult.Add(New Object() {sDwgBasename, New System.Collections.Generic.List(Of String), "AUTOCAD"})
+            sLog = sLog & vbCrLf & "PHASE0-SKIP (AutoCAD DWG, not included in this Clean Sweep): " & sDwgBasename
+            Try : System.IO.File.AppendAllText(sLogFilePath, "PHASE0-SKIP (AutoCAD DWG): " & sIdwPath & vbCrLf) : Catch : End Try
+            Continue For
+        End If
         Dim oModelList As New System.Collections.Generic.List(Of String)
         Dim oDwgDoc As DrawingDocument = Nothing
         Try
@@ -3623,6 +3656,36 @@ Function ShowDrawingModelRenameForm( _
         Dim sDwgBasename As String = CStr(oEntry(0))
         Dim oModelList As System.Collections.Generic.List(Of String) = _
             CType(oEntry(1), System.Collections.Generic.List(Of String))
+
+        ' AutoCAD-created DWG: show greyed (disabled, unticked), no model rows,
+        ' and keep it OUT of oIncludeCheckMap / oStateCheckMap so it is never selected.
+        If oEntry.Length > 2 AndAlso CStr(oEntry(2)) = "AUTOCAD" Then
+            Dim oLblNumAcad As New Label()
+            oLblNumAcad.Text = iDrawingNum.ToString() & "."
+            oLblNumAcad.Left = 4 : oLblNumAcad.Top = iY : oLblNumAcad.Width = 22 : oLblNumAcad.Height = 20
+            oPanel.Controls.Add(oLblNumAcad)
+
+            Dim oChkIncludeAcad As New CheckBox()
+            oChkIncludeAcad.Left = 26 : oChkIncludeAcad.Top = iY - 1 : oChkIncludeAcad.Width = 18 : oChkIncludeAcad.Height = 20
+            oChkIncludeAcad.Checked = False
+            oChkIncludeAcad.Enabled = False
+            oPanel.Controls.Add(oChkIncludeAcad)
+
+            Dim oLblDwgAcad As New Label()
+            oLblDwgAcad.Text = sDwgBasename & "  —  Autocad Created Drawing – not included in This Clean Sweep"
+            oLblDwgAcad.Left = 46 : oLblDwgAcad.Top = iY : oLblDwgAcad.Width = 390 : oLblDwgAcad.Height = 20
+            oPanel.Controls.Add(oLblDwgAcad)
+
+            Dim oChkStateAcad As New CheckBox()
+            oChkStateAcad.Text = "Match model states?"
+            oChkStateAcad.Left = 440 : oChkStateAcad.Top = iY - 1 : oChkStateAcad.Width = 180 : oChkStateAcad.Height = 20
+            oChkStateAcad.Checked = False
+            oChkStateAcad.Enabled = False
+            oPanel.Controls.Add(oChkStateAcad)
+
+            iY = iY + 24 + 8   ' header row + gap, no model panel
+            Continue For
+        End If
 
         ' ── Drawing header row ──────────────────────────────────────────
         ' Left: sequence number + include checkbox
@@ -4216,6 +4279,18 @@ Sub CaptureLevel(oCompDef As ComponentDefinition, ByRef oPathStack As System.Col
     End Try
 
 End Sub
+
+
+' True only for a .dwg created by AutoCAD (FileManager.IsInventorDWG = False).
+' .idw, Inventor .dwg, and any error -> False (existing behaviour kept).
+Function IsAutoCADDwg(sPath As String) As Boolean
+    Try
+        If String.Compare(System.IO.Path.GetExtension(sPath), ".dwg", True) <> 0 Then Return False
+        Return Not ThisApplication.FileManager.IsInventorDWG(sPath)
+    Catch
+        Return False
+    End Try
+End Function
 
 
 ' Holds the result of the mode/find/replace picker below.
@@ -11565,6 +11640,7 @@ Function DupInv_BuildDrawingModelListFromPhase0(oAsmDoc As AssemblyDocument, _
     If oPhase0Data IsNot Nothing Then
         For Each oEntry As Object() In oPhase0Data
             Try
+                If oEntry.Length > 2 AndAlso CStr(oEntry(2)) = "AUTOCAD" Then Continue For   ' AutoCAD DWG - excluded
                 Dim sDwg As String = CStr(oEntry(0))
                 If Trim(sDrawingsFolder) <> "" Then sDwg = System.IO.Path.Combine(sDrawingsFolder, sDwg)
                 Dim oBases As System.Collections.Generic.List(Of String) = TryCast(oEntry(1), System.Collections.Generic.List(Of String))
