@@ -190,7 +190,9 @@
 ' =====================================================================
 ' SETTINGS - DUPLICATE INVESTIGATION (REPORT ONLY)      added 2026-11-02
 ' ---------------------------------------------------------------------
-' DUPINV_ENABLED (inside DupInv_IsEnabled below)
+' DUPINV_ENABLED (module-level Const, declared directly after the
+'   End Sub of Sub Main - iLogic only accepts Imports/AddReference
+'   lines above Sub Main, so it cannot live here)
 '   True  = at the start of every run, before ANY copy/rename work, write
 '           a read-only hierarchical duplicate investigation report:
 '             Drawing -> Model(s) referenced -> Sub-assembly / part ->
@@ -206,11 +208,6 @@
 ' are copied verbatim from
 ' TRAVERSE_Through_Main_ASM_Find_Replace_JC_CC_Duplicates_REPORT_ONLY.
 ' =====================================================================
-Function DupInv_IsEnabled() As Boolean
-    Const DUPINV_ENABLED As Boolean = True
-    Return DUPINV_ENABLED
-End Function
-
 ' ---------------------------------------------------------------------
 ' MODE 4 HELPERS
 ' ---------------------------------------------------------------------
@@ -260,6 +257,10 @@ Sub Main()
     RunAssemblyTraverseMode(oAsmDoc)
 
 End Sub
+
+' Toggle for the read-only hierarchical duplicate investigation report.
+' Set to False to skip the scan entirely (no report file is written).
+Const DUPINV_ENABLED As Boolean = True
 
 ' =====================================================================
 ' ASSEMBLY TRAVERSE MODE
@@ -569,9 +570,9 @@ Sub RunAssemblyTraverseMode(oAsmDoc As AssemblyDocument, Optional sPresetTargetF
         ' duplicate candidates. Runs on the ORIGINAL source tree, before any
         ' copy/rename work. Never repoints, copies, saves or deletes anything.
         ' Skipped on a Full Sweep (Drawing Copy Mode already wrote the report).
-        ' Toggle: DUPINV_ENABLED in DupInv_IsEnabled (near the top of the file).
+        ' Toggle: module-level Const DUPINV_ENABLED (just after Sub Main).
         ' ======================================================================
-        If DupInv_IsEnabled() AndAlso Trim(sPresetOldPrefix) = "" Then
+        If DUPINV_ENABLED AndAlso Trim(sPresetOldPrefix) = "" Then
             Try
                 Dim oDupInvDwgModels As System.Collections.Generic.List(Of Object()) = _
                     DupInv_BuildDrawingModelListFromPhase0(oAsmDoc, oPhase0Data, oChoice.sDrawingsFolder)
@@ -2782,8 +2783,8 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument)
     ' Read-only Drawing -> Model -> Sub report of JC / SJD / Content Center
     ' duplicate candidates, built from the ORIGINAL drawing references above
     ' before anything is copied. Never repoints, copies, saves or deletes.
-    ' Toggle: DUPINV_ENABLED in DupInv_IsEnabled (near the top of the file).
-    If DupInv_IsEnabled() Then
+    ' Toggle: module-level Const DUPINV_ENABLED (just after Sub Main).
+    If DUPINV_ENABLED Then
         Dim bDupInvOrigSilent As Boolean = ThisApplication.SilentOperation
         Try
             ThisApplication.SilentOperation = True
