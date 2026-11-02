@@ -569,10 +569,10 @@ Sub RunAssemblyTraverseMode(oAsmDoc As AssemblyDocument, Optional sPresetTargetF
         ' Read-only Drawing -> Model -> Sub report of JC / SJD / Content Center
         ' duplicate candidates. Runs on the ORIGINAL source tree, before any
         ' copy/rename work. Never repoints, copies, saves or deletes anything.
-        ' Skipped on a Full Sweep (Drawing Copy Mode already wrote the report).
+        ' Also runs on a Full Sweep (a fully cleaned project shows zero items).
         ' Toggle: module-level Const DUPINV_ENABLED (just after Sub Main).
         ' ======================================================================
-        If DUPINV_ENABLED AndAlso Trim(sPresetOldPrefix) = "" Then
+        If DUPINV_ENABLED Then
             Try
                 Dim oDupInvDwgModels As System.Collections.Generic.List(Of Object()) = _
                     DupInv_BuildDrawingModelListFromPhase0(oAsmDoc, oPhase0Data, oChoice.sDrawingsFolder)
