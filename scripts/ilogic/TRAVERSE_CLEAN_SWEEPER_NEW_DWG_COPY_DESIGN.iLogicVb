@@ -5228,30 +5228,31 @@ Function ShowCopyDesignConfigForm(ByRef oChoice As RenameModeChoice, Optional sS
     Dim oTxtFs As New System.Collections.Generic.List(Of System.Windows.Forms.TextBox)
     Dim oTxtRs As New System.Collections.Generic.List(Of System.Windows.Forms.TextBox)
     Dim iRowTop As Integer = 118
-    Dim oF As System.Windows.Forms.TextBox
-    Dim oR As System.Windows.Forms.TextBox
+    ' NOTE: never name a variable oR / Or - VB is case-insensitive and Or is a keyword.
+    Dim oFind As System.Windows.Forms.TextBox
+    Dim oRep As System.Windows.Forms.TextBox
     Dim oArr As System.Windows.Forms.Label
     For iRow = 0 To oRowFinds.Count - 1
-        oF = New System.Windows.Forms.TextBox()
-        oF.Left = 15
-        oF.Top = iRowTop
-        oF.Width = 220
-        oF.Text = oRowFinds(iRow)
+        oFind = New System.Windows.Forms.TextBox()
+        oFind.Left = 15
+        oFind.Top = iRowTop
+        oFind.Width = 220
+        oFind.Text = oRowFinds(iRow)
         oArr = New System.Windows.Forms.Label()
         oArr.Text = "->"
         oArr.Left = 238
         oArr.Top = iRowTop + 3
         oArr.Width = 20
-        oR = New System.Windows.Forms.TextBox()
-        oR.Left = 250
-        oR.Top = iRowTop
-        oR.Width = 220
-        oR.Text = oRowReplaces(iRow)
-        oForm.Controls.Add(oF)
+        oRep = New System.Windows.Forms.TextBox()
+        oRep.Left = 250
+        oRep.Top = iRowTop
+        oRep.Width = 220
+        oRep.Text = oRowReplaces(iRow)
+        oForm.Controls.Add(oFind)
         oForm.Controls.Add(oArr)
-        oForm.Controls.Add(oR)
-        oTxtFs.Add(oF)
-        oTxtRs.Add(oR)
+        oForm.Controls.Add(oRep)
+        oTxtFs.Add(oFind)
+        oTxtRs.Add(oRep)
         iRowTop = iRowTop + 30
     Next
     Dim iBelowSeg As Integer = iRowTop + 4
