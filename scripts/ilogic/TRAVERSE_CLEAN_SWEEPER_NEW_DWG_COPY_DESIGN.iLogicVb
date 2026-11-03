@@ -4523,22 +4523,22 @@ Function ShowDrawingModelRenameForm( _
     ' Tick ON      → rename pass: apply whatever is typed in the NEW name fields.
     ' This is the master mode switch for the form.
     Dim oChkApplyNames As New CheckBox()
-    oChkApplyNames.Text = "Apply new model names  (leave un-ticked for clean sweep — copies without renaming)"
+    oChkApplyNames.Text = "Apply new model names  (leave un-ticked for clean sweep - copies without renaming)"
     oChkApplyNames.Left = 10 : oChkApplyNames.Top = 572 : oChkApplyNames.Width = 580
     oChkApplyNames.Checked = False   ' default = clean sweep
     oForm.Controls.Add(oChkApplyNames)
 
     ' Initialise all new-name fields as read-only (clean sweep default)
-    For Each oTxtInit As System.Windows.Forms.TextBox In oMasterTxtMap.Values
-        oTxtInit.ReadOnly = True
-        oTxtInit.BackColor = System.Drawing.SystemColors.Control
+    For Each oTxtInit As Object In oMasterTxtMap.Values
+        CType(oTxtInit, System.Windows.Forms.TextBox).ReadOnly = True
+        CType(oTxtInit, System.Windows.Forms.TextBox).BackColor = System.Drawing.SystemColors.Control
     Next
 
     ' Toggle editable / read-only on all new-name fields when checkbox changes
     AddHandler oChkApplyNames.CheckedChanged, Sub(s, e)
-        For Each oTxtToggle As System.Windows.Forms.TextBox In oMasterTxtMap.Values
-            oTxtToggle.ReadOnly = Not oChkApplyNames.Checked
-            oTxtToggle.BackColor = If(oChkApplyNames.Checked, System.Drawing.SystemColors.Window, System.Drawing.SystemColors.Control)
+        For Each oTxtToggle As Object In oMasterTxtMap.Values
+            CType(oTxtToggle, System.Windows.Forms.TextBox).ReadOnly = Not oChkApplyNames.Checked
+            CType(oTxtToggle, System.Windows.Forms.TextBox).BackColor = If(oChkApplyNames.Checked, System.Drawing.SystemColors.Window, System.Drawing.SystemColors.Control)
         Next
     End Sub
 
