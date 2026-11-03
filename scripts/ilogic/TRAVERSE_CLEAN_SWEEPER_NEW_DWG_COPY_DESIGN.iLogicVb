@@ -4528,17 +4528,18 @@ Function ShowDrawingModelRenameForm( _
     oChkApplyNames.Checked = False   ' default = clean sweep
     oForm.Controls.Add(oChkApplyNames)
 
-    ' Initialise all new-name fields as read-only (clean sweep default)
+    ' Initialise all new-name fields as read-only (clean sweep default).
+    ' NOTE: System.Drawing.Color AND System.Drawing.SystemColors are both unavailable
+    '       in the iLogic sandbox (System.Drawing.Primitives v8 not referenced).
+    '       Do NOT set BackColor here — use ReadOnly only for edit-lock state.
     For Each oTxtInit As Object In oMasterTxtMap.Values
         CType(oTxtInit, System.Windows.Forms.TextBox).ReadOnly = True
-        CType(oTxtInit, System.Windows.Forms.TextBox).BackColor = System.Drawing.SystemColors.Control
     Next
 
     ' Toggle editable / read-only on all new-name fields when checkbox changes
     AddHandler oChkApplyNames.CheckedChanged, Sub(s, e)
         For Each oTxtToggle As Object In oMasterTxtMap.Values
             CType(oTxtToggle, System.Windows.Forms.TextBox).ReadOnly = Not oChkApplyNames.Checked
-            CType(oTxtToggle, System.Windows.Forms.TextBox).BackColor = If(oChkApplyNames.Checked, System.Drawing.SystemColors.Window, System.Drawing.SystemColors.Control)
         Next
     End Sub
 
