@@ -187,27 +187,6 @@
 ' of your project folder before running this on live data.
 ' =====================================================================
 
-' =====================================================================
-' SETTINGS - DUPLICATE INVESTIGATION (REPORT ONLY)      added 2026-11-02
-' ---------------------------------------------------------------------
-' DUPINV_ENABLED (module-level Const, declared directly after the
-'   End Sub of Sub Main - iLogic only accepts Imports/AddReference
-'   lines above Sub Main, so it cannot live here)
-'   True  = at the start of every run, before ANY copy/rename work, write
-'           a read-only hierarchical duplicate investigation report:
-'             Drawing -> Model(s) referenced -> Sub-assembly / part ->
-'             items to investigate (JC parts, SJD parts, and Content
-'             Center matches in the official library folders).
-'   False = skip the scan entirely (no report file is written).
-' The scan is STRICTLY READ-ONLY: it never repoints, replaces, copies,
-' saves, deletes or renames anything. Any failure inside it is caught
-' and logged; the main traverse always carries on.
-' Output: "<run log name>_DupInvestigation.txt", written next to the
-' run's Desktop log (Traverse_Rename_Log_*.txt / DrawingCopyMode_Log_*.txt).
-' The official library folder constants live in DupInv_InitContext and
-' are copied verbatim from
-' TRAVERSE_Through_Main_ASM_Find_Replace_JC_CC_Duplicates_REPORT_ONLY.
-' =====================================================================
 ' ---------------------------------------------------------------------
 ' MODE 4 HELPERS
 ' ---------------------------------------------------------------------
@@ -227,6 +206,85 @@
 ' Returns True if the user confirmed, False if cancelled.
 Sub Main()
 
+    ' ══════════════════════════════════════════════════════════════════════
+    ' PRESET RENAME MAP — one-shot override for non-standard naming schemes.
+    ' When oPresetMap has entries the DrawingModelRenameForm is skipped and
+    ' these exact basenames (no extension) are used instead of the auto-
+    ' generated prefix-swap names.
+    '
+    ' HOW TO USE:
+    '   1. Set USE_PRESET_MAP = True
+    '   2. Uncomment & fill the oPresetMap.Add() lines below (or add more)
+    '      Key   = OLD model basename WITHOUT extension (as it appears on disk)
+    '      Value = NEW model basename WITHOUT extension
+    '   3. Run the rule from the GA assembly as normal
+    '   4. When done: set USE_PRESET_MAP = False and comment the lines back out
+    '
+    ' NOTE: files NOT in this map are renamed by the normal prefix-swap rules.
+    ' ══════════════════════════════════════════════════════════════════════
+    Dim USE_PRESET_MAP As Boolean = True   ' *** set False when done ***
+    Dim oPresetMap As System.Collections.Generic.Dictionary(Of String, String) = Nothing
+    If USE_PRESET_MAP Then
+        oPresetMap = New System.Collections.Generic.Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase)
+        ' ── PJ00205 E3432-8 one-shot entries (generated 2026-11-03) ─────
+        ' Format: oPresetMap.Add("OLD-BASENAME-NO-EXT", "NEW-BASENAME-NO-EXT")
+        oPresetMap.Add("PJ00161-E3432-8-NEW E8 TOP GENERAL ASSEMBLY_WIP", "PJ00205-3450-001-V01-00")
+        oPresetMap.Add("PJ00161-E3432-8-NEW E8 TOP GENERAL ASSEMBLY",     "PJ00205-3450-001-V01-00")
+        oPresetMap.Add("PJ00161-E3432-8-Name Plate_2",                    "PJ00205-E3432-8-Name Plate_2")
+        oPresetMap.Add("PJ00161-E3432-8-TANK UPPER ASSEMBLY",             "PJ00205-3450-110-V01-00")
+        oPresetMap.Add("PJ00161-E3432-8-TANK ASSEMBLY",                   "PJ00205-3450-400-V01-00")
+        oPresetMap.Add("PJ00161-E3432-8-TANK ASSEMBLY TRANSPORT",         "PJ00205-3450-400-V00-00")
+        oPresetMap.Add("PJ00161-E3432-8-DOWNCOMER ASSEMBLY",              "PJ00205-3450-120-V05-00")
+        oPresetMap.Add("PJ00161-E3432-8-WASH WATER SYSTEM",               "PJ00205-3450-130-V01-00")
+        oPresetMap.Add("PJ00161-E3432-8-V0-03-002",                       "PJ00205-3450-130-V01-10-001")
+        oPresetMap.Add("PJ00141-345-xx-V0-03-003",                        "PJ00205-3450-130-V01-10")
+        oPresetMap.Add("PJ00141-345-xx-V0-03-002",                        "PJ00205-3450-130-V01-11")
+        oPresetMap.Add("PJ00161-E3432-8-GRATING",                         "PJ00205-3450-150-V01-01")
+        oPresetMap.Add("PJ00161-E3432-8-HANDRAIL ASSY",                   "PJ00205-3450-160-V01-00")
+        oPresetMap.Add("PJ00161-E3432-8-28",                              "PJ00205-3450-120-V01-01")
+        oPresetMap.Add("PJ00161-E3432-8-29",                              "PJ00205-3450-120-V01-011")
+        oPresetMap.Add("PJ00161-E3432-8-V0-10-001",                       "PJ00205-3450-900-V01-00")
+        oPresetMap.Add("PJ00161-E3432-8-V0-10-002",                       "PJ00205-3450-900-V01-01")
+        oPresetMap.Add("PJ00161-E3432-8-32",                              "PJ00205-3450-800-V01-001")
+        oPresetMap.Add("PJ00161-E3432-8-175",                             "PJ00205-3450-800-V01-002")
+        oPresetMap.Add("PJ00161-E3432-8-55",                              "PJ00205-3450-400-V02-00")
+        oPresetMap.Add("PJ00161-E3432-8-57",                              "PJ00205-3450-400-V03-00")
+        oPresetMap.Add("PJ00161-E3432-8-56",                              "PJ00205-3450-400-V04-00")
+        oPresetMap.Add("PJ00161-E3432-8-58",                              "PJ00205-3450-400-V05-00")
+        oPresetMap.Add("PJ00161-E3432-8-53",                              "PJ00205-3450-110-V02-00")
+        oPresetMap.Add("PJ00161-E3432-8-TANK MODULE 1",                   "PJ00205-3450-400-V01-001")
+        oPresetMap.Add("PJ00161-E3432-8-TANK GUSSET",                     "PJ00205-3450-400-V01-002")
+        oPresetMap.Add("PJ00161-E3432-8-TANK GUSSET 2",                   "PJ00205-3450-400-V01-003")
+        oPresetMap.Add("PJ00161-E3432-8-TANK GUSSET 3",                   "PJ00205-3450-400-V01-004")
+        oPresetMap.Add("PJ00161-E3432-8-TANK MODULE 2",                   "PJ00205-3450-400-V02-001")
+        oPresetMap.Add("PJ00161-E3432-8-TANK MODULE 3",                   "PJ00205-3450-400-V03-001")
+        oPresetMap.Add("PJ00161-E3432-8-TANK MODULE 4",                   "PJ00205-3450-400-V04-001")
+        oPresetMap.Add("PJ00161-E3432-8-PIPE SPOOL",                      "PJ00205-3450-120-V01-002")
+        oPresetMap.Add("PJ00161-E3432-8-V0-07-001",                       "PJ00205-3450-120-V01-003")
+        oPresetMap.Add("PJ00161-E3432-8-V0",                              "PJ00205-3450-120-V01-004")
+        oPresetMap.Add("PJ00161-E3432-8-TANK PLATFORM ASSEMBLY",          "PJ00205-3450-320-V01-01")
+        oPresetMap.Add("PJ00161-E3432-8-UPPER FRAME",                     "PJ00205-3450-320-V01-02")
+        oPresetMap.Add("PJ00161-E3432-8-TANK BLIND FLANGE",               "PJ00205-3450-400-V05-008")
+        oPresetMap.Add("PJ00161-E3432-8-WASH WATER TRAY-SS",              "PJ00205-3450-130-V01-001")
+        oPresetMap.Add("PJ00161-E3432-8-V0-03-007",                       "PJ00205-3450-130-V02-00")
+        oPresetMap.Add("PJ00161-E3432-8-60",                              "PJ00205-3450-340-V01-001")
+        oPresetMap.Add("PJ00161-E3432-8-51",                              "PJ00205-3450-340-V01-002")
+        oPresetMap.Add("PJ00161-E3432-8-54",                              "PJ00205-3450-340-V01-003")
+        oPresetMap.Add("PJ00161-E3432-8-20",                              "PJ00205-3450-400-V05-001")
+        oPresetMap.Add("PJ00161-E3432-8-47",                              "PJ00205-3450-400-V05-002")
+        oPresetMap.Add("PJ00161-E3432-8-70",                              "PJ00205-3450-400-V05-003")
+        oPresetMap.Add("PJ00161-E3432-8-71",                              "PJ00205-3450-400-V05-004")
+        oPresetMap.Add("PJ00161-E3432-8-165",                             "PJ00205-3450-400-V05-005")
+        oPresetMap.Add("PJ00161-E3432-8-167",                             "PJ00205-3450-400-V05-006")
+        oPresetMap.Add("PJ00161-E3432-8-73",                              "PJ00205-3450-400-V05-007")
+        oPresetMap.Add("PJ00161-E3432-8-30",                              "PJ00205-3450-120-V02-01")
+        oPresetMap.Add("PJ00161-E3432-8-V0-10-001-020_MIR",               "PJ00205-3450-900-V02-001")
+        ' DUPLICATE KEY REMOVED: PJ00161-E3432-8-V0-10-001 already mapped at line 246 → PJ00205-3450-900-V01-00
+        oPresetMap.Add("PJ00161-E3432-8-V0-10-003",                       "PJ00205-3450-900-V01-002")
+        oPresetMap.Add("PJ00165-346-xx-V0-01_ReferenceCopy",              "PJ00205-346-xx-V0-01_ReferenceCopy")
+        ' ────────────────────────────────────────────────────────────────
+    End If
+
     ' ---------- Basic checks ----------
     Dim oAsmDoc As AssemblyDocument
     Try
@@ -241,7 +299,7 @@ Sub Main()
         ' Assembly → straight to full assembly traverse.
         If oActiveDoc.DocumentType = kDrawingDocumentObject Then
             Dim oDwgDocMain As DrawingDocument = CType(oActiveDoc, DrawingDocument)
-            RunDrawingCopyMode(oDwgDocMain)
+            RunDrawingCopyMode(oDwgDocMain, oPresetMap)
             Exit Sub
         ElseIf oActiveDoc.DocumentType = kAssemblyDocumentObject Then
             oAsmDoc = CType(oActiveDoc, AssemblyDocument)
@@ -254,20 +312,17 @@ Sub Main()
         Exit Sub
     End Try
 
-    RunAssemblyTraverseMode(oAsmDoc)
+    RunAssemblyTraverseMode(oAsmDoc, oPresetModelRenameMap:=oPresetMap)
 
 End Sub
-
-' Toggle for the read-only hierarchical duplicate investigation report.
-' Set to False to skip the scan entirely (no report file is written).
-Const DUPINV_ENABLED As Boolean = True
 
 ' =====================================================================
 ' ASSEMBLY TRAVERSE MODE
 ' Called from Main() when active doc is an assembly, or from
 ' RunDrawingCopyMode when the user opts for the full Clean Sweep.
 ' =====================================================================
-Sub RunAssemblyTraverseMode(oAsmDoc As AssemblyDocument, Optional sPresetTargetFolder As String = "", Optional sPresetOldPrefix As String = "")
+Sub RunAssemblyTraverseMode(oAsmDoc As AssemblyDocument, Optional sPresetTargetFolder As String = "", Optional sPresetOldPrefix As String = "", _
+    Optional oPresetModelRenameMap As System.Collections.Generic.Dictionary(Of String, String) = Nothing)
 
     ' ---------- Read-only check REMOVED 2026-10-28 ----------
     ' In the Copy Design / New Drawing workflow the source GA is ALWAYS checked
@@ -296,16 +351,6 @@ Sub RunAssemblyTraverseMode(oAsmDoc As AssemblyDocument, Optional sPresetTargetF
     ' Use the assembly's own folder as the target — ThisDoc.Path would point
     ' to the drawing folder if the rule was launched from a drawing.
     Dim sTopAssemblyFullName As String = oAsmDoc.FullFileName
-	    ' ========== SPEED WRAPPER START ==========
-    Dim oApp As Inventor.Application = ThisApplication
-    Dim bDeferWasOn As Boolean = oApp.AssemblyOptions.DeferUpdate
-    Dim bScreenWasOn As Boolean = oApp.ScreenUpdating
-    Dim bInteractionWasOn As Boolean = oApp.UserInterfaceManager.UserInteractionDisabled
-
-    Try
-        oApp.AssemblyOptions.DeferUpdate = True
-        oApp.ScreenUpdating = False
-        oApp.UserInterfaceManager.UserInteractionDisabled = True
     Dim sTargetFolder As String = System.IO.Path.GetDirectoryName(sTopAssemblyFullName)
     Dim sLog As String = ""
     Dim iCount As Integer = 0
@@ -329,6 +374,20 @@ Sub RunAssemblyTraverseMode(oAsmDoc As AssemblyDocument, Optional sPresetTargetF
             MessageBox.Show("Could not write the original-state snapshot (continuing anyway):" & vbCrLf & ex.Message, "Snapshot Warning")
         End Try
     End If
+
+    ' ---------- Disk-flushed crash log ----------
+    ' Written to as we go (not just shown in the final popup), so if
+    ' Inventor crashes mid-run, opening this file afterward shows exactly
+    ' what was happening right before it went down.
+    Dim dRuleStartTime As DateTime = DateTime.Now
+    Dim sLogFilePath As String = System.Environment.GetFolderPath(System.Environment.SpecialFolder.Desktop) & "\Traverse_Rename_Log_" & DateTime.Now.ToString("yyyy-MM-dd_HHmmss") & ".txt"
+    Try
+        System.IO.File.WriteAllText(sLogFilePath, "TRAVERSE_Through_Main_ASM_Relplcae_Old_Subs_With_New_Subs" & vbCrLf & "Rule built: 2026-10-29 Mode6-FullTreeScan-AnomalyPrefill-v18 (drawing FD fix + BC fallback + FIX3 cross-project derived pass)" & vbCrLf & "Rule started: " & DateTime.Now.ToString() & vbCrLf & "Top assembly: " & sTopAssemblyFullName & vbCrLf)
+    Catch
+        ' If the log file can't even be created, carry on anyway - the
+        ' final in-memory summary popup still works as a fallback.
+    End Try
+
     ' ---------- This rule always runs the Copy Design / Drawing workflow ----------
     ' Mode picker removed 2026-10-28: this variant is purpose-built for the
     ' "run from a GA drawing" workflow. It always does a full batch-rename TRAVERSE
@@ -352,26 +411,6 @@ Sub RunAssemblyTraverseMode(oAsmDoc As AssemblyDocument, Optional sPresetTargetF
         sDrawingsFolderAuto = System.IO.Path.GetDirectoryName(sTopAssemblyFullName)
     End Try
     oChoice.sDrawingsFolder = sDrawingsFolderAuto
-
-    ' ---------- Reverse Clean Sweeper capture (original state map + report) ----------
-    Try
-        CaptureReverseCleanSweeper(oAsmDoc, oChoice, sTargetFolder)
-    Catch ex As Exception
-        sLog = sLog & vbCrLf & "Reverse Clean Sweeper capture failed (continuing): " & ex.Message
-    End Try
-    ' ---------- Disk-flushed crash log ----------
-    ' Written to as we go (not just shown in the final popup), so if
-    ' Inventor crashes mid-run, opening this file afterward shows exactly
-    ' what was happening right before it went down.
-    Dim dRuleStartTime As DateTime = DateTime.Now
-    Dim sLogFilePath As String = System.Environment.GetFolderPath(System.Environment.SpecialFolder.Desktop) & "\Traverse_Rename_Log_" & DateTime.Now.ToString("yyyy-MM-dd_HHmmss") & ".txt"
-    Try
-        System.IO.File.WriteAllText(sLogFilePath, "TRAVERSE_Through_Main_ASM_Relplcae_Old_Subs_With_New_Subs" & vbCrLf & "Rule built: 2026-10-29 Mode6-FullTreeScan-AnomalyPrefill-v20 (derived source scan + container guard relaxed)" & vbCrLf & "Rule started: " & DateTime.Now.ToString() & vbCrLf & "Top assembly: " & sTopAssemblyFullName & vbCrLf)
-    Catch
-        ' If the log file can't even be created, carry on anyway - the
-        ' final in-memory summary popup still works as a fallback.
-    End Try
-
 
     Dim sFind As String = oChoice.sFind
     Dim sReplace As String = oChoice.sReplace
@@ -529,7 +568,23 @@ Sub RunAssemblyTraverseMode(oAsmDoc As AssemblyDocument, Optional sPresetTargetF
         ' SKIP when called from Drawing Copy Mode Full Sweep — drawings were
         ' already processed by RunDrawingCopyMode; showing this form again is
         ' redundant and confusing.
-        If Trim(sPresetOldPrefix) <> "" Then
+        ' ── PRE-LOAD PRESET MAP — runs before the form, not instead of it ──
+        ' When oPresetModelRenameMap is supplied, seed oChoice.oExplicitModelRenameMap
+        ' with the caller's specific old->new basenames BEFORE the form opens.
+        ' ShowDrawingModelRenameForm checks oExplicitModelRenameMap first when
+        ' pre-filling each editable field, so the user sees our numbered names
+        ' instead of the auto-generated prefix-swap names — and can still edit them.
+        If oPresetModelRenameMap IsNot Nothing AndAlso oPresetModelRenameMap.Count > 0 Then
+            For Each kvp As System.Collections.Generic.KeyValuePair(Of String, String) In oPresetModelRenameMap
+                oChoice.oExplicitModelRenameMap(kvp.Key) = kvp.Value
+            Next
+            sLog = sLog & vbCrLf & "PRESET-MAP: " & oPresetModelRenameMap.Count & " model renames pre-loaded into form defaults"
+            Try : System.IO.File.AppendAllText(sLogFilePath, "PRESET-MAP: " & oPresetModelRenameMap.Count & " model renames pre-loaded" & vbCrLf) : Catch : End Try
+        End If
+
+        If Trim(sPresetOldPrefix) <> "" AndAlso (oPresetModelRenameMap Is Nothing OrElse oPresetModelRenameMap.Count = 0) Then
+            ' Full-sweep path (called from RunDrawingCopyMode without a preset map):
+            ' drawings already processed — skip the rename form entirely.
             sLog = sLog & vbCrLf & "FULL-SWEEP: Drawing rename form skipped (drawings already processed by Drawing Copy Mode)"
             Try : System.IO.File.AppendAllText(sLogFilePath, "FULL-SWEEP: Drawing rename form skipped" & vbCrLf) : Catch : End Try
             oChoice.bUpdateDrawings = False
@@ -563,27 +618,6 @@ Sub RunAssemblyTraverseMode(oAsmDoc As AssemblyDocument, Optional sPresetTargetF
             sLog = sLog & vbCrLf & "Phase 0: drawings folder not found — drawing repoint will be skipped"
             oChoice.bUpdateDrawings = False
         End If  ' End of sPresetOldPrefix guard (If/ElseIf/Else block)
-
-        ' ======================================================================
-        ' DUPLICATE INVESTIGATION (REPORT ONLY) - added 2026-11-02
-        ' Read-only Drawing -> Model -> Sub report of JC / SJD / Content Center
-        ' duplicate candidates. Runs on the ORIGINAL source tree, before any
-        ' copy/rename work. Never repoints, copies, saves or deletes anything.
-        ' Also runs on a Full Sweep (a fully cleaned project shows zero items).
-        ' Toggle: module-level Const DUPINV_ENABLED (just after Sub Main).
-        ' ======================================================================
-        If DUPINV_ENABLED Then
-            Try
-                Dim oDupInvDwgModels As System.Collections.Generic.List(Of Object()) = _
-                    DupInv_BuildDrawingModelListFromPhase0(oAsmDoc, oPhase0Data, oChoice.sDrawingsFolder)
-                Dim sDupInvPath As String = DupInv_RunReport(oDupInvDwgModels, sTopAssemblyFullName, sLogFilePath, "ASSEMBLY TRAVERSE (Mode 6 Clean Sweeper)")
-                sLog = sLog & vbCrLf & "DUP-INVESTIGATION (report only): " & sDupInvPath
-                Try : System.IO.File.AppendAllText(sLogFilePath, "DUP-INVESTIGATION (report only) written: " & sDupInvPath & vbCrLf) : Catch : End Try
-            Catch exDupInv As Exception
-                sLog = sLog & vbCrLf & "DUP-INVESTIGATION failed (non-critical, traverse continues): " & exDupInv.Message
-                Try : System.IO.File.AppendAllText(sLogFilePath, "DUP-INVESTIGATION failed (non-critical): " & exDupInv.Message & vbCrLf) : Catch : End Try
-            End Try
-        End If
 
         ' ══════════════════════════════════════════════════════════════════════
         ' STEP 4 — Old prefix token scan + confirmation
@@ -1095,8 +1129,8 @@ SkipBatchMode:
                     ' SUPPLEMENTARY SCAN: the pre-built map only covers the primary old prefix
                     ' (e.g. PJ00193). Cross-project subs with OTHER old prefixes (PJ00180, PJ00190
                     ' etc.) are never in the Vault Copy Design map. Scan AllReferencedDocuments
-                    ' AND derived sources inside parts for any file whose leading PJ-prefix is in
-                    ' oBatchFinds but NOT yet in oMode2Map, and add a rename entry.
+                    ' for any file whose leading PJ-prefix is in oBatchFinds but NOT yet in oMode2Map,
+                    ' and add a rename entry so they get copied and repointed too.
                     Try
                         Dim oSupplDocs As New System.Collections.Generic.List(Of Document)
                         Try
@@ -1104,24 +1138,12 @@ SkipBatchMode:
                                 oSupplDocs.Add(oSD)
                             Next
                         Catch : End Try
-                        ' Also collect derived sources from parts (AllReferencedDocuments misses them)
-                        Dim oSupplPaths As New System.Collections.Generic.HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
-                        For Each oSD As Document In oSupplDocs
-                            Try : oSupplPaths.Add(oSD.FullFileName) : Catch : End Try
-                            If oSD.DocumentType = kPartDocumentObject Then
-                                Try
-                                    For Each oFD As FileDescriptor In oSD.File.ReferencedFileDescriptors
-                                        Dim sFDPath As String = ""
-                                        Try : sFDPath = oFD.FullFileName : Catch : Continue For : End Try
-                                        If Trim(sFDPath) <> "" Then oSupplPaths.Add(sFDPath)
-                                    Next
-                                Catch : End Try
-                            End If
-                        Next
                         Dim iSuppl As Integer = 0
-                        For Each sSDFull As String In oSupplPaths
+                        For Each oSD As Document In oSupplDocs
+                            Dim sSDFull As String = ""
+                            Try : sSDFull = oSD.FullFileName : Catch : Continue For : End Try
                             If oMode2Map.ContainsKey(sSDFull) Then Continue For
-                            If IsInExcludedFolder(sSDFull) Then Continue For
+                            If IsInExcludedFolder(sSDFull) OrElse IsContentCenterMember(oSD) Then Continue For
                             Dim sSDBase As String = System.IO.Path.GetFileNameWithoutExtension(sSDFull)
                             Dim iSDDash As Integer = sSDBase.IndexOf("-"c)
                             If iSDDash < 2 Then Continue For
@@ -1613,14 +1635,13 @@ Mode2Phase2:
 
                     ' --- PHASE 4 CHECKPOINT (resume support for large projects) ---
                     ' Records assemblies successfully processed so a later run can skip them.
-                    ' Written into the GA model folder (sTargetFolder) so it stays with the project.
                     Dim sPhase4CheckpointPath As String = System.IO.Path.Combine( _
-                        sTargetFolder, _
-                        System.IO.Path.GetFileNameWithoutExtension(sTopAssemblyFullName) & "_Phase4Done.txt")
-                    ' Also look for any previous checkpoint in the GA folder (from an earlier crash)
+                        System.IO.Path.GetDirectoryName(sLogFilePath), _
+                        System.IO.Path.GetFileNameWithoutExtension(sLogFilePath) & "_Phase4Done.txt")
+                    ' Also look for any previous checkpoint in the same folder (from an earlier crash)
                     Dim oPhase4AlreadyDone As New System.Collections.Generic.HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
                     Try
-                        Dim sChkFolder As String = sTargetFolder
+                        Dim sChkFolder As String = System.IO.Path.GetDirectoryName(sLogFilePath)
                         For Each sPrev As String In System.IO.Directory.GetFiles(sChkFolder, "*_Phase4Done.txt")
                             For Each sLine As String In System.IO.File.ReadAllLines(sPrev)
                                 Dim sTrim As String = Trim(sLine)
@@ -1909,7 +1930,9 @@ AfterSingleTraversal:
             ' In Mode 4, sFind = only the first token; other tokens (e.g. PJ174 for
             ' PJ174-MJA49-GT-0-368-00.xlsx) would be missed with a single call.
             Dim oTopFinds As New System.Collections.Generic.List(Of String)
-            If oChoice.bBatchMode AndAlso oChoice.oBatchFinds.Count > 0 Then
+            ' FIX 3c: Mode 6 (Copy Design) sets oBatchFinds but GoTo SkipBatchMode
+            ' means bBatchMode is never set True. Guard on oBatchFinds only.
+            If oChoice.oBatchFinds IsNot Nothing AndAlso oChoice.oBatchFinds.Count > 0 Then
                 oTopFinds.AddRange(oChoice.oBatchFinds)
             Else
                 oTopFinds.Add(sFind)
@@ -1953,7 +1976,9 @@ AfterSingleTraversal:
         ' oBatchFinds, skipping the new prefix (already handled by Phases 1-4).
         Try
             Dim oCrossFinds As New System.Collections.Generic.List(Of String)
-            If oChoice.bBatchMode AndAlso oChoice.oBatchFinds.Count > 0 Then
+            ' FIX 3a: Mode 6 (Copy Design) sets oBatchFinds but GoTo SkipBatchMode
+            ' means bBatchMode is never set True. Guard on oBatchFinds only.
+            If oChoice.oBatchFinds IsNot Nothing AndAlso oChoice.oBatchFinds.Count > 0 Then
                 For Each sBFx As String In oChoice.oBatchFinds
                     If String.Compare(sBFx, sReplace, True) <> 0 Then
                         oCrossFinds.Add(sBFx)
@@ -1981,7 +2006,9 @@ AfterSingleTraversal:
         Try
             ' Run once per batch find token so ALL prefix variants are caught
             Dim oPassFinds As New System.Collections.Generic.List(Of String)
-            If oChoice.bBatchMode AndAlso oChoice.oBatchFinds.Count > 0 Then
+            ' FIX 3b: Mode 6 (Copy Design) sets oBatchFinds but GoTo SkipBatchMode
+            ' means bBatchMode is never set True. Guard on oBatchFinds only.
+            If oChoice.oBatchFinds IsNot Nothing AndAlso oChoice.oBatchFinds.Count > 0 Then
                 oPassFinds.AddRange(oChoice.oBatchFinds)
             Else
                 oPassFinds.Add(sFind)
@@ -2176,14 +2203,7 @@ AfterSingleTraversal:
                             Dim sCandPath As String = System.IO.Path.Combine(sParent, sCandidate)
                             If System.IO.Directory.Exists(sCandPath) Then
                                 Dim oCandFiles As String() = System.IO.Directory.GetFiles(sCandPath, "*.idw")
-                                If oCandFiles.Length = 0 Then
-                                    ' AutoCAD-created .dwg files do not count as Inventor drawings
-                                    Dim oCandInvDwgs As New System.Collections.Generic.List(Of String)
-                                    For Each sCandDwg As String In System.IO.Directory.GetFiles(sCandPath, "*.dwg")
-                                        If Not IsAutoCADDwg(sCandDwg) Then oCandInvDwgs.Add(sCandDwg)
-                                    Next
-                                    oCandFiles = oCandInvDwgs.ToArray()
-                                End If
+                                If oCandFiles.Length = 0 Then oCandFiles = System.IO.Directory.GetFiles(sCandPath, "*.dwg")
                                 If oCandFiles.Length > 0 Then
                                     sAutoDrawingFolder = sCandPath
                                     Exit For
@@ -2355,7 +2375,7 @@ SkipPostSweepDrawings:
     ' Inventor's SaveAs() activates each newly saved document during the traverse,
     ' so by the end the last-saved file is the active window.
     '
-   ' Strategy: activate the NEW top-assembly copy so it is front-and-centre for
+    ' Strategy: activate the NEW top-assembly copy so it is front-and-centre for
     ' inspection. The originating GA drawing stays open in the background — it is
     ' never closed by this rule. If the new copy cannot be found/activated, fall
     ' back to re-activating the GA drawing instead.
@@ -2399,18 +2419,8 @@ SkipPostSweepDrawings:
         End Try
     End If
 
-        ' Single update at the end of the major work
-        iLogicVb.UpdateWhenDone = True
-
-    Catch ex As Exception
-        MessageBox.Show("Error during clean-up: " & ex.Message, "Rule Error")
-    Finally
-        oApp.AssemblyOptions.DeferUpdate = bDeferWasOn
-        oApp.ScreenUpdating = bScreenWasOn
-        oApp.UserInterfaceManager.UserInteractionDisabled = bInteractionWasOn
-    End Try
-    ' ========== SPEED WRAPPER END ==========
 End Sub
+
 ' =====================================================================
 ' DRAWING SELECTION FORM
 ' =====================================================================
@@ -2430,10 +2440,7 @@ Function ShowDrawingSelectionForm( _
     Dim oIdwFiles As New System.Collections.Generic.List(Of String)
     Try
         oIdwFiles.AddRange(System.IO.Directory.GetFiles(sDrawingsFolder, "*.idw"))
-        ' AutoCAD-created .dwg files are excluded from the update checklist
-        For Each sSelDwg As String In System.IO.Directory.GetFiles(sDrawingsFolder, "*.dwg")
-            If Not IsAutoCADDwg(sSelDwg) Then oIdwFiles.Add(sSelDwg)
-        Next
+        oIdwFiles.AddRange(System.IO.Directory.GetFiles(sDrawingsFolder, "*.dwg"))
     Catch
         Return Nothing
     End Try
@@ -2453,7 +2460,6 @@ Function ShowDrawingSelectionForm( _
     Dim oPhase0Basenames As New System.Collections.Generic.HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
     If oPhase0Data IsNot Nothing Then
         For Each oEntry As Object() In oPhase0Data
-            If oEntry.Length > 2 AndAlso CStr(oEntry(2)) = "AUTOCAD" Then Continue For   ' AutoCAD DWG - never pre-ticked
             oPhase0Basenames.Add(CStr(oEntry(0)))   ' entry(0) = drawing basename WITH extension
         Next
     End If
@@ -2680,7 +2686,7 @@ End Function
 '   5. ReplaceReference on oDwgDoc for each old→new pair
 '   6. Save drawing
 ' =====================================================================
-Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument)
+Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument, Optional oPresetModelRenameMap As System.Collections.Generic.Dictionary(Of String, String) = Nothing)
 
     Dim sLogFilePath As String = System.Environment.GetFolderPath(System.Environment.SpecialFolder.Desktop) & "\DrawingCopyMode_Log_" & DateTime.Now.ToString("yyyy-MM-dd_HHmmss") & ".txt"
     Try
@@ -2699,16 +2705,9 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument)
     Dim sActiveDwgPath As String = oDwgDoc.FullFileName
     Dim oAllDwgPaths As New System.Collections.Generic.List(Of String)
     oAllDwgPaths.Add(sActiveDwgPath)
-    ' AutoCAD-created .dwg siblings: never opened or repointed, only listed (greyed) in the rename form
-    Dim oAcadDwgPaths As New System.Collections.Generic.List(Of String)
     Try
         For Each sDwgFile As String In System.IO.Directory.GetFiles(sDwgFolder, "*.dwg")
             If String.Compare(sDwgFile, sActiveDwgPath, True) <> 0 Then
-                If IsAutoCADDwg(sDwgFile) Then
-                    oAcadDwgPaths.Add(sDwgFile)
-                    Try : System.IO.File.AppendAllText(sLogFilePath, "SCAN-SKIP (AutoCAD DWG): " & System.IO.Path.GetFileName(sDwgFile) & vbCrLf) : Catch : End Try
-                    Continue For
-                End If
                 oAllDwgPaths.Add(sDwgFile)
             End If
         Next
@@ -2722,35 +2721,11 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument)
 
     ' Helper: add model refs from a DrawingDocument into oAllDwgRefs
     Dim oScanRefs As New System.Collections.Generic.List(Of String)
-    ' DIAG (added 2026-11-02): explain a "0 model refs" result in the log.
-    Try
-        Dim sDiagRefCount As String = "?"
-        Dim sDiagReqUpd As String = "?"
-        Dim sDiagInvDwg As String = "n/a"
-        Try : sDiagRefCount = CStr(oDwgDoc.ReferencedDocuments.Count) : Catch exDc As Exception : sDiagRefCount = "ERR " & exDc.Message : End Try
-        Try : sDiagReqUpd = CStr(oDwgDoc.RequiresUpdate) : Catch exDu As Exception : sDiagReqUpd = "ERR " & exDu.Message : End Try
-        If System.IO.Path.GetExtension(sActiveDwgPath).ToUpper() = ".DWG" Then
-            Try : sDiagInvDwg = CStr(ThisApplication.FileManager.IsInventorDWG(sActiveDwgPath)) : Catch exDi As Exception : sDiagInvDwg = "ERR " & exDi.Message : End Try
-        End If
-        System.IO.File.AppendAllText(sLogFilePath, "DIAG: active drawing " & System.IO.Path.GetFileName(sActiveDwgPath) & " ReferencedDocuments.Count=" & sDiagRefCount & " RequiresUpdate=" & sDiagReqUpd & " IsInventorDWG=" & sDiagInvDwg & vbCrLf)
-    Catch
-    End Try
     Try
         For Each oRef As Document In oDwgDoc.ReferencedDocuments
             Dim sRefPath As String = ""
-            Try
-                sRefPath = oRef.FullDocumentName
-            Catch exRp As Exception
-                Try : System.IO.File.AppendAllText(sLogFilePath, "DIAG-REF: exception reading FullDocumentName: " & exRp.Message & vbCrLf) : Catch : End Try
-                Continue For
-            End Try
-            If Trim(sRefPath) = "" Then
-                Try : System.IO.File.AppendAllText(sLogFilePath, "DIAG-REF: empty FullDocumentName" & vbCrLf) : Catch : End Try
-                Continue For
-            End If
-            Try : System.IO.File.AppendAllText(sLogFilePath, "DIAG-REF: " & sRefPath & vbCrLf) : Catch : End Try
-            ' Strip model-state suffix, e.g. "X.iam<DART SHUT>" -> "X.iam" (added 2026-11-02)
-            If sRefPath.IndexOf("<"c) > 0 Then sRefPath = Trim(sRefPath.Substring(0, sRefPath.IndexOf("<"c)))
+            Try : sRefPath = oRef.FullDocumentName : Catch : Continue For : End Try
+            If Trim(sRefPath) = "" Then Continue For
             Dim sExt As String = System.IO.Path.GetExtension(sRefPath).ToUpper()
             If sExt = ".IAM" OrElse sExt = ".IPT" Then
                 If Not oScanRefs.Contains(sRefPath) Then oScanRefs.Add(sRefPath)
@@ -2762,46 +2737,64 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument)
         ThisApplication.SilentOperation = bOrigSilent
         Return
     End Try
-    ' Fallback (added 2026-11-02): if ReferencedDocuments gave no .iam/.ipt,
-    ' walk Sheets -> DrawingViews -> ReferencedDocument. Every view ref is
-    ' logged; only .iam/.ipt paths are added to the real collection.
-    If oScanRefs.Count = 0 Then
-        Try : System.IO.File.AppendAllText(sLogFilePath, "DIAG: ReferencedDocuments gave 0 model refs - trying Sheets/DrawingViews fallback" & vbCrLf) : Catch : End Try
-        Try
-            For Each oFbSheet As Sheet In oDwgDoc.Sheets
-                For Each oFbView As DrawingView In oFbSheet.DrawingViews
-                    Dim sFbPath As String = ""
-                    Try
-                        Dim oFbRefDoc As Document = oFbView.ReferencedDocumentDescriptor.ReferencedDocument
-                        If oFbRefDoc IsNot Nothing Then sFbPath = oFbRefDoc.FullDocumentName
-                    Catch exFb As Exception
-                        Try : System.IO.File.AppendAllText(sLogFilePath, "DIAG-VIEW: " & oFbSheet.Name & " / " & oFbView.Name & " : exception " & exFb.Message & vbCrLf) : Catch : End Try
-                        Continue For
-                    End Try
-                    If Trim(sFbPath) = "" Then
-                        Try : System.IO.File.AppendAllText(sLogFilePath, "DIAG-VIEW: " & oFbSheet.Name & " / " & oFbView.Name & " : empty FullDocumentName" & vbCrLf) : Catch : End Try
-                        Continue For
-                    End If
-                    Try : System.IO.File.AppendAllText(sLogFilePath, "DIAG-VIEW: " & oFbSheet.Name & " / " & oFbView.Name & " : " & sFbPath & vbCrLf) : Catch : End Try
-                    ' Strip model-state suffix (added 2026-11-02)
-                    If sFbPath.IndexOf("<"c) > 0 Then sFbPath = Trim(sFbPath.Substring(0, sFbPath.IndexOf("<"c)))
-                    Dim sFbExt As String = System.IO.Path.GetExtension(sFbPath).ToUpper()
-                    If sFbExt = ".IAM" OrElse sFbExt = ".IPT" Then
-                        If Not oScanRefs.Contains(sFbPath) Then oScanRefs.Add(sFbPath)
-                        If Not oAllModelPaths.Contains(sFbPath) Then oAllModelPaths.Add(sFbPath)
-                    End If
-                Next
-            Next
-        Catch exFbAll As Exception
-            Try : System.IO.File.AppendAllText(sLogFilePath, "DIAG: DrawingViews fallback failed: " & exFbAll.Message & vbCrLf) : Catch : End Try
-        End Try
-    End If
     oAllDwgRefs(sActiveDwgPath) = oScanRefs
     ' Read TB1_EN5_TYPE description from active drawing
     Dim sActiveDesc As String = ""
     Try : sActiveDesc = CStr(oDwgDoc.PropertySets.Item("Inventor User Defined Properties").Item("5DRAWING TYPE").Value) : Catch : End Try
     oDwgDescriptions(sActiveDwgPath) = Trim(sActiveDesc)
     Try : System.IO.File.AppendAllText(sLogFilePath, "Found " & oScanRefs.Count & " model ref(s) in active drawing." & vbCrLf) : Catch : End Try
+
+    ' ── PRE-RULE TREE GRAB ─────────────────────────────────────────────────
+    ' Captures the full GA assembly tree before any changes are made.
+    ' Written to sDwgFolder (permanent record) and Desktop (quick access).
+    ' Compare against POST tree to see exactly what the rule changed.
+    Dim sRunStamp As String = DateTime.Now.ToString("yyyy-MM-dd_HHmmss")
+    Dim sPreTreeDesktop As String = System.Environment.GetFolderPath(System.Environment.SpecialFolder.Desktop) & "\PRE_Tree_" & sRunStamp & ".txt"
+    Dim sPreTreeDwgFolder As String = System.IO.Path.Combine(sDwgFolder, "PRE_Tree_" & sRunStamp & ".txt")
+    Try
+        ' Find the GA assembly from oScanRefs (first .iam ref in active drawing)
+        Dim sPreGaPath As String = ""
+        For Each sScanRef As String In oScanRefs
+            If String.Compare(System.IO.Path.GetExtension(sScanRef), ".iam", True) = 0 Then
+                sPreGaPath = sScanRef : Exit For
+            End If
+        Next
+        If Trim(sPreGaPath) <> "" AndAlso System.IO.File.Exists(sPreGaPath) Then
+            Dim sPreHeader As String = "PRE-RULE ASSEMBLY TREE SNAPSHOT" & vbCrLf & _
+                "Generated: " & DateTime.Now.ToString() & vbCrLf & _
+                "Assembly: " & sPreGaPath & vbCrLf & _
+                New String("="c, 120) & vbCrLf & vbCrLf
+            System.IO.File.WriteAllText(sPreTreeDesktop, sPreHeader)
+            System.IO.File.WriteAllText(sPreTreeDwgFolder, sPreHeader)
+            Dim oPreGaDoc As AssemblyDocument = Nothing
+            Dim bPreWasOpen As Boolean = False
+            Try
+                For Each oOpenD As Document In ThisApplication.Documents
+                    If String.Equals(oOpenD.FullFileName, sPreGaPath, StringComparison.OrdinalIgnoreCase) Then
+                        oPreGaDoc = TryCast(oOpenD, AssemblyDocument)
+                        bPreWasOpen = True : Exit For
+                    End If
+                Next
+                If oPreGaDoc Is Nothing Then
+                    oPreGaDoc = TryCast(ThisApplication.Documents.Open(sPreGaPath, False), AssemblyDocument)
+                End If
+            Catch : End Try
+            If oPreGaDoc IsNot Nothing Then
+                Dim iPreCount As Integer = 0
+                WalkTreeToLog(oPreGaDoc.ComponentDefinition.Occurrences, 0, sPreTreeDesktop, iPreCount)
+                WalkTreeToLog(oPreGaDoc.ComponentDefinition.Occurrences, 0, sPreTreeDwgFolder, iPreCount)
+                Dim sPreFooter As String = vbCrLf & New String("="c, 120) & vbCrLf & "Total occurrences listed: " & iPreCount & vbCrLf
+                System.IO.File.AppendAllText(sPreTreeDesktop, sPreFooter)
+                System.IO.File.AppendAllText(sPreTreeDwgFolder, sPreFooter)
+                If Not bPreWasOpen Then Try : oPreGaDoc.Close(False) : Catch : End Try
+                Try : System.IO.File.AppendAllText(sLogFilePath, "PRE-TREE: " & iPreCount & " occurrence(s) captured → " & System.IO.Path.GetFileName(sPreTreeDwgFolder) & vbCrLf) : Catch : End Try
+            End If
+        Else
+            Try : System.IO.File.AppendAllText(sLogFilePath, "PRE-TREE: no GA .iam found in active drawing refs — skipped" & vbCrLf) : Catch : End Try
+        End If
+    Catch exPre As Exception
+        Try : System.IO.File.AppendAllText(sLogFilePath, "PRE-TREE-FAIL: " & exPre.Message & vbCrLf) : Catch : End Try
+    End Try
 
     ' Scan sibling drawings silently
     ThisApplication.SilentOperation = True
@@ -2827,8 +2820,6 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument)
                 Dim sSibRefPath As String = ""
                 Try : sSibRefPath = oSibRef.FullDocumentName : Catch : Continue For : End Try
                 If Trim(sSibRefPath) = "" Then Continue For
-                ' Strip model-state suffix, e.g. "X.iam<DART SHUT>" -> "X.iam" (added 2026-11-02)
-                If sSibRefPath.IndexOf("<"c) > 0 Then sSibRefPath = Trim(sSibRefPath.Substring(0, sSibRefPath.IndexOf("<"c)))
                 Dim sSibExt As String = System.IO.Path.GetExtension(sSibRefPath).ToUpper()
                 If sSibExt = ".IAM" OrElse sSibExt = ".IPT" Then
                     If Not oSibRefs.Contains(sSibRefPath) Then oSibRefs.Add(sSibRefPath)
@@ -2857,78 +2848,51 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument)
 
     Try : System.IO.File.AppendAllText(sLogFilePath, "Total unique model refs across all drawings: " & oAllModelPaths.Count & vbCrLf) : Catch : End Try
 
-    ' -- 1b. DUPLICATE INVESTIGATION (REPORT ONLY) - added 2026-11-02 ------
-    ' Read-only Drawing -> Model -> Sub report of JC / SJD / Content Center
-    ' duplicate candidates, built from the ORIGINAL drawing references above
-    ' before anything is copied. Never repoints, copies, saves or deletes.
-    ' Toggle: module-level Const DUPINV_ENABLED (just after Sub Main).
-    If DUPINV_ENABLED Then
-        Dim bDupInvOrigSilent As Boolean = ThisApplication.SilentOperation
-        Try
-            ThisApplication.SilentOperation = True
-            Dim oDupInvDwgModels As New System.Collections.Generic.List(Of Object())
-            For Each sDupInvDwg As String In oAllDwgPaths
-                Dim oDupInvModels As New System.Collections.Generic.List(Of String)
-                If oAllDwgRefs.ContainsKey(sDupInvDwg) Then oDupInvModels.AddRange(oAllDwgRefs(sDupInvDwg))
-                oDupInvDwgModels.Add(New Object() {sDupInvDwg, oDupInvModels})
-            Next
-            Dim sDupInvPath As String = DupInv_RunReport(oDupInvDwgModels, oDwgDoc.FullFileName, sLogFilePath, "DRAWING COPY MODE")
-            Try : System.IO.File.AppendAllText(sLogFilePath, "DUP-INVESTIGATION (report only) written: " & sDupInvPath & vbCrLf) : Catch : End Try
-        Catch exDupInv As Exception
-            Try : System.IO.File.AppendAllText(sLogFilePath, "DUP-INVESTIGATION failed (non-critical, continuing): " & exDupInv.Message & vbCrLf) : Catch : End Try
-        Finally
-            ThisApplication.SilentOperation = bDupInvOrigSilent
-        End Try
-    End If
+    ' ── DRAWING REFS REPORT ────────────────────────────────────────────────
+    ' Always written regardless of mode. Shows every drawing and its resolved
+    ' model refs. Rename-map match status is appended at end of run.
+    Dim sDwgRefsDesktop As String = System.Environment.GetFolderPath(System.Environment.SpecialFolder.Desktop) & "\DrawingRefs_" & sRunStamp & ".txt"
+    Dim sDwgRefsDwgFolder As String = System.IO.Path.Combine(sDwgFolder, "DrawingRefs_" & sRunStamp & ".txt")
+    Try
+        Dim sbDwgRefs As New System.Text.StringBuilder()
+        sbDwgRefs.AppendLine("DRAWING REFS REPORT")
+        sbDwgRefs.AppendLine("Generated: " & DateTime.Now.ToString())
+        sbDwgRefs.AppendLine("Drawings folder: " & sDwgFolder)
+        sbDwgRefs.AppendLine(New String("="c, 120))
+        sbDwgRefs.AppendLine()
+        For Each oKvpDwg As System.Collections.Generic.KeyValuePair(Of String, System.Collections.Generic.List(Of String)) In oAllDwgRefs
+            sbDwgRefs.AppendLine("DWG: " & System.IO.Path.GetFileName(oKvpDwg.Key))
+            If oKvpDwg.Value.Count = 0 Then
+                sbDwgRefs.AppendLine("   (no model refs resolved)")
+            Else
+                For Each sRefItem As String In oKvpDwg.Value
+                    sbDwgRefs.AppendLine("   REF: " & sRefItem)
+                Next
+            End If
+            sbDwgRefs.AppendLine()
+        Next
+        sbDwgRefs.AppendLine(New String("="c, 120))
+        sbDwgRefs.AppendLine("NOTE: rename-map match status appended at end of run.")
+        System.IO.File.WriteAllText(sDwgRefsDesktop, sbDwgRefs.ToString())
+        System.IO.File.WriteAllText(sDwgRefsDwgFolder, sbDwgRefs.ToString())
+        Try : System.IO.File.AppendAllText(sLogFilePath, "DRAWING-REFS: report written → " & System.IO.Path.GetFileName(sDwgRefsDwgFolder) & vbCrLf) : Catch : End Try
+    Catch exDwgRefs As Exception
+        Try : System.IO.File.AppendAllText(sLogFilePath, "DRAWING-REFS-FAIL: " & exDwgRefs.Message & vbCrLf) : Catch : End Try
+    End Try
 
     ' ── 2a. Target folder picker ────────────────────────────────────────
     Dim sFirstModelFolder As String = System.IO.Path.GetDirectoryName(oAllModelPaths(0))
 
-    ' Re-run lock (added 2026-11-02): the first run saves the chosen target folder
-    ' to a sidecar file in the drawings folder. On a re-run, if that folder still
-    ' holds a renamed copy of the first model (same suffix after the first dash),
-    ' the folder is locked and the picker is skipped. Otherwise the picker shows.
-    Dim sTargetSidecar As String = System.IO.Path.Combine(sDwgFolder, "_CleanSweeper_TargetFolder.txt")
-    Dim sTargetFolder As String = ""
-    Dim bTargetLocked As Boolean = False
-    Try
-        If System.IO.File.Exists(sTargetSidecar) Then
-            Dim sSavedTarget As String = Trim(System.IO.File.ReadAllText(sTargetSidecar))
-            If sSavedTarget <> "" AndAlso System.IO.Directory.Exists(sSavedTarget) Then
-                Dim sLkBase As String = System.IO.Path.GetFileNameWithoutExtension(oAllModelPaths(0))
-                Dim sLkExt As String = System.IO.Path.GetExtension(oAllModelPaths(0))
-                Dim iLkDash As Integer = sLkBase.IndexOf("-"c)
-                If iLkDash > 0 Then
-                    Dim sLkSuffixUp As String = (sLkBase.Substring(iLkDash) & sLkExt).ToUpper()
-                    For Each sLkFile As String In System.IO.Directory.GetFiles(sSavedTarget, "*" & sLkExt)
-                        If System.IO.Path.GetFileName(sLkFile).ToUpper().EndsWith(sLkSuffixUp) Then
-                            sTargetFolder = sSavedTarget
-                            bTargetLocked = True
-                            Exit For
-                        End If
-                    Next
-                End If
-            End If
-        End If
-    Catch
-    End Try
-
-    If bTargetLocked Then
-        Try : System.IO.File.AppendAllText(sLogFilePath, "Target folder LOCKED (re-run - copy of first model found; picker skipped): " & sTargetFolder & vbCrLf) : Catch : End Try
-    Else
-        Dim oFbd As New FolderBrowserDialog()
-        oFbd.Description = "DRAWING COPY MODE — Select folder for new model copies"
-        Dim sSeedFolder As String = If(System.IO.Directory.Exists(sFirstModelFolder), sFirstModelFolder, sDwgFolder)
-        If System.IO.Directory.Exists(sSeedFolder) Then oFbd.SelectedPath = sSeedFolder
-        If oFbd.ShowDialog() <> DialogResult.OK Then
-            MessageBox.Show("Cancelled — no changes made.", "Drawing Copy Mode")
-            ThisApplication.SilentOperation = bOrigSilent
-            Return
-        End If
-        sTargetFolder = oFbd.SelectedPath
-        ' Remember the choice for re-runs
-        Try : System.IO.File.WriteAllText(sTargetSidecar, sTargetFolder) : Catch : End Try
+    Dim oFbd As New FolderBrowserDialog()
+    oFbd.Description = "DRAWING COPY MODE — Select folder for new model copies"
+    Dim sSeedFolder As String = If(System.IO.Directory.Exists(sFirstModelFolder), sFirstModelFolder, sDwgFolder)
+    If System.IO.Directory.Exists(sSeedFolder) Then oFbd.SelectedPath = sSeedFolder
+    If oFbd.ShowDialog() <> DialogResult.OK Then
+        MessageBox.Show("Cancelled — no changes made.", "Drawing Copy Mode")
+        ThisApplication.SilentOperation = bOrigSilent
+        Return
     End If
+    Dim sTargetFolder As String = oFbd.SelectedPath
     If Not System.IO.Directory.Exists(sTargetFolder) Then
         Try
             System.IO.Directory.CreateDirectory(sTargetFolder)
@@ -2981,7 +2945,7 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument)
     Dim oCfgForm As New System.Windows.Forms.Form()
     oCfgForm.Text = "Drawing Copy Mode — New Project Prefix"
     oCfgForm.Width = 480
-    oCfgForm.Height = 240
+    oCfgForm.Height = 200
     oCfgForm.FormBorderStyle = System.Windows.Forms.FormBorderStyle.FixedDialog
     oCfgForm.MaximizeBox = False
     oCfgForm.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen
@@ -3006,23 +2970,14 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument)
     oCfgTxt.Enabled = Not bPrefixLocked
     oCfgForm.Controls.Add(oCfgTxt)
 
-    ' -- REPORT ONLY checkbox (unchecked by default) ----------------------
-    ' When checked: scan drawings/models as normal but write a report file
-    ' to the drawing folder and open it — NO copies, saves or repoints.
-    Dim oCfgChkReport As New System.Windows.Forms.CheckBox()
-    oCfgChkReport.Text = "Report Only — Drawing / Model Grab  (no changes made)"
-    oCfgChkReport.Left = 12 : oCfgChkReport.Top = 98 : oCfgChkReport.Width = 440 : oCfgChkReport.Height = 22
-    oCfgChkReport.Checked = False
-    oCfgForm.Controls.Add(oCfgChkReport)
-
     Dim oCfgOk As New System.Windows.Forms.Button()
-    oCfgOk.Text = "Continue" : oCfgOk.Left = 12 : oCfgOk.Top = 136 : oCfgOk.Width = 90 : oCfgOk.Height = 28
+    oCfgOk.Text = "Continue" : oCfgOk.Left = 12 : oCfgOk.Top = 104 : oCfgOk.Width = 90 : oCfgOk.Height = 28
     oCfgOk.DialogResult = System.Windows.Forms.DialogResult.OK
     oCfgForm.Controls.Add(oCfgOk)
     oCfgForm.AcceptButton = oCfgOk
 
     Dim oCfgCancel As New System.Windows.Forms.Button()
-    oCfgCancel.Text = "Cancel" : oCfgCancel.Left = 110 : oCfgCancel.Top = 136 : oCfgCancel.Width = 80 : oCfgCancel.Height = 28
+    oCfgCancel.Text = "Cancel" : oCfgCancel.Left = 110 : oCfgCancel.Top = 104 : oCfgCancel.Width = 80 : oCfgCancel.Height = 28
     oCfgCancel.DialogResult = System.Windows.Forms.DialogResult.Cancel
     oCfgForm.Controls.Add(oCfgCancel)
     oCfgForm.CancelButton = oCfgCancel
@@ -3032,14 +2987,13 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument)
         ThisApplication.SilentOperation = bOrigSilent
         Return
     End If
-    Dim bReportOnly As Boolean = oCfgChkReport.Checked
     sNewPrefix = Trim(oCfgTxt.Text)
     If sNewPrefix = "" Then
         MessageBox.Show("New prefix cannot be empty.", "Drawing Copy Mode")
         ThisApplication.SilentOperation = bOrigSilent
         Return
     End If
-    Try : System.IO.File.AppendAllText(sLogFilePath, "Old prefix: " & oOldPrefix & "  New prefix: " & sNewPrefix & If(bReportOnly, "  [REPORT ONLY]", "") & vbCrLf) : Catch : End Try
+    Try : System.IO.File.AppendAllText(sLogFilePath, "Old prefix: " & oOldPrefix & "  New prefix: " & sNewPrefix & vbCrLf) : Catch : End Try
 
     ' ── 3. Build Phase0Data for the rename form — one entry per drawing ──
     ' Format: List(Of Object()) where each entry = {sDwgBasename As String, List(Of sModelBasename_noExt)}
@@ -3052,16 +3006,7 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument)
         Dim sP0DwgPath As String = oAllDwgPaths(iP0Idx)
         If Not oAllDwgRefs.ContainsKey(sP0DwgPath) Then Continue For
         Dim oP0Refs As System.Collections.Generic.List(Of String) = oAllDwgRefs(sP0DwgPath)
-        If oP0Refs.Count = 0 Then
-            ' AutoCAD-created DWG (no .iam/.ipt refs): list it greyed in the rename form
-            ' with its DRAWING_DESCRIPTION_2 attribute; never processed or repointed.
-            If IsAutoCADDwg(sP0DwgPath) Then
-                Dim sAcadDesc0 As String = GetAcadDrawingDescription(sP0DwgPath, sLogFilePath)
-                oPhase0Data.Add(New Object() {System.IO.Path.GetFileName(sP0DwgPath), New System.Collections.Generic.List(Of String), "AUTOCAD", sAcadDesc0})
-                Try : System.IO.File.AppendAllText(sLogFilePath, "ACAD-INCLUDED: " & System.IO.Path.GetFileName(sP0DwgPath) & If(sAcadDesc0 <> "", "  [" & sAcadDesc0 & "]", "") & vbCrLf) : Catch : End Try
-            End If
-            Continue For
-        End If
+        If oP0Refs.Count = 0 Then Continue For
         Dim sP0DwgBase As String = System.IO.Path.GetFileName(sP0DwgPath)
         Dim oP0ModelList As New System.Collections.Generic.List(Of String)
         Dim iP0RefIdx As Integer
@@ -3074,78 +3019,20 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument)
         Dim sP0Desc As String = If(oDwgDescriptions.ContainsKey(sP0DwgPath), oDwgDescriptions(sP0DwgPath), "")
         oPhase0Data.Add(New Object() {sP0DwgBase, oP0ModelList, sP0Desc})
     Next
-    ' AutoCAD DWGs: shown greyed in the rename form, excluded from all processing
-    For Each sAcadDwg As String In oAcadDwgPaths
-        Dim sAcadDesc As String = GetAcadDrawingDescription(sAcadDwg, sLogFilePath)
-        oPhase0Data.Add(New Object() {System.IO.Path.GetFileName(sAcadDwg), New System.Collections.Generic.List(Of String), "AUTOCAD", sAcadDesc})
-        Try : System.IO.File.AppendAllText(sLogFilePath, "ACAD-INCLUDED: " & System.IO.Path.GetFileName(sAcadDwg) & If(sAcadDesc <> "", "  [" & sAcadDesc & "]", "") & vbCrLf) : Catch : End Try
-    Next
-
-    ' ── REPORT ONLY EXIT ─────────────────────────────────────────────────
-    ' If the checkbox was ticked, write a plain-text report of all drawings
-    ' and their model refs to the drawing folder, open it in Notepad, then exit.
-    ' Nothing has been copied, renamed, saved or repointed at this point.
-    If bReportOnly Then
-        Dim sRptTimestamp As String = DateTime.Now.ToString("yyyy-MM-dd_HHmmss")
-        Dim sRptPath As String = System.IO.Path.Combine(sDwgFolder, "DrawingCopyMode_ReportOnly_" & sRptTimestamp & ".txt")
-        Dim oRptLines As New System.Collections.Generic.List(Of String)
-        oRptLines.Add("REPORT ONLY — Drawing / Model Grab")
-        oRptLines.Add("Generated     : " & DateTime.Now.ToString())
-        oRptLines.Add("Started from  : " & oDwgDoc.FullFileName)
-        oRptLines.Add("Drawing folder: " & sDwgFolder)
-        oRptLines.Add("Old prefix    : " & oOldPrefix)
-        oRptLines.Add("New prefix    : " & sNewPrefix & "  (proposed — no action taken)")
-        oRptLines.Add("Status        : No files were copied, modified, repointed or saved.")
-        oRptLines.Add(New String("="c, 100))
-        Dim iTotalRptDwgs As Integer = 0
-        Dim iTotalRptModels As Integer = 0
-        For Each oRptEntry As Object() In oPhase0Data
-            Dim sRptDwg As String = CStr(oRptEntry(0))
-            Dim oRptModels As System.Collections.Generic.List(Of String) = CType(oRptEntry(1), System.Collections.Generic.List(Of String))
-            Dim sRptType As String = If(oRptEntry.Length > 2, CStr(oRptEntry(2)), "")
-            Dim sRptDesc As String = If(oRptEntry.Length > 3, CStr(oRptEntry(3)), If(oRptEntry.Length > 2 AndAlso sRptType <> "AUTOCAD", CStr(oRptEntry(2)), ""))
-            ' For normal Inventor DWGs oRptEntry(2) holds the description, no "AUTOCAD" type
-            If sRptType = "AUTOCAD" Then
-                oRptLines.Add("DRAWING: " & sRptDwg & "  [AutoCAD — no model refs]" & If(sRptDesc <> "", "  [" & sRptDesc & "]", ""))
-            Else
-                ' oRptEntry layout: {dwgBasename, List(modelBasenames_noExt), description}
-                Dim sRptDwgDesc As String = If(oRptEntry.Length > 2, CStr(oRptEntry(2)), "")
-                oRptLines.Add("DRAWING: " & sRptDwg & If(sRptDwgDesc <> "", "  [" & sRptDwgDesc & "]", ""))
-                If oRptModels.Count = 0 Then
-                    oRptLines.Add("  (no .iam/.ipt model refs found)")
-                Else
-                    For Each sRptMdl As String In oRptModels
-                        Dim sRptMdlFull As String = If(oBasenameToFullPath.ContainsKey(sRptMdl), oBasenameToFullPath(sRptMdl), "")
-                        Dim sRptMdlExt As String = If(sRptMdlFull <> "", System.IO.Path.GetExtension(sRptMdlFull), "")
-                        oRptLines.Add("  Model: " & sRptMdl & sRptMdlExt)
-                        If sRptMdlFull <> "" Then oRptLines.Add("    Path : " & sRptMdlFull)
-                        iTotalRptModels += 1
-                    Next
-                End If
-                iTotalRptDwgs += 1
-            End If
-            oRptLines.Add("")
-        Next
-        oRptLines.Add(New String("="c, 100))
-        oRptLines.Add("Total Inventor drawings: " & iTotalRptDwgs)
-        oRptLines.Add("Total unique model refs : " & iTotalRptModels)
-        Try
-            System.IO.File.WriteAllLines(sRptPath, oRptLines.ToArray())
-            Try : System.IO.File.AppendAllText(sLogFilePath, "REPORT ONLY written: " & sRptPath & vbCrLf) : Catch : End Try
-            System.Diagnostics.Process.Start("notepad.exe", Chr(34) & sRptPath & Chr(34))
-            MessageBox.Show("Report Only complete." & vbCrLf & vbCrLf & "Report saved to:" & vbCrLf & sRptPath, "Drawing Copy Mode — Report Only")
-        Catch exRpt As Exception
-            MessageBox.Show("Could not write report: " & exRpt.Message, "Drawing Copy Mode — Report Only")
-        End Try
-        ThisApplication.SilentOperation = bOrigSilent
-        Return
-    End If
 
     ' ── 3b. Show the existing Drawing Model Renames form ───────────────
     ' oChoice.sReplace is already set to sNewPrefix so the form pre-fills correctly.
     Dim oFormChoice As New RenameModeChoice()
     oFormChoice.sReplace = sNewPrefix
     oFormChoice.bPrefixLocked = bPrefixLocked
+
+    ' ── Pre-load preset map into form before it opens ──────────────────────
+    If oPresetModelRenameMap IsNot Nothing AndAlso oPresetModelRenameMap.Count > 0 Then
+        For Each kvp As System.Collections.Generic.KeyValuePair(Of String, String) In oPresetModelRenameMap
+            oFormChoice.oExplicitModelRenameMap(kvp.Key) = kvp.Value
+        Next
+        Try : System.IO.File.AppendAllText(sLogFilePath, "PRESET-MAP: " & oPresetModelRenameMap.Count & " model renames pre-loaded into DrawingCopyMode form" & vbCrLf) : Catch : End Try
+    End If
 
     If Not ShowDrawingModelRenameForm(oFormChoice, oPhase0Data) Then
         MessageBox.Show("Cancelled — no changes made.", "Drawing Copy Mode")
@@ -3462,7 +3349,7 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument)
                 End If
                 Dim sAllOldPfx As String = String.Join(", ", New System.Collections.Generic.List(Of String)(oOldPrefixSet).ToArray())
                 Try : System.IO.File.AppendAllText(sLogFilePath, "FULL-SWEEP: old PJ-prefix(es) detected from GA refs = '" & sAllOldPfx & "'  (using '" & sOldPrefixForSweep & "' as primary)" & vbCrLf) : Catch : End Try
-                RunAssemblyTraverseMode(oGaDoc, System.IO.Path.GetDirectoryName(sGaToOpen), sOldPrefixForSweep)
+                RunAssemblyTraverseMode(oGaDoc, System.IO.Path.GetDirectoryName(sGaToOpen), sOldPrefixForSweep, oPresetModelRenameMap)
             Catch exGA As Exception
                 MessageBox.Show("Could not open GA assembly: " & exGA.Message & vbCrLf & "Open it manually and re-run the rule.", "Full Sweep — Open Failed")
             End Try
@@ -3503,10 +3390,6 @@ Sub RunDrawingUpdatePass( _
     ThisApplication.SilentOperation = True
 
     For Each sDrawPath As String In oIdwFiles
-        If IsAutoCADDwg(sDrawPath) Then
-            sLog = sLog & vbCrLf & "DRAW-SKIP (AutoCAD DWG): " & System.IO.Path.GetFileName(sDrawPath)
-            Continue For
-        End If
         Dim oDrawDoc As DrawingDocument = Nothing
         Try
             ' Open drawing without showing it in the UI
@@ -3667,6 +3550,273 @@ Sub RunDrawingUpdatePass( _
         Try : GC.Collect() : GC.WaitForPendingFinalizers() : Catch : End Try
     Next
 
+    ' ══════════════════════════════════════════════════════════════════════
+    ' INTEGRITY + REPAIR PASS
+    '
+    ' Design contract:
+    '   The GA drawing is the anchor. Every model a drawing references must
+    '   exist in sTargetFolder AND be wired into the GA assembly tree.
+    '   This pass enforces that via Component Replace — always, unconditionally.
+    '
+    ' Two-case repair (both end with Component Replace):
+    '   Case A — expected-name file already in sTargetFolder
+    '             → Replace occurrence with sTargetFolder copy. No SaveAs.
+    '               Even if already correct — "foregone conclusion", re-cements link.
+    '               Handles BOTH prefix-only renames (same basename) AND
+    '               segment-renamed subs (GA still has old-segment name,
+    '               e.g. E3432-8-TANK UPPER ASSEMBLY → 3450-001-V01-01).
+    '   Case B — expected-name not in sTargetFolder, but source exists on disk
+    '             → File.Copy to sTargetFolder, then Component Replace.
+    '
+    ' Step 1:  Build sTargetFolder file inventory (basename → fullPath)
+    ' Step 1b: Build basename rename map from oRenameMap (oldBasename → newBasename)
+    '          so segment-renamed subs in the GA tree are caught and replaced
+    '          with their correctly-named counterparts.
+    ' Step 2: Find new GA .iam; open it; walk Occurrences recursively;
+    '         Component Replace each sub with its sTargetFolder counterpart.
+    '         Log INTEGRITY-REPAIR or INTEGRITY-COPY-AND-REPAIR for each.
+    '         Log INTEGRITY-WARN-MISSING if sub not findable anywhere.
+    ' Step 3: Save GA.
+    ' Step 4: Drawing stale-path check — verify each drawing ref's
+    '         FullDocumentName starts with sTargetFolder. Report only.
+    ' ══════════════════════════════════════════════════════════════════════
+    Try : System.IO.File.AppendAllText(sLogFilePath, vbCrLf & "══ INTEGRITY + REPAIR PASS ═════════════════════════════════" & vbCrLf) : Catch : End Try
+
+    Dim iIntRepair      As Integer = 0
+    Dim iIntCopyRepair  As Integer = 0
+    Dim iIntMissing     As Integer = 0
+    Dim iIntStalePath   As Integer = 0
+    Dim oIntMsgLines    As New System.Collections.Generic.List(Of String)
+
+    If Trim(sTargetFolder) <> "" AndAlso System.IO.Directory.Exists(sTargetFolder) Then
+
+        ' ── Step 1: Build target folder inventory (case-insensitive basename → full path) ──
+        Dim oTargetInv As New System.Collections.Generic.Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase)
+        Try
+            For Each sInvFile As String In System.IO.Directory.GetFiles(sTargetFolder)
+                Dim sInvBase As String = System.IO.Path.GetFileName(sInvFile)
+                If Not oTargetInv.ContainsKey(sInvBase) Then oTargetInv(sInvBase) = sInvFile
+            Next
+        Catch : End Try
+        Try : System.IO.File.AppendAllText(sLogFilePath, "INTEGRITY: target folder inventory — " & oTargetInv.Count & " file(s)" & vbCrLf) : Catch : End Try
+
+        ' ── Step 1b: Build basename rename lookup from oRenameMap ──────────
+        ' Critical for segment-renamed subs: the GA may still reference
+        ' old-segment names (e.g. PJ00205-E3432-8-TANK UPPER ASSEMBLY.iam)
+        ' while the target folder holds the segment-renamed version
+        ' (e.g. PJ00205-3450-001-V01-01.iam).
+        ' oRenameMap keys = old full paths; values = new full paths.
+        ' This map lets the walk replace by NEW name, not old name.
+        Dim oBasenameRenameMap As New System.Collections.Generic.Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase)
+        For Each oRmKvp As System.Collections.Generic.KeyValuePair(Of String, String) In oRenameMap
+            Dim sOldBase As String = System.IO.Path.GetFileName(oRmKvp.Key)
+            Dim sNewBase As String = System.IO.Path.GetFileName(oRmKvp.Value)
+            If Not oBasenameRenameMap.ContainsKey(sOldBase) Then
+                oBasenameRenameMap(sOldBase) = sNewBase
+            End If
+        Next
+        Try : System.IO.File.AppendAllText(sLogFilePath, "INTEGRITY: rename-map basename entries — " & oBasenameRenameMap.Count & vbCrLf) : Catch : End Try
+
+        ' ── Step 2: Identify new GA .iam path ──────────────────────────────
+        ' Primary: oScanRefs holds active drawing's model refs; find the new path via oRenameMap.
+        ' Fallback: first .iam value in oRenameMap.
+        Dim sNewGaPath As String = ""
+        For Each sOldRef As String In oScanRefs
+            Dim sMapped As String = ""
+            If oRenameMap.TryGetValue(sOldRef, sMapped) AndAlso _
+               String.Compare(System.IO.Path.GetExtension(sMapped), ".iam", True) = 0 Then
+                sNewGaPath = sMapped
+                Exit For
+            End If
+        Next
+        If Trim(sNewGaPath) = "" Then
+            For Each sMapVal As String In oRenameMap.Values
+                If String.Compare(System.IO.Path.GetExtension(sMapVal), ".iam", True) = 0 Then
+                    sNewGaPath = sMapVal : Exit For
+                End If
+            Next
+        End If
+
+        If Trim(sNewGaPath) <> "" AndAlso System.IO.File.Exists(sNewGaPath) Then
+            Try : System.IO.File.AppendAllText(sLogFilePath, "INTEGRITY: GA assembly → " & System.IO.Path.GetFileName(sNewGaPath) & vbCrLf) : Catch : End Try
+
+            ' ── Step 2 cont.: Open GA + recursive Component Replace walk ──
+            Dim bWasIntegSilent As Boolean = ThisApplication.SilentOperation
+            ThisApplication.SilentOperation = True
+            Dim oGaDoc As AssemblyDocument = Nothing
+            Dim bGaWasOpen As Boolean = False
+            Try
+                ' Check if already open
+                For Each oOpenD As Document In ThisApplication.Documents
+                    If String.Equals(oOpenD.FullFileName, sNewGaPath, StringComparison.OrdinalIgnoreCase) Then
+                        oGaDoc = TryCast(oOpenD, AssemblyDocument)
+                        bGaWasOpen = True
+                        Exit For
+                    End If
+                Next
+                If oGaDoc Is Nothing Then
+                    oGaDoc = TryCast(ThisApplication.Documents.Open(sNewGaPath, False), AssemblyDocument)
+                End If
+            Catch exGaOpen As Exception
+                Try : System.IO.File.AppendAllText(sLogFilePath, "INTEGRITY-GA-OPEN-FAIL: " & exGaOpen.Message & vbCrLf) : Catch : End Try
+            End Try
+
+            If oGaDoc IsNot Nothing Then
+                ' Recursive walker — replaces occurrences at every level
+                Dim oIntegVisited As New System.Collections.Generic.HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+
+                Dim WalkAndReplace As Action(Of AssemblyComponentDefinition) = Nothing
+                WalkAndReplace = Sub(oDef As AssemblyComponentDefinition)
+                    Try
+                        For Each oOcc As ComponentOccurrence In oDef.Occurrences
+                            Dim sOccPath As String = ""
+                            Try : sOccPath = oOcc.ReferencedDocumentDescriptor.FullDocumentName : Catch : Continue For : End Try
+                            If Trim(sOccPath) = "" OrElse oIntegVisited.Contains(sOccPath) Then Continue For
+                            oIntegVisited.Add(sOccPath)
+
+                            Dim sOccFileName As String = System.IO.Path.GetFileName(sOccPath)
+
+                            ' ── Rename-map lookup: if this sub was segment-renamed,
+                            '    use the NEW basename so we target the correct file in
+                            '    sTargetFolder (e.g. E3432-8-TANK UPPER ASSEMBLY →
+                            '    3450-001-V01-01). Falls back to same basename if no
+                            '    mapping exists (prefix-only renames, already-correct subs).
+                            Dim sExpectedFileName As String = sOccFileName
+                            Dim sMappedBase As String = ""
+                            If oBasenameRenameMap.TryGetValue(sOccFileName, sMappedBase) AndAlso _
+                               Not String.Equals(sOccFileName, sMappedBase, StringComparison.OrdinalIgnoreCase) Then
+                                sExpectedFileName = sMappedBase
+                                Try : System.IO.File.AppendAllText(sLogFilePath, "INTEGRITY-SEGMENT-MAP: " & sOccFileName & " → " & sExpectedFileName & vbCrLf) : Catch : End Try
+                            End If
+                            Dim sOccExpected As String = System.IO.Path.Combine(sTargetFolder, sExpectedFileName)
+
+                            If oTargetInv.ContainsKey(sExpectedFileName) Then
+                                ' Case A: target-named file already in target folder — Component Replace (unconditional)
+                                ' Handles both: same-name-different-folder AND segment-renamed subs in GA
+                                If Not String.Equals(sOccPath, sOccExpected, StringComparison.OrdinalIgnoreCase) Then
+                                    Try
+                                        oOcc.Replace(sOccExpected, True)
+                                        iIntRepair += 1
+                                        Try : System.IO.File.AppendAllText(sLogFilePath, "INTEGRITY-REPAIR: " & sOccFileName & " → " & sExpectedFileName & vbCrLf) : Catch : End Try
+                                    Catch exRep As Exception
+                                        Try : System.IO.File.AppendAllText(sLogFilePath, "INTEGRITY-REPLACE-FAIL: " & sOccFileName & " → " & sExpectedFileName & " : " & exRep.Message & vbCrLf) : Catch : End Try
+                                    End Try
+                                Else
+                                    ' Already pointing to correct target file — still replace to re-cement link
+                                    Try
+                                        oOcc.Replace(sOccExpected, True)
+                                        iIntRepair += 1
+                                        Try : System.IO.File.AppendAllText(sLogFilePath, "INTEGRITY-RELINK: " & sOccFileName & " (already in target — re-cemented)" & vbCrLf) : Catch : End Try
+                                    Catch : End Try
+                                End If
+                            ElseIf System.IO.File.Exists(sOccPath) Then
+                                ' Case B: expected-name not in target folder, but source exists — copy then Replace
+                                Try
+                                    System.IO.File.Copy(sOccPath, sOccExpected, True)
+                                    oOcc.Replace(sOccExpected, True)
+                                    oTargetInv(sExpectedFileName) = sOccExpected   ' update inventory
+                                    iIntCopyRepair += 1
+                                    Try : System.IO.File.AppendAllText(sLogFilePath, "INTEGRITY-COPY-AND-REPAIR: " & sExpectedFileName & " ← " & sOccPath & vbCrLf) : Catch : End Try
+                                Catch exCopy As Exception
+                                    Try : System.IO.File.AppendAllText(sLogFilePath, "INTEGRITY-COPY-FAIL: " & sExpectedFileName & " : " & exCopy.Message & vbCrLf) : Catch : End Try
+                                End Try
+                            Else
+                                ' Neither in target folder nor on disk — geometry gap
+                                iIntMissing += 1
+                                Dim sMissLine As String = "INTEGRITY-WARN-MISSING: " & sOccFileName & " (expected: " & sExpectedFileName & ") — NOT FOUND anywhere"
+                                oIntMsgLines.Add(sMissLine)
+                                Try : System.IO.File.AppendAllText(sLogFilePath, sMissLine & vbCrLf) : Catch : End Try
+                            End If
+
+                            ' Recurse into sub-assemblies
+                            Try
+                                Dim oSubDef As AssemblyComponentDefinition = _
+                                    TryCast(oOcc.Definition, AssemblyComponentDefinition)
+                                If oSubDef IsNot Nothing Then WalkAndReplace(oSubDef)
+                            Catch : End Try
+                        Next
+                    Catch exWalk As Exception
+                        Try : System.IO.File.AppendAllText(sLogFilePath, "INTEGRITY-WALK-ERR: " & exWalk.Message & vbCrLf) : Catch : End Try
+                    End Try
+                End Sub
+
+                Try
+                    WalkAndReplace(oGaDoc.ComponentDefinition)
+                Catch exWalkRoot As Exception
+                    Try : System.IO.File.AppendAllText(sLogFilePath, "INTEGRITY-WALK-ROOT-ERR: " & exWalkRoot.Message & vbCrLf) : Catch : End Try
+                End Try
+
+                ' ── Step 3: Save GA ────────────────────────────────────────
+                Try
+                    oGaDoc.Save()
+                    Try : System.IO.File.AppendAllText(sLogFilePath, "INTEGRITY: GA saved OK" & vbCrLf) : Catch : End Try
+                Catch exSave As Exception
+                    Try : System.IO.File.AppendAllText(sLogFilePath, "INTEGRITY-GA-SAVE-FAIL: " & exSave.Message & vbCrLf) : Catch : End Try
+                End Try
+
+                If Not bGaWasOpen Then : Try : oGaDoc.Close(False) : Catch : End Try : End If
+            End If
+            ThisApplication.SilentOperation = bWasIntegSilent
+        Else
+            Try : System.IO.File.AppendAllText(sLogFilePath, "INTEGRITY: GA .iam not identified — skipping GA tree repair" & vbCrLf) : Catch : End Try
+        End If
+
+        ' ── Step 4: Drawing stale-path check (report only) ─────────────
+        If Trim(sDwgFolder) <> "" AndAlso System.IO.Directory.Exists(sDwgFolder) Then
+            Try : System.IO.File.AppendAllText(sLogFilePath, "INTEGRITY: checking drawing ref paths..." & vbCrLf) : Catch : End Try
+            Dim oChkDwgFiles As New System.Collections.Generic.List(Of String)
+            Try
+                oChkDwgFiles.AddRange(System.IO.Directory.GetFiles(sDwgFolder, "*.dwg"))
+                oChkDwgFiles.AddRange(System.IO.Directory.GetFiles(sDwgFolder, "*.idw"))
+                oChkDwgFiles.Sort()
+            Catch : End Try
+
+            Dim bWasChkSilent As Boolean = ThisApplication.SilentOperation
+            ThisApplication.SilentOperation = True
+            For Each sChkDwg As String In oChkDwgFiles
+                Dim oChkDwgDoc As DrawingDocument = Nothing
+                Try
+                    oChkDwgDoc = TryCast(ThisApplication.Documents.Open(sChkDwg, False), DrawingDocument)
+                    If oChkDwgDoc Is Nothing Then Continue For
+                    For Each oChkRef As Document In oChkDwgDoc.ReferencedDocuments
+                        Dim sChkRefFull As String = ""
+                        Try : sChkRefFull = oChkRef.FullDocumentName : Catch : Continue For : End Try
+                        If Not sChkRefFull.StartsWith(sTargetFolder, StringComparison.OrdinalIgnoreCase) Then
+                            iIntStalePath += 1
+                            Dim sStaleLine As String = "INTEGRITY-WARN-STALE-PATH: " & System.IO.Path.GetFileName(sChkDwg) & _
+                                                       " still refs " & sChkRefFull
+                            oIntMsgLines.Add(sStaleLine)
+                            Try : System.IO.File.AppendAllText(sLogFilePath, sStaleLine & vbCrLf) : Catch : End Try
+                        End If
+                    Next
+                Catch exChk As Exception
+                    Try : System.IO.File.AppendAllText(sLogFilePath, "INTEGRITY-DWG-OPEN-FAIL: " & System.IO.Path.GetFileName(sChkDwg) & " : " & exChk.Message & vbCrLf) : Catch : End Try
+                Finally
+                    If oChkDwgDoc IsNot Nothing Then : Try : oChkDwgDoc.Close(False) : Catch : End Try : End If
+                End Try
+            Next
+            ThisApplication.SilentOperation = bWasChkSilent
+        End If
+
+    End If
+
+    ' ── Summary + popup ────────────────────────────────────────────────
+    Try : System.IO.File.AppendAllText(sLogFilePath, _
+        "INTEGRITY SUMMARY: " & iIntRepair & " relinked, " & iIntCopyRepair & " copy-repaired, " & _
+        iIntMissing & " MISSING, " & iIntStalePath & " stale-drawing-paths" & vbCrLf) : Catch : End Try
+
+    If iIntMissing > 0 OrElse iIntStalePath > 0 Then
+        Dim sSummMsg As String = "INTEGRITY WARNINGS" & vbCrLf & vbCrLf
+        If iIntMissing > 0 Then sSummMsg &= "⚠ " & iIntMissing & " sub(s) not found anywhere — geometry gap risk" & vbCrLf
+        If iIntStalePath > 0 Then sSummMsg &= "⚠ " & iIntStalePath & " drawing ref(s) still point outside the target folder" & vbCrLf
+        sSummMsg &= vbCrLf & String.Join(vbCrLf, oIntMsgLines.GetRange(0, Math.Min(15, oIntMsgLines.Count)))
+        If oIntMsgLines.Count > 15 Then sSummMsg &= vbCrLf & "... (see log for full list)"
+        sSummMsg &= vbCrLf & vbCrLf & "See log on Desktop for details."
+        MessageBox.Show(sSummMsg, "Integrity Check — Action Required", MessageBoxButtons.OK, MessageBoxIcon.Warning)
+    ElseIf iIntRepair + iIntCopyRepair > 0 Then
+        Try : System.IO.File.AppendAllText(sLogFilePath, "INTEGRITY: all refs repaired and re-cemented into GA tree." & vbCrLf) : Catch : End Try
+    End If
+
     ThisApplication.SilentOperation = bOrigSilent
 
 End Sub
@@ -3684,7 +3834,6 @@ End Sub
 Function RunPhase0DrawingScan(sDrawingsFolder As String, ByRef sLog As String, sLogFilePath As String) _
     As System.Collections.Generic.List(Of Object())
     ' Each Object() = { sDrawingBasename As String, List(Of String) modelBasenames }
-    ' AutoCAD-created .dwg: { sDrawingBasename, empty List(Of String), "AUTOCAD" } (never opened)
 
     Dim oResult As New System.Collections.Generic.List(Of Object())
 
@@ -3701,12 +3850,6 @@ Function RunPhase0DrawingScan(sDrawingsFolder As String, ByRef sLog As String, s
 
     For Each sIdwPath As String In oIdwFiles
         Dim sDwgBasename As String = System.IO.Path.GetFileName(sIdwPath)
-        If IsAutoCADDwg(sIdwPath) Then
-            oResult.Add(New Object() {sDwgBasename, New System.Collections.Generic.List(Of String), "AUTOCAD"})
-            sLog = sLog & vbCrLf & "PHASE0-SKIP (AutoCAD DWG, not included in this Clean Sweep): " & sDwgBasename
-            Try : System.IO.File.AppendAllText(sLogFilePath, "PHASE0-SKIP (AutoCAD DWG): " & sIdwPath & vbCrLf) : Catch : End Try
-            Continue For
-        End If
         Dim oModelList As New System.Collections.Generic.List(Of String)
         Dim oDwgDoc As DrawingDocument = Nothing
         Try
@@ -3771,11 +3914,6 @@ Function ShowDrawingModelRenameForm( _
     Dim oIncludeCheckMap As New System.Collections.Generic.Dictionary(Of String, CheckBox)(StringComparer.OrdinalIgnoreCase)
     ' Per-drawing state-match checkboxes (right side of each header)
     Dim oStateCheckMap As New System.Collections.Generic.Dictionary(Of String, CheckBox)(StringComparer.OrdinalIgnoreCase)
-    ' Re-entrancy guard for the NEW-name collision check (reverting Text re-fires TextChanged)
-    Dim bNewNameRevertBusy As Boolean = False
-    ' New-name fields whose pre-fill equals the old name (prefix already matches).
-    ' ReadOnly while "Keep original Model names" is ticked (added 2026-11-02).
-    Dim oLockedByDefault As New System.Collections.Generic.List(Of System.Windows.Forms.TextBox)
 
     ' Layout constants
     Const iFormW As Integer = 680
@@ -3797,7 +3935,7 @@ Function ShowDrawingModelRenameForm( _
     oForm.MinimizeBox = False
     oForm.MaximizeBox = False
     oForm.Width = iFormW
-    oForm.Height = 670
+    oForm.Height = 640
 
     ' ---- Header label ----
     Dim oLblHdr As New Label()
@@ -3835,59 +3973,6 @@ Function ShowDrawingModelRenameForm( _
         Dim sDwgBasename As String = CStr(oEntry(0))
         Dim oModelList As System.Collections.Generic.List(Of String) = _
             CType(oEntry(1), System.Collections.Generic.List(Of String))
-
-        ' AutoCAD-created DWG: show greyed (disabled, unticked), no model rows,
-        ' and keep it OUT of oIncludeCheckMap / oStateCheckMap so it is never selected.
-        If oEntry.Length > 2 AndAlso CStr(oEntry(2)) = "AUTOCAD" Then
-            ' Header row (same positions as Inventor drawings): number, disabled
-            ' include box, filename + extracted DRAWING_DESCRIPTION_2, disabled
-            ' "Match model states?" box.
-            Dim oLblNumAcad As New Label()
-            oLblNumAcad.Text = iDrawingNum.ToString() & "."
-            oLblNumAcad.Left = 4 : oLblNumAcad.Top = iY : oLblNumAcad.Width = 22 : oLblNumAcad.Height = 20
-            oPanel.Controls.Add(oLblNumAcad)
-
-            Dim oChkIncludeAcad As New CheckBox()
-            oChkIncludeAcad.Left = 26 : oChkIncludeAcad.Top = iY - 1 : oChkIncludeAcad.Width = 18 : oChkIncludeAcad.Height = 20
-            oChkIncludeAcad.Checked = False
-            oChkIncludeAcad.Enabled = False
-            oPanel.Controls.Add(oChkIncludeAcad)
-
-            Dim sAcadExtra As String = ""
-            If oEntry.Length > 3 Then
-                Try : sAcadExtra = Trim(CStr(oEntry(3))) : Catch : End Try
-            End If
-            Dim oLblDwgAcad As New Label()
-            oLblDwgAcad.Text = If(sAcadExtra <> "", sDwgBasename & "  —  " & sAcadExtra, sDwgBasename)
-            oLblDwgAcad.Left = 46 : oLblDwgAcad.Top = iY : oLblDwgAcad.Width = 390 : oLblDwgAcad.Height = 20
-            oPanel.Controls.Add(oLblDwgAcad)
-
-            Dim oChkStateAcad As New CheckBox()
-            oChkStateAcad.Text = "Match model states?"
-            oChkStateAcad.Left = 440 : oChkStateAcad.Top = iY - 1 : oChkStateAcad.Width = 180 : oChkStateAcad.Height = 20
-            oChkStateAcad.Checked = False
-            oChkStateAcad.Enabled = False
-            oPanel.Controls.Add(oChkStateAcad)
-
-            iY = iY + 24
-
-            ' Bordered panel below the header (in place of the model rows) holding
-            ' the AutoCAD note, so the entry is boxed like the Inventor drawings.
-            Dim oAcadBorder As New System.Windows.Forms.Panel()
-            oAcadBorder.Left = iOldLeft : oAcadBorder.Top = iY
-            oAcadBorder.Width = iPanelW - iOldLeft * 2 - 4
-            oAcadBorder.Height = 26
-            oAcadBorder.BorderStyle = BorderStyle.FixedSingle
-            oPanel.Controls.Add(oAcadBorder)
-
-            Dim oLblAcadNote As New Label()
-            oLblAcadNote.Text = "Autocad Created Drawing – not included in This Clean Sweep"
-            oLblAcadNote.Left = 2 : oLblAcadNote.Top = 3 : oLblAcadNote.Width = oAcadBorder.Width - 8 : oLblAcadNote.Height = 20
-            oAcadBorder.Controls.Add(oLblAcadNote)
-
-            iY = iY + 26 + 8   ' bordered note panel + gap, no model rows
-            Continue For
-        End If
 
         ' ── Drawing header row ──────────────────────────────────────────
         ' Left: sequence number + include checkbox
@@ -3963,12 +4048,17 @@ Function ShowDrawingModelRenameForm( _
                 AddHandler oMasterRef.TextChanged, Sub(s, e) oLockedRef.Text = oMasterRef.Text
                 oModelBorder.Controls.Add(oTxtLocked)
             Else
-                ' First appearance — editable, pre-filled with prefix-swapped new name.
-                ' Apply the same first-dash rule used in Fix A: strip everything up to
-                ' the first '-' and replace with oChoice.sReplace (e.g. PJ00205).
-                ' If no dash found, or new prefix not set, fall back to the old name.
+                ' First appearance — editable, pre-filled with the best available new name.
+                ' Priority: 1) preset map (oExplicitModelRenameMap pre-loaded by caller)
+                '           2) standard prefix-swap using oChoice.sReplace
+                '           3) old name unchanged (fallback)
                 Dim sPreFilled As String = sModelBasename
-                If Trim(oChoice.sReplace) <> "" Then
+                If oChoice.oExplicitModelRenameMap.ContainsKey(sModelBasename) Then
+                    ' Preset name from caller — use it directly
+                    sPreFilled = oChoice.oExplicitModelRenameMap(sModelBasename)
+                ElseIf Trim(oChoice.sReplace) <> "" Then
+                    ' Standard prefix-swap: strip everything up to the first '-' and
+                    ' replace with oChoice.sReplace (e.g. PJ00205).
                     Dim iMDash As Integer = sModelBasename.IndexOf("-"c)
                     If iMDash > 0 Then
                         Dim sOldPfx As String = sModelBasename.Substring(0, iMDash)
@@ -3981,46 +4071,12 @@ Function ShowDrawingModelRenameForm( _
                 oTxtNew.Left = iTxtLeft : oTxtNew.Top = iMY : oTxtNew.Width = iTxtW
                 oTxtNew.Text = sPreFilled
                 oTxtNew.Tag = sModelBasename
-                ' Prefix already matches: ReadOnly while "Keep original Model names"
-                ' is ticked; un-ticking it makes the field editable (2026-11-02).
+                ' If the name isn't changing, lock the field to avoid accidental edits
                 If String.Compare(sPreFilled, sModelBasename, True) = 0 Then
                     oTxtNew.ReadOnly = True
-                    oLockedByDefault.Add(oTxtNew)
                 End If
                 oModelBorder.Controls.Add(oTxtNew)
                 oMasterTxtMap(sModelBasename) = oTxtNew
-
-                ' Collision guard (added 2026-11-02): a NEW name may not equal the
-                ' NEW name already claimed by a DIFFERENT model. On collision the
-                ' field reverts to its pre-filled value and a warning is shown.
-                ' (Same-model repeats are still handled by the locked mirrors above.)
-                Dim oThisTxt As System.Windows.Forms.TextBox = oTxtNew
-                Dim sThisOld As String = sModelBasename
-                Dim sThisOriginal As String = sPreFilled
-                AddHandler oThisTxt.TextChanged, Sub(s, e)
-                    If bNewNameRevertBusy Then Exit Sub
-                    Dim sCand As String = Trim(oThisTxt.Text)
-                    If sCand = "" Then Exit Sub   ' blank = keep original; checked again on OK
-                    For Each kvpOther As System.Collections.Generic.KeyValuePair(Of String, System.Windows.Forms.TextBox) In oMasterTxtMap
-                        If String.Compare(kvpOther.Key, sThisOld, True) = 0 Then Continue For
-                        Dim sOtherNew As String = Trim(kvpOther.Value.Text)
-                        If sOtherNew = "" Then sOtherNew = kvpOther.Key
-                        If String.Compare(sOtherNew, sCand, True) = 0 Then
-                            bNewNameRevertBusy = True
-                            Try
-                                oThisTxt.Text = sThisOriginal
-                                oThisTxt.SelectionStart = oThisTxt.Text.Length
-                            Finally
-                                bNewNameRevertBusy = False
-                            End Try
-                            MessageBox.Show(oForm, "That new name is already used higher in the list by model '" & _
-                                kvpOther.Key & "'." & vbCrLf & vbCrLf & _
-                                "The field has been reverted to '" & sThisOriginal & "'.", _
-                                "Duplicate New Name", MessageBoxButtons.OK, MessageBoxIcon.Warning)
-                            Exit For
-                        End If
-                    Next
-                End Sub
             End If
 
             iMY = iMY + 26
@@ -4033,7 +4089,7 @@ Function ShowDrawingModelRenameForm( _
     ' Global include all / exclude all
     Dim oChkGlobalInclude As New CheckBox()
     oChkGlobalInclude.Text = "Include ALL drawings  (un-tick to exclude individual drawings above)"
-    oChkGlobalInclude.Left = 10 : oChkGlobalInclude.Top = 572 : oChkGlobalInclude.Width = 450
+    oChkGlobalInclude.Left = 10 : oChkGlobalInclude.Top = 548 : oChkGlobalInclude.Width = 450
     oChkGlobalInclude.Checked = True
     oForm.Controls.Add(oChkGlobalInclude)
     AddHandler oChkGlobalInclude.CheckedChanged, Sub(s, e)
@@ -4042,53 +4098,18 @@ Function ShowDrawingModelRenameForm( _
         Next
     End Sub
 
-    ' Keep original model names (added 2026-11-02): ticked = fields whose
-    ' prefix already matches stay ReadOnly; un-ticked = editable so models can
-    ' be renamed (the rename map below then re-references the drawings).
-    Dim oChkKeepNames As New CheckBox()
-    oChkKeepNames.Text = "Keep original Model names  (un-tick to allow rename & re-reference drawings)"
-    oChkKeepNames.Left = 10 : oChkKeepNames.Top = 548 : oChkKeepNames.Width = 460
-    oChkKeepNames.Checked = True
-    oForm.Controls.Add(oChkKeepNames)
-    AddHandler oChkKeepNames.CheckedChanged, Sub(s, e)
-        For Each oLockTxt As System.Windows.Forms.TextBox In oLockedByDefault
-            oLockTxt.ReadOnly = oChkKeepNames.Checked
-        Next
-    End Sub
-
     ' ---- OK / Cancel — with bottom margin ----
     Dim oOk As New Button()
     oOk.Text = "OK" : oOk.DialogResult = DialogResult.OK
-    oOk.Left = 476 : oOk.Top = 600 : oOk.Width = 80
+    oOk.Left = 476 : oOk.Top = 576 : oOk.Width = 80
     oForm.Controls.Add(oOk) : oForm.AcceptButton = oOk
 
     Dim oCancel As New Button()
     oCancel.Text = "Cancel" : oCancel.DialogResult = DialogResult.Cancel
-    oCancel.Left = 568 : oCancel.Top = 600 : oCancel.Width = 80
+    oCancel.Left = 568 : oCancel.Top = 576 : oCancel.Width = 80
     oForm.Controls.Add(oCancel) : oForm.CancelButton = oCancel
 
     If oForm.ShowDialog() <> DialogResult.OK Then Return False
-
-    ' ---- Final uniqueness check (added 2026-11-02) ----
-    ' Every model's effective NEW name (blank = keep original) must be unique.
-    ' If any duplicate remains, show an error and cancel the form.
-    Dim oNewNameOwner As New System.Collections.Generic.Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase)
-    Dim sDupMsg As String = ""
-    For Each kvp As System.Collections.Generic.KeyValuePair(Of String, System.Windows.Forms.TextBox) In oMasterTxtMap
-        Dim sEffNew As String = Trim(kvp.Value.Text)
-        If sEffNew = "" Then sEffNew = kvp.Key
-        If oNewNameOwner.ContainsKey(sEffNew) Then
-            sDupMsg = sDupMsg & "  " & sEffNew & "   <-   '" & oNewNameOwner(sEffNew) & "' and '" & kvp.Key & "'" & vbCrLf
-        Else
-            oNewNameOwner(sEffNew) = kvp.Key
-        End If
-    Next
-    If sDupMsg <> "" Then
-        MessageBox.Show("Two or more models were given the same NEW name:" & vbCrLf & vbCrLf & _
-            sDupMsg & vbCrLf & "Nothing has been renamed. Please run the rule again and give each model a unique new name.", _
-            "Duplicate New Names - Cancelled", MessageBoxButtons.OK, MessageBoxIcon.Error)
-        Return False
-    End If
 
     ' ---- Collect results ----
     oChoice.oExplicitModelRenameMap.Clear()
@@ -4497,134 +4518,6 @@ Sub CaptureLevel(oCompDef As ComponentDefinition, ByRef oPathStack As System.Col
     End Try
 
 End Sub
-
-
-' True only for a .dwg created by AutoCAD (FileManager.IsInventorDWG = False).
-' .idw, Inventor .dwg, and any error -> False (existing behaviour kept).
-Function IsAutoCADDwg(sPath As String) As Boolean
-    Try
-        If String.Compare(System.IO.Path.GetExtension(sPath), ".dwg", True) <> 0 Then Return False
-        Return Not ThisApplication.FileManager.IsInventorDWG(sPath)
-    Catch
-        Return False
-    End Try
-End Function
-
-' Read-only: returns the value of the AutoCAD block attribute tag
-' DRAWING_DESCRIPTION_2 from an AutoCAD-created .dwg (first non-blank hit
-' across Sheets -> AutoCADBlocks -> GetPromptTextValues). Opens the file
-' invisibly if it is not already open and closes it again WITHOUT saving.
-' Returns "" if the tag is absent or anything fails.
-' Diagnostics (added 2026-11-02): if sLogPath is given, every tag/value pair
-' found is logged as "ACAD-TAGS: file : TAG='val'; ..." (or "(no AutoCADBlocks
-' / no tags)"). Exact DRAWING_DESCRIPTION_2 is preferred; otherwise the first
-' non-blank tag whose name contains DESCRIPTION or DRAWING is used as fallback.
-Function GetAcadDrawingDescription(sPath As String, Optional sLogPath As String = "") As String
-    Dim sResult As String = ""
-    Dim sFallback As String = ""
-    Dim oTagLog As New System.Text.StringBuilder()
-    Dim oAcadDoc As Document = Nothing
-    Dim bOpenedHere As Boolean = False
-    Try
-        For Each oOpen As Document In ThisApplication.Documents
-            If String.Compare(oOpen.FullFileName, sPath, True) = 0 Then oAcadDoc = oOpen : Exit For
-        Next
-        If oAcadDoc Is Nothing Then
-            oAcadDoc = ThisApplication.Documents.Open(sPath, False)
-            bOpenedHere = True
-        End If
-        If oAcadDoc.DocumentType = DocumentTypeEnum.kDrawingDocumentObject Then
-            Dim oAcadDwg As DrawingDocument = CType(oAcadDoc, DrawingDocument)
-            For Each oAcadSheet As Sheet In oAcadDwg.Sheets
-                For Each oAcadBlk As AutoCADBlock In oAcadSheet.AutoCADBlocks
-                    Try
-                        Dim oTags() As String = {}
-                        Dim oVals() As String = {}
-                        oAcadBlk.GetPromptTextValues(oTags, oVals)
-                        Dim iTag As Integer
-                        For iTag = 0 To oTags.Length - 1
-                            Dim sTagName As String = Trim(oTags(iTag))
-                            Dim sTagVal As String = ""
-                            If iTag < oVals.Length AndAlso oVals(iTag) IsNot Nothing Then sTagVal = Trim(oVals(iTag))
-                            oTagLog.Append(sTagName & "='" & sTagVal & "'; ")
-                            If sResult = "" AndAlso sTagVal <> "" AndAlso String.Compare(sTagName, "DRAWING_DESCRIPTION_2", True) = 0 Then
-                                sResult = sTagVal
-                            End If
-                            If sFallback = "" AndAlso sTagVal <> "" Then
-                                Dim sTagUp As String = sTagName.ToUpper()
-                                If sTagUp.Contains("DESCRIPTION") OrElse sTagUp.Contains("DRAWING") Then sFallback = sTagVal
-                            End If
-                        Next
-                    Catch
-                    End Try
-                Next
-            Next
-        End If
-    Catch
-    End Try
-    If sResult = "" Then sResult = sFallback
-    If sLogPath <> "" Then
-        Dim sTagLine As String = oTagLog.ToString().Trim()
-        If sTagLine = "" Then sTagLine = "(no AutoCADBlocks / no tags)"
-        Try : System.IO.File.AppendAllText(sLogPath, "ACAD-TAGS: " & System.IO.Path.GetFileName(sPath) & " : " & sTagLine & vbCrLf) : Catch : End Try
-    End If
-    ' Fallback (added 2026-11-02): Sheet.AutoCADBlocks returns nothing for
-    ' native AutoCAD drawings, so read block attributes from the underlying
-    ' AutoCAD database via ContainingDWGDocument (late-bound Object, no
-    ' AutoCAD type library needed). Layouts -> Block -> AcDbBlockReference ->
-    ' GetAttributes(). Logs ACAD-DB-TAGS, or ACAD-DB-FAIL on error.
-    If sResult = "" AndAlso oAcadDoc IsNot Nothing Then
-        Dim sDbResult As String = ""
-        Dim sDbFallback As String = ""
-        Dim oDbTagLog As New System.Text.StringBuilder()
-        Try
-            Dim oDbDwg As Object = oAcadDoc
-            Dim oDbDoc As Object = oDbDwg.ContainingDWGDocument
-            For Each oDbLayout As Object In oDbDoc.Layouts
-                Dim oDbBlock As Object = oDbLayout.Block
-                For Each oDbEnt As Object In oDbBlock
-                    Dim sDbObjName As String = ""
-                    Try : sDbObjName = CStr(oDbEnt.ObjectName) : Catch : End Try
-                    If sDbObjName = "AcDbBlockReference" Then
-                        Try
-                            Dim oDbAtts As Object = oDbEnt.GetAttributes()
-                            For Each oDbAtt As Object In oDbAtts
-                                Dim sDbTag As String = ""
-                                Dim sDbVal As String = ""
-                                Try : sDbTag = Trim(CStr(oDbAtt.TagString)) : Catch : End Try
-                                Try : sDbVal = Trim(CStr(oDbAtt.TextString)) : Catch : End Try
-                                oDbTagLog.Append(sDbTag & "='" & sDbVal & "'; ")
-                                If sDbResult = "" AndAlso sDbVal <> "" AndAlso String.Compare(sDbTag, "DRAWING_DESCRIPTION_2", True) = 0 Then
-                                    sDbResult = sDbVal
-                                End If
-                                If sDbFallback = "" AndAlso sDbVal <> "" Then
-                                    Dim sDbTagUp As String = sDbTag.ToUpper()
-                                    If sDbTagUp.Contains("DESCRIPTION") OrElse sDbTagUp.Contains("DRAWING") Then sDbFallback = sDbVal
-                                End If
-                            Next
-                        Catch
-                        End Try
-                    End If
-                Next
-            Next
-            If sDbResult = "" Then sDbResult = sDbFallback
-            If sDbResult <> "" Then sResult = sDbResult
-            If sLogPath <> "" Then
-                Dim sDbTagLine As String = oDbTagLog.ToString().Trim()
-                If sDbTagLine = "" Then sDbTagLine = "(no block references / no attributes)"
-                Try : System.IO.File.AppendAllText(sLogPath, "ACAD-DB-TAGS: " & System.IO.Path.GetFileName(sPath) & " : " & sDbTagLine & vbCrLf) : Catch : End Try
-            End If
-        Catch exDb As Exception
-            If sLogPath <> "" Then
-                Try : System.IO.File.AppendAllText(sLogPath, "ACAD-DB-FAIL: " & System.IO.Path.GetFileName(sPath) & " : " & exDb.Message & vbCrLf) : Catch : End Try
-            End If
-        End Try
-    End If
-    If bOpenedHere AndAlso oAcadDoc IsNot Nothing Then
-        Try : oAcadDoc.Close(True) : Catch : End Try
-    End If
-    Return sResult
-End Function
 
 
 ' Holds the result of the mode/find/replace picker below.
@@ -5071,13 +4964,34 @@ Function ShowCopyDesignConfigForm(ByRef oChoice As RenameModeChoice, Optional sS
     oForm.Controls.Add(oTxtPrefix)
 
     Dim oLblSeg As New Label()
-    oLblSeg.Text = "Optional segment replaces - applied AFTER prefix swap:"
+    oLblSeg.Text = "Optional segment replaces (up to 5) - applied AFTER prefix swap:"
     oLblSeg.Left = 15 : oLblSeg.Top = 75 : oLblSeg.Width = 500
     oForm.Controls.Add(oLblSeg)
 
-    ' Find/Replace rows are built dynamically below (2026-11-02): one row per
-    ' remaining auto-detected mismatch (cap 10), then last-run history rows,
-    ' then 2 blank custom rows. Rows start at top=118, spaced 30px apart.
+    ' 5 Find/Replace row pairs (rows spaced 30px apart starting at top=100)
+    Dim oTxtF1 As New System.Windows.Forms.TextBox() : oTxtF1.Left = 15 : oTxtF1.Top = 100 : oTxtF1.Width = 220
+    Dim oTxtR1 As New System.Windows.Forms.TextBox() : oTxtR1.Left = 250 : oTxtR1.Top = 100 : oTxtR1.Width = 220
+    Dim oTxtF2 As New System.Windows.Forms.TextBox() : oTxtF2.Left = 15 : oTxtF2.Top = 130 : oTxtF2.Width = 220
+    Dim oTxtR2 As New System.Windows.Forms.TextBox() : oTxtR2.Left = 250 : oTxtR2.Top = 130 : oTxtR2.Width = 220
+    Dim oTxtF3 As New System.Windows.Forms.TextBox() : oTxtF3.Left = 15 : oTxtF3.Top = 160 : oTxtF3.Width = 220
+    Dim oTxtR3 As New System.Windows.Forms.TextBox() : oTxtR3.Left = 250 : oTxtR3.Top = 160 : oTxtR3.Width = 220
+    Dim oTxtF4 As New System.Windows.Forms.TextBox() : oTxtF4.Left = 15 : oTxtF4.Top = 190 : oTxtF4.Width = 220
+    Dim oTxtR4 As New System.Windows.Forms.TextBox() : oTxtR4.Left = 250 : oTxtR4.Top = 190 : oTxtR4.Width = 220
+    Dim oTxtF5 As New System.Windows.Forms.TextBox() : oTxtF5.Left = 15 : oTxtF5.Top = 220 : oTxtF5.Width = 220
+    Dim oTxtR5 As New System.Windows.Forms.TextBox() : oTxtR5.Left = 250 : oTxtR5.Top = 220 : oTxtR5.Width = 220
+
+    Dim oLblArrow1 As New Label() : oLblArrow1.Text = "->" : oLblArrow1.Left = 238 : oLblArrow1.Top = 103 : oLblArrow1.Width = 20
+    Dim oLblArrow2 As New Label() : oLblArrow2.Text = "->" : oLblArrow2.Left = 238 : oLblArrow2.Top = 133 : oLblArrow2.Width = 20
+    Dim oLblArrow3 As New Label() : oLblArrow3.Text = "->" : oLblArrow3.Left = 238 : oLblArrow3.Top = 163 : oLblArrow3.Width = 20
+    Dim oLblArrow4 As New Label() : oLblArrow4.Text = "->" : oLblArrow4.Left = 238 : oLblArrow4.Top = 193 : oLblArrow4.Width = 20
+    Dim oLblArrow5 As New Label() : oLblArrow5.Text = "->" : oLblArrow5.Left = 238 : oLblArrow5.Top = 223 : oLblArrow5.Width = 20
+
+    ' Pre-fill rows from history (will be overridden slot-by-slot by auto-detect below)
+    oTxtF1.Text = g_sLastF1 : oTxtR1.Text = g_sLastR1
+    oTxtF2.Text = g_sLastF2 : oTxtR2.Text = g_sLastR2
+    oTxtF3.Text = g_sLastF3 : oTxtR3.Text = g_sLastR3
+    oTxtF4.Text = g_sLastF4 : oTxtR4.Text = g_sLastR4
+    oTxtF5.Text = g_sLastF5 : oTxtR5.Text = g_sLastR5
 
     ' ---- AUTO-DETECT SEGMENT ANOMALIES FROM FULL TREE ----
     ' Walks AllOccurrences (Vault-proof) + the GA folder for filenames that
@@ -5174,16 +5088,6 @@ Function ShowCopyDesignConfigForm(ByRef oChoice As RenameModeChoice, Optional sS
             ' Skip middles that do not look like a convention segment
             ' (must start with a digit or contain xx / another PJ)
             Dim sMidTrim As String = sMiddle.Trim("-"c)
-            ' Skip dangerous short numeric middles (added 2026-11-02): 1-2 chars,
-            ' all digits ("-01-", "-02-", "-00-", "-1-"). These are common in item
-            ' name tails and match far too many files to be safe Find suggestions.
-            If sMidTrim.Length >= 1 AndAlso sMidTrim.Length <= 2 Then
-                Dim bMidAllDigits As Boolean = True
-                For Each cMid As Char In sMidTrim
-                    If Not Char.IsDigit(cMid) Then bMidAllDigits = False : Exit For
-                Next
-                If bMidAllDigits Then Continue For
-            End If
             Dim bLooksLikeConvention As Boolean = False
             If sMidTrim.Length > 0 AndAlso Char.IsDigit(sMidTrim(0)) Then bLooksLikeConvention = True
             If sMiddle.ToUpper().Contains("XX") Then bLooksLikeConvention = True
@@ -5235,7 +5139,7 @@ Function ShowCopyDesignConfigForm(ByRef oChoice As RenameModeChoice, Optional sS
                      End Function)
         Dim iAdded As Integer = 0
         For Each kvp As System.Collections.Generic.KeyValuePair(Of String, Integer) In oSorted
-            If iAdded >= 10 Then Exit For
+            If iAdded >= 5 Then Exit For
             If sCanonMiddle = "" Then Exit For
             If Not oSeenTokens.Contains(kvp.Key) Then
                 oSeenTokens.Add(kvp.Key)
@@ -5248,104 +5152,64 @@ Function ShowCopyDesignConfigForm(ByRef oChoice As RenameModeChoice, Optional sS
         ' Auto-detect is best-effort; any failure leaves history values in place
     End Try
 
-    ' ---- Build dynamic Find/Replace rows (2026-11-02) ----
+    ' Merge auto-suggestions into text box slots.
+    ' Slots 1..N get auto-detected pairs (highlighted yellow); remaining slots keep history.
+    Dim oTxtFs() As System.Windows.Forms.TextBox = {oTxtF1, oTxtF2, oTxtF3, oTxtF4, oTxtF5}
+    Dim oTxtRs() As System.Windows.Forms.TextBox = {oTxtR1, oTxtR2, oTxtR3, oTxtR4, oTxtR5}
     Dim oHistFs() As String = {g_sLastF1, g_sLastF2, g_sLastF3, g_sLastF4, g_sLastF5}
     Dim oHistRs() As String = {g_sLastR1, g_sLastR2, g_sLastR3, g_sLastR4, g_sLastR5}
-    Dim oRowFinds As New System.Collections.Generic.List(Of String)
-    Dim oRowReplaces As New System.Collections.Generic.List(Of String)
-    ' Loop counters declared once here (no For-scoped Dim, no colon chaining)
-    Dim iRow As Integer
-    Dim iHistIdx As Integer
-    Dim iDupIdx As Integer
-    Dim bDupe As Boolean
-    ' a) auto-detected mismatches (cap 10)
-    iAutoCount = Math.Min(oAutoFinds.Count, 10)
-    For iRow = 0 To iAutoCount - 1
-        oRowFinds.Add(oAutoFinds(iRow))
-        oRowReplaces.Add(oAutoReplaces(iRow))
+
+    ' Fill auto-detect rows first
+    For i As Integer = 0 To Math.Min(oAutoFinds.Count, 5) - 1
+        oTxtFs(i).Text = oAutoFinds(i)
+        oTxtRs(i).Text = oAutoReplaces(i)
+        ' Note: System.Drawing.Color not available in iLogic sandbox — no BackColor tint
     Next
-    ' b) last-run history rows not already covered by auto-detect
-    Dim iHistCount As Integer = 0
-    For iHistIdx = 0 To 4
-        If Trim(oHistFs(iHistIdx)) <> "" Then
-            bDupe = False
-            For iDupIdx = 0 To oRowFinds.Count - 1
-                If String.Compare(oRowFinds(iDupIdx), oHistFs(iHistIdx), True) = 0 Then
-                    bDupe = True
-                    Exit For
-                End If
-            Next
-            If Not bDupe Then
-                oRowFinds.Add(oHistFs(iHistIdx))
-                oRowReplaces.Add(oHistRs(iHistIdx))
-                iHistCount = iHistCount + 1
-            End If
+    iAutoCount = Math.Min(oAutoFinds.Count, 5)
+
+    ' Fill remaining slots with history, skipping any already placed by auto-detect
+    Dim iHistSlot As Integer = iAutoCount
+    For h As Integer = 0 To 4
+        If iHistSlot >= 5 Then Exit For
+        If oHistFs(h) = "" Then Continue For
+        Dim bDupe As Boolean = False
+        For a As Integer = 0 To iAutoCount - 1
+            If String.Compare(oTxtFs(a).Text, oHistFs(h), True) = 0 Then bDupe = True : Exit For
+        Next
+        If Not bDupe Then
+            oTxtFs(iHistSlot).Text = oHistFs(h)
+            oTxtRs(iHistSlot).Text = oHistRs(h)
+            iHistSlot += 1
         End If
     Next
-    ' c) 2 blank custom rows
-    oRowFinds.Add("")
-    oRowReplaces.Add("")
-    oRowFinds.Add("")
-    oRowReplaces.Add("")
-
-    Dim oLblSegCount As New Label()
-    oLblSegCount.Text = "Remaining mismatches detected: " & oAutoFinds.Count & _
-        If(oAutoFinds.Count > 10, "  (showing first 10)", "") & "   |   Rows: " & oRowFinds.Count & _
-        " (" & iAutoCount & " auto, " & iHistCount & " last run, 2 blank custom)"
-    oLblSegCount.Left = 15 : oLblSegCount.Top = 95 : oLblSegCount.Width = 520
-    oForm.Controls.Add(oLblSegCount)
-
-    Dim oTxtFs As New System.Collections.Generic.List(Of System.Windows.Forms.TextBox)
-    Dim oTxtRs As New System.Collections.Generic.List(Of System.Windows.Forms.TextBox)
-    Dim iRowTop As Integer = 118
-    ' NOTE: never name a variable oR / Or - VB is case-insensitive and Or is a keyword.
-    Dim oFind As System.Windows.Forms.TextBox
-    Dim oRep As System.Windows.Forms.TextBox
-    Dim oArr As System.Windows.Forms.Label
-    For iRow = 0 To oRowFinds.Count - 1
-        oFind = New System.Windows.Forms.TextBox()
-        oFind.Left = 15
-        oFind.Top = iRowTop
-        oFind.Width = 220
-        oFind.Text = oRowFinds(iRow)
-        oArr = New System.Windows.Forms.Label()
-        oArr.Text = "->"
-        oArr.Left = 238
-        oArr.Top = iRowTop + 3
-        oArr.Width = 20
-        oRep = New System.Windows.Forms.TextBox()
-        oRep.Left = 250
-        oRep.Top = iRowTop
-        oRep.Width = 220
-        oRep.Text = oRowReplaces(iRow)
-        oForm.Controls.Add(oFind)
-        oForm.Controls.Add(oArr)
-        oForm.Controls.Add(oRep)
-        oTxtFs.Add(oFind)
-        oTxtRs.Add(oRep)
-        iRowTop = iRowTop + 30
-    Next
-    Dim iBelowSeg As Integer = iRowTop + 4
 
     Dim oLblHint As New Label()
     oLblHint.Text = "Find (left)  ->  Replace (right). Leave blank to skip a row." & vbCrLf & _
         "e.g.:  343-V0 -> 3431-6-V0     343-10 -> 3431-6-10     _ReferenceCopy -> _Duplicate"
-    oLblHint.Left = 15 : oLblHint.Top = iBelowSeg : oLblHint.Width = 520 : oLblHint.Height = 36
+    oLblHint.Left = 15 : oLblHint.Top = 252 : oLblHint.Width = 520 : oLblHint.Height = 36
 
     Dim oLblHistory As New Label()
     If iAutoCount > 0 Then
-        oLblHistory.Text = "* Rows 1-" & iAutoCount & " AUTO-DETECTED (middle section vs GA). Remaining from last run / blank."
+        oLblHistory.Text = "* Rows 1-" & iAutoCount & " AUTO-DETECTED (middle section vs GA). Remaining from last run."
     Else
         oLblHistory.Text = "* Fields pre-filled from last run this session."
     End If
-    oLblHistory.Left = 15 : oLblHistory.Top = iBelowSeg + 38 : oLblHistory.Width = 520
+    oLblHistory.Left = 15 : oLblHistory.Top = 290 : oLblHistory.Width = 520
 
+    oForm.Controls.Add(oTxtF1) : oForm.Controls.Add(oTxtR1)
+    oForm.Controls.Add(oTxtF2) : oForm.Controls.Add(oTxtR2)
+    oForm.Controls.Add(oTxtF3) : oForm.Controls.Add(oTxtR3)
+    oForm.Controls.Add(oTxtF4) : oForm.Controls.Add(oTxtR4)
+    oForm.Controls.Add(oTxtF5) : oForm.Controls.Add(oTxtR5)
+    oForm.Controls.Add(oLblArrow1) : oForm.Controls.Add(oLblArrow2)
+    oForm.Controls.Add(oLblArrow3) : oForm.Controls.Add(oLblArrow4)
+    oForm.Controls.Add(oLblArrow5)
     oForm.Controls.Add(oLblHint)
     oForm.Controls.Add(oLblHistory)
 
     Dim oChkNonStd As New CheckBox()
     oChkNonStd.Text = "Localize non-std parts (non-PJ names) into Non Std Parts with new prefix"
-    oChkNonStd.Left = 15 : oChkNonStd.Top = iBelowSeg + 78 : oChkNonStd.Width = 520
+    oChkNonStd.Left = 15 : oChkNonStd.Top = 330 : oChkNonStd.Width = 520
     oChkNonStd.Checked = g_bLastNonStd
     oForm.Controls.Add(oChkNonStd)
 
@@ -5353,15 +5217,15 @@ Function ShowCopyDesignConfigForm(ByRef oChoice As RenameModeChoice, Optional sS
     ' Height = 34 so the two-line wrap fits without clipping.
     Dim oChkKeepDwgNames As New CheckBox()
     oChkKeepDwgNames.Text = "Keep existing drawing model names (skip rename step — string rules still run on subs below)"
-    oChkKeepDwgNames.Left = 15 : oChkKeepDwgNames.Top = iBelowSeg + 103 : oChkKeepDwgNames.Width = 520 : oChkKeepDwgNames.Height = 34
+    oChkKeepDwgNames.Left = 15 : oChkKeepDwgNames.Top = 355 : oChkKeepDwgNames.Width = 520 : oChkKeepDwgNames.Height = 34
     oChkKeepDwgNames.Checked = False   ' default OFF: show rename form
     oForm.Controls.Add(oChkKeepDwgNames)
 
     ' ---- FOLDER STRUCTURE OPTIONS ----
-    ' Top = checkbox top + 34 + 8 gap so it clears the checkbox (relative to iBelowSeg).
+    ' Top pushed down to 397 (355 + 34 + 8 gap) so it clears the checkbox.
     Dim oGrpFolder As New GroupBox()
     oGrpFolder.Text = "FOLDER STRUCTURE"
-    oGrpFolder.Left = 15 : oGrpFolder.Top = iBelowSeg + 145 : oGrpFolder.Width = 520 : oGrpFolder.Height = 92
+    oGrpFolder.Left = 15 : oGrpFolder.Top = 397 : oGrpFolder.Width = 520 : oGrpFolder.Height = 92
     oForm.Controls.Add(oGrpFolder)
 
     Dim oRbClean As New RadioButton()
@@ -5403,7 +5267,7 @@ Function ShowCopyDesignConfigForm(ByRef oChoice As RenameModeChoice, Optional sS
 
     Dim oLblNote As New Label()
     oLblNote.Text = "Next: scan tree for old P-prefixes to swap. One map, one pass."
-    oLblNote.Left = 15 : oLblNote.Top = iBelowSeg + 246 : oLblNote.Width = 500
+    oLblNote.Left = 15 : oLblNote.Top = 498 : oLblNote.Width = 500
     oForm.Controls.Add(oLblNote)
 
     ' Drawing Update section removed 2026-10-28:
@@ -5411,17 +5275,16 @@ Function ShowCopyDesignConfigForm(ByRef oChoice As RenameModeChoice, Optional sS
     ' The folder is auto-set from ThisDoc.FullFileName before this form is shown.
     ' No checkbox or folder browse needed here.
 
-    ' Grows with the dynamic rows; +360 keeps OK/Cancel clear of the bottom edge.
-    oForm.Height = Math.Max(900, iBelowSeg + 360)
+    oForm.Height = 594
 
     Dim oOk As New Button()
     oOk.Text = "OK" : oOk.DialogResult = DialogResult.OK
-    oOk.Left = 350 : oOk.Top = iBelowSeg + 277 : oOk.Width = 90
+    oOk.Left = 350 : oOk.Top = 529 : oOk.Width = 90
     oForm.Controls.Add(oOk) : oForm.AcceptButton = oOk
 
     Dim oCancel As New Button()
     oCancel.Text = "Cancel" : oCancel.DialogResult = DialogResult.Cancel
-    oCancel.Left = 450 : oCancel.Top = iBelowSeg + 277 : oCancel.Width = 90
+    oCancel.Left = 450 : oCancel.Top = 529 : oCancel.Width = 90
     oForm.Controls.Add(oCancel) : oForm.CancelButton = oCancel
 
     If oForm.ShowDialog() <> DialogResult.OK Then Return False
@@ -5434,22 +5297,11 @@ Function ShowCopyDesignConfigForm(ByRef oChoice As RenameModeChoice, Optional sS
 
     ' Save to history variables and persist to INI file for next Inventor session
     g_sLastPrefix = sPrefix
-    ' History keeps the first 5 dynamic rows (blank if fewer rows)
-    Dim oSaveF(4) As String
-    Dim oSaveR(4) As String
-    For iRow = 0 To 4
-        oSaveF(iRow) = ""
-        oSaveR(iRow) = ""
-        If iRow < oTxtFs.Count Then
-            oSaveF(iRow) = Trim(oTxtFs(iRow).Text)
-            oSaveR(iRow) = Trim(oTxtRs(iRow).Text)
-        End If
-    Next
-    g_sLastF1 = oSaveF(0) : g_sLastR1 = oSaveR(0)
-    g_sLastF2 = oSaveF(1) : g_sLastR2 = oSaveR(1)
-    g_sLastF3 = oSaveF(2) : g_sLastR3 = oSaveR(2)
-    g_sLastF4 = oSaveF(3) : g_sLastR4 = oSaveR(3)
-    g_sLastF5 = oSaveF(4) : g_sLastR5 = oSaveR(4)
+    g_sLastF1 = Trim(oTxtF1.Text) : g_sLastR1 = Trim(oTxtR1.Text)
+    g_sLastF2 = Trim(oTxtF2.Text) : g_sLastR2 = Trim(oTxtR2.Text)
+    g_sLastF3 = Trim(oTxtF3.Text) : g_sLastR3 = Trim(oTxtR3.Text)
+    g_sLastF4 = Trim(oTxtF4.Text) : g_sLastR4 = Trim(oTxtR4.Text)
+    g_sLastF5 = Trim(oTxtF5.Text) : g_sLastR5 = Trim(oTxtR5.Text)
     g_bLastNonStd = oChkNonStd.Checked
     g_bLastHonourFolder = oRbHonour.Checked
     SaveMode6History()   ' write to %TEMP%\CleanSweeper_Mode6History.ini
@@ -5464,12 +5316,26 @@ Function ShowCopyDesignConfigForm(ByRef oChoice As RenameModeChoice, Optional sS
     ' form opens (Step 1 in Sub Main) — not captured here.
     oChoice.oSegFinds.Clear()
     oChoice.oSegReplaces.Clear()
-    For iRow = 0 To oTxtFs.Count - 1
-        If Trim(oTxtFs(iRow).Text) <> "" Then
-            oChoice.oSegFinds.Add(Trim(oTxtFs(iRow).Text))
-            oChoice.oSegReplaces.Add(Trim(oTxtRs(iRow).Text))
-        End If
-    Next
+    If Trim(oTxtF1.Text) <> "" Then
+        oChoice.oSegFinds.Add(Trim(oTxtF1.Text))
+        oChoice.oSegReplaces.Add(Trim(oTxtR1.Text))
+    End If
+    If Trim(oTxtF2.Text) <> "" Then
+        oChoice.oSegFinds.Add(Trim(oTxtF2.Text))
+        oChoice.oSegReplaces.Add(Trim(oTxtR2.Text))
+    End If
+    If Trim(oTxtF3.Text) <> "" Then
+        oChoice.oSegFinds.Add(Trim(oTxtF3.Text))
+        oChoice.oSegReplaces.Add(Trim(oTxtR3.Text))
+    End If
+    If Trim(oTxtF4.Text) <> "" Then
+        oChoice.oSegFinds.Add(Trim(oTxtF4.Text))
+        oChoice.oSegReplaces.Add(Trim(oTxtR4.Text))
+    End If
+    If Trim(oTxtF5.Text) <> "" Then
+        oChoice.oSegFinds.Add(Trim(oTxtF5.Text))
+        oChoice.oSegReplaces.Add(Trim(oTxtR5.Text))
+    End If
     Return True
 End Function
 
@@ -7459,28 +7325,13 @@ Sub RunDerivedAndParamFixPass(oAsmDoc As AssemblyDocument, sFind As String, sRep
         ' container, we get a corrupted file: PJ00180 shell pointing to PJ00555 geometry.
         ' Rule: only touch the derived sources of files whose name starts with sReplace
         ' (i.e. the new-prefix copies). Leave sFind-prefix containers untouched.
-        ' EXCEPTION: if the container is already in the target folder but still has an
-        ' old prefix, the main map missed it (usually because it is itself a derived
-        ' source). Process it anyway so its children get updated.
         If Not bUseContainsMode AndAlso String.Compare(sFind, sReplace, True) <> 0 Then
             Dim sFileBase As String = System.IO.Path.GetFileNameWithoutExtension(sFullName)
             Dim sCheckPrefix As String = sFind.ToUpper() & "-"
             Dim sCheckPrefix2 As String = sFind.ToUpper() & "_"
             If sFileBase.ToUpper().StartsWith(sCheckPrefix) OrElse sFileBase.ToUpper().StartsWith(sCheckPrefix2) Then
-                ' Only skip if the file is NOT already in the target folder.
-                ' Files in the target folder that still have an old prefix were missed
-                ' by the main map (derived sources). Process them.
-                Dim bInTarget As Boolean = False
-                Try
-                    Dim sFullU As String = sFullName.ToUpper()
-                    Dim sTargetU As String = sTargetFolder.TrimEnd("\"c).ToUpper() & "\"
-                    If sFullU.StartsWith(sTargetU) Then bInTarget = True
-                Catch : End Try
-                If Not bInTarget Then
-                    Try : System.IO.File.AppendAllText(sLogFilePath, "  DERIVED PASS SKIP (cross-project container not yet renamed): " & System.IO.Path.GetFileName(sFullName) & vbCrLf) : Catch : End Try
-                    Continue For  ' shared cross-project file outside target - never modify
-                End If
-                ' In target but still old prefix: fall through and process derived sources
+                Try : System.IO.File.AppendAllText(sLogFilePath, "  DERIVED PASS SKIP (cross-project container not yet renamed): " & System.IO.Path.GetFileName(sFullName) & vbCrLf) : Catch : End Try
+                Continue For  ' shared cross-project file - never modify its internal references
             End If
         End If
 
@@ -11316,808 +11167,4 @@ Function ProcessFrameGeneratorSet( _
 
     Return bParentOk
 
-End Function
-
-' =====================================================================
-' REVERSE CLEAN SWEEPER
-' Captures the original state before any copy/replace work so the user
-' can later reverse the clean-up. Writes both a human-readable hierarchical
-' report and a simple machine-readable reverse map into the drawings folder.
-' File name: [ProjectPrefix]_ReverseCleanSweeper_1.txt
-' =====================================================================
-Sub CaptureReverseCleanSweeper(oAsmDoc As AssemblyDocument, oChoice As RenameModeChoice, sTargetFolder As String)
-    ' Minimal implementation — expand with drawing walk + descriptions as needed
-    Dim sPrefix As String = If(Trim(oChoice.sReplace) <> "", oChoice.sReplace, "Project")
-    Dim sDrawingsFolder As String = If(Trim(oChoice.sDrawingsFolder) <> "", oChoice.sDrawingsFolder, sTargetFolder)
-    Dim sReportPath As String = System.IO.Path.Combine(sDrawingsFolder, sPrefix & "_ReverseCleanSweeper_1.txt")
-
-    Dim sb As New System.Text.StringBuilder()
-    sb.AppendLine("Project Prefix: " & sPrefix)
-    sb.AppendLine("Captured: " & DateTime.Now.ToString())
-    sb.AppendLine("Reverse map follows (original full path | current full path)")
-    sb.AppendLine()
-
-    ' TODO: Walk drawings → GAs → subs and record original locations + drawing descriptions
-    ' For now a placeholder so the file is created and the call site is live
-    sb.AppendLine("(Full hierarchical capture to be completed)")
-
-    Try
-        System.IO.File.WriteAllText(sReportPath, sb.ToString())
-    Catch
-        ' Non-critical — rule continues
-    End Try
-End Sub
-
-' =====================================================================
-' DUPLICATE INVESTIGATION (REPORT ONLY)                 added 2026-11-02
-' ---------------------------------------------------------------------
-' Ported from TRAVERSE_Through_Main_ASM_Find_Replace_JC_CC_Duplicates_
-' REPORT_ONLY.iLogicVb (report-only mode). Writes a hierarchical text
-' report:  Drawing -> Model(s) referenced -> Sub-assembly / part ->
-' items to investigate as potential duplicates of official library files.
-'
-' Detection (same rules as the REPORT_ONLY rule):
-'   JC / SJD - file name contains "JC" or "SJD" (case-insensitive).
-'              JC00\d+ token -> JC catalogue token matches (+ geometry
-'              confirmation) when JC_Library_Catalogue.txt exists, else a
-'              filename token match against a one-time index of the JC
-'              Library folder. Items with no candidate are still listed
-'              for manual review.
-'   CC       - only for files NOT already in the global Content Center
-'              folder: geometry + material/spec match against
-'              CC_Catalogue.txt (when it exists, parts only), plus the
-'              fastener-keyword filename match against a one-time index
-'              of the Content Center folder.
-'   Files already inside the official library folders (REPORT_ONLY
-'   IsInExcludedFolder paths) are originals: never listed, never walked.
-'
-' STRICTLY READ-ONLY: no Replace / ReplaceReference, no File.Copy /
-' Delete, no Save / Save2 / SaveAs, no property writes. Catalogues are
-' only READ - they are never auto-built here (building opens every
-' library file; use the REPORT_ONLY rule to build them). Library folder
-' indexes and catalogues are built/loaded ONCE per run and cached in
-' DupInv_Context. Models not already in session are opened invisibly
-' via OpenDocTracked and closed again via CloseIfOpenedHere (no save).
-' =====================================================================
-
-Class DupInv_CatEntry
-    Public sToken As String = ""
-    Public sName As String = ""
-    Public sFullPath As String = ""
-    Public dMass As Double = 0
-    Public dArea As Double = 0
-    Public dVolume As Double = 0
-    Public dCOMx As Double = 0
-    Public dCOMy As Double = 0
-    Public dCOMz As Double = 0
-    Public sDocType As String = ""
-    Public bHasGeo As Boolean = False
-    Public sMaterial As String = ""
-    Public sSpec As String = ""
-End Class
-
-Class DupInv_Sig
-    Public sDocType As String = ""
-    Public dMass As Double = 0
-    Public dVolume As Double = 0
-    Public dArea As Double = 0
-    Public dCX As Double = 0
-    Public dCY As Double = 0
-    Public dCZ As Double = 0
-End Class
-
-Class DupInv_Candidate
-    Public sPath As String = ""
-    Public sNote As String = ""
-End Class
-
-Class DupInv_Hit
-    Public sKind As String = ""        ' JC / SJD / CC
-    Public sFullPath As String = ""
-    Public sToken As String = ""
-    Public sReason As String = ""
-    Public sPartNumber As String = ""
-    Public sDescription As String = ""
-    Public sSpecification As String = ""
-    Public oCandidates As New System.Collections.Generic.List(Of DupInv_Candidate)
-End Class
-
-Class DupInv_Context
-    Public sLibraryFolder As String = ""
-    Public sContentCenterFolder As String = ""
-    Public sTokenPattern As String = ""
-    Public sJCCatalogueFile As String = ""
-    Public sCCCatalogueFile As String = ""
-    Public oFastenerKeywords As String() = New String() {}
-    Public bJCCatLoaded As Boolean = False
-    Public bCCCatLoaded As Boolean = False
-    Public oJCEntries As New System.Collections.Generic.List(Of DupInv_CatEntry)
-    Public oJCMassBucket As New System.Collections.Generic.Dictionary(Of String, System.Collections.Generic.List(Of DupInv_CatEntry))
-    Public oCCEntries As New System.Collections.Generic.List(Of DupInv_CatEntry)
-    Public oCCMassBucket As New System.Collections.Generic.Dictionary(Of String, System.Collections.Generic.List(Of DupInv_CatEntry))
-    Public oJCFileIndex As System.Collections.Generic.List(Of String) = Nothing   ' lazy, built once per run
-    Public oCCFileIndex As System.Collections.Generic.List(Of String) = Nothing   ' lazy, built once per run
-    Public oHitCache As New System.Collections.Generic.Dictionary(Of String, DupInv_Hit)(StringComparer.OrdinalIgnoreCase)
-    Public oSigCache As New System.Collections.Generic.Dictionary(Of String, DupInv_Sig)(StringComparer.OrdinalIgnoreCase)
-    Public oAsmHasHits As New System.Collections.Generic.Dictionary(Of String, Boolean)(StringComparer.OrdinalIgnoreCase)
-    Public oPrintedHits As New System.Collections.Generic.HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
-    Public iJC As Integer = 0
-    Public iSJD As Integer = 0
-    Public iCC As Integer = 0
-    Public iDrawings As Integer = 0
-    Public iModels As Integer = 0
-    Public iModelsSkipped As Integer = 0
-End Class
-
-' Builds the per-run context: official folder constants (verbatim from the
-' REPORT_ONLY rule) and the catalogues, loaded once if they exist.
-Function DupInv_InitContext() As DupInv_Context
-    Dim ctx As New DupInv_Context()
-
-    ' ---------- Config (verbatim from REPORT_ONLY rule) ----------
-    Dim sLibraryFolder       As String = "C:\Vault\Libraries\JC Library"
-    Dim sContentCenterFolder As String = "C:\Vault\Content Center Files"
-    Dim sTokenPattern        As String = "JC00\d+"
-    Dim sJCCatalogueFile     As String = System.IO.Path.Combine(sLibraryFolder, "JC_Library_Catalogue.txt")
-    Dim sCCCatalogueFile     As String = System.IO.Path.Combine(sContentCenterFolder, "CC_Catalogue.txt")
-
-    ' Fastener/hardware keywords for Content Center live-scan duplicate detection
-    Dim oFastenerKeywords As String() = New String() { _
-        "M6", "M8", "M10", "M12", "M16", "M20", "M24", "M27", "M30", _
-        "DIN", "ISO", "ASTM", "AS ", "AS1", "AS4", _
-        "FLANGE", "WASHER", "NUT", "BOLT", "SCREW", "STUD", _
-        "GASKET", "NYLOCK", "DRIVE SCREW", "BLIND FLANGE"}
-
-    ctx.sLibraryFolder = sLibraryFolder
-    ctx.sContentCenterFolder = sContentCenterFolder
-    ctx.sTokenPattern = sTokenPattern
-    ctx.sJCCatalogueFile = sJCCatalogueFile
-    ctx.sCCCatalogueFile = sCCCatalogueFile
-    ctx.oFastenerKeywords = oFastenerKeywords
-
-    ' Catalogues are READ only - never auto-built from this rule.
-    Try
-        If System.IO.File.Exists(sJCCatalogueFile) Then
-            DupInv_LoadCatalogue(sJCCatalogueFile, ctx.oJCEntries, ctx.oJCMassBucket)
-            ctx.bJCCatLoaded = (ctx.oJCEntries.Count > 0)
-        End If
-    Catch
-        ctx.bJCCatLoaded = False
-    End Try
-    Try
-        If System.IO.File.Exists(sCCCatalogueFile) Then
-            DupInv_LoadCatalogue(sCCCatalogueFile, ctx.oCCEntries, ctx.oCCMassBucket)
-            ctx.bCCCatLoaded = (ctx.oCCEntries.Count > 0)
-        End If
-    Catch
-        ctx.bCCCatLoaded = False
-    End Try
-
-    Return ctx
-End Function
-
-' Same tab-separated format as the REPORT_ONLY rule's LoadCatalogue.
-Sub DupInv_LoadCatalogue(sCatalogueFile As String, _
-                         oEntries As System.Collections.Generic.List(Of DupInv_CatEntry), _
-                         oBuckets As System.Collections.Generic.Dictionary(Of String, System.Collections.Generic.List(Of DupInv_CatEntry)))
-    Try
-        For Each sLine As String In System.IO.File.ReadAllLines(sCatalogueFile)
-            If sLine.StartsWith("#") Then Continue For
-            If Trim(sLine) = "" Then Continue For
-            Dim oParts As String() = sLine.Split(Chr(9))
-            If oParts.Length < 10 Then Continue For
-            Dim oE As New DupInv_CatEntry
-            oE.sToken    = oParts(0).Trim().ToUpper()
-            oE.sName     = oParts(1).Trim()
-            oE.sFullPath = oParts(2).Trim()
-            oE.sDocType  = oParts(9).Trim().ToUpper()
-            oE.sMaterial = If(oParts.Length > 10, oParts(10).Trim(), "")
-            oE.sSpec     = If(oParts.Length > 11, oParts(11).Trim(), "")
-            Dim dM As Double = 0
-            Dim dA As Double = 0
-            Dim dV As Double = 0
-            Dim dX As Double = 0
-            Dim dY As Double = 0
-            Dim dZ As Double = 0
-            If Double.TryParse(oParts(3), dM) AndAlso Double.TryParse(oParts(4), dA) AndAlso Double.TryParse(oParts(5), dV) Then
-                oE.dMass = dM : oE.dArea = dA : oE.dVolume = dV
-                Double.TryParse(oParts(6), dX) : oE.dCOMx = dX
-                Double.TryParse(oParts(7), dY) : oE.dCOMy = dY
-                Double.TryParse(oParts(8), dZ) : oE.dCOMz = dZ
-                oE.bHasGeo = True
-            End If
-            oEntries.Add(oE)
-            Dim sBucket As String = dM.ToString("F3")
-            If Not oBuckets.ContainsKey(sBucket) Then oBuckets(sBucket) = New System.Collections.Generic.List(Of DupInv_CatEntry)()
-            oBuckets(sBucket).Add(oE)
-        Next
-    Catch
-    End Try
-End Sub
-
-' Official library originals (REPORT_ONLY rule's IsInExcludedFolder paths,
-' verbatim). These are never listed as duplicates and never walked into.
-Function DupInv_IsLibraryOriginal(sFullFileName As String) As Boolean
-    Dim sU As String = sFullFileName.ToUpper()
-    If sU.Contains("VAULT\PROJECTS\JAMESON CELL\SJD00-GT STANDARD") Then Return True
-    If sU.Contains("C:\VAULT\LIBRARIES\JC LIBRARY") Then Return True
-    If sU.Contains("VAULT\CONTENT CENTER FILES") Then Return True
-    Return False
-End Function
-
-' True if sFullPath sits under sFolder (case-insensitive prefix test).
-Function DupInv_IsUnderFolder(sFullPath As String, sFolder As String) As Boolean
-    If Trim(sFolder) = "" Then Return False
-    Return sFullPath.ToUpper().StartsWith(sFolder.ToUpper())
-End Function
-
-' Strips a model-state suffix such as "<Master>" from a FullDocumentName.
-Function DupInv_CleanPath(sPath As String) As String
-    If sPath Is Nothing Then Return ""
-    Dim iLt As Integer = sPath.IndexOf("<"c)
-    If iLt > 0 Then Return sPath.Substring(0, iLt).Trim()
-    Return sPath.Trim()
-End Function
-
-' Reads an iProperty by name from any property set (read-only).
-Function DupInv_GetProp(oDoc As Document, sPropName As String) As String
-    Try
-        For Each oSet As Inventor.PropertySet In oDoc.PropertySets
-            Try
-                Dim oProp As Inventor.Property = oSet.Item(sPropName)
-                If oProp IsNot Nothing Then
-                    Dim oVal As Object = oProp.Value
-                    If oVal Is Nothing Then Return ""
-                    Return oVal.ToString()
-                End If
-            Catch
-            End Try
-        Next
-    Catch
-    End Try
-    Return ""
-End Function
-
-' Mass signature (mass, volume, area, centre of mass), cached per file.
-Function DupInv_GetSig(ctx As DupInv_Context, oDoc As Document, sFull As String) As DupInv_Sig
-    If ctx.oSigCache.ContainsKey(sFull) Then Return ctx.oSigCache(sFull)
-    Dim oSig As DupInv_Sig = Nothing
-    Try
-        Dim oMP As MassProperties = Nothing
-        Dim sType As String = ""
-        If oDoc.DocumentType = kPartDocumentObject Then
-            oMP = CType(oDoc, PartDocument).ComponentDefinition.MassProperties : sType = "PART"
-        ElseIf oDoc.DocumentType = kAssemblyDocumentObject Then
-            oMP = CType(oDoc, AssemblyDocument).ComponentDefinition.MassProperties : sType = "ASM"
-        End If
-        If oMP IsNot Nothing Then
-            oSig = New DupInv_Sig
-            oSig.sDocType = sType
-            oSig.dMass = oMP.Mass : oSig.dVolume = oMP.Volume : oSig.dArea = oMP.Area
-            Dim oCog As Inventor.Point = oMP.CenterOfMass
-            oSig.dCX = oCog.X : oSig.dCY = oCog.Y : oSig.dCZ = oCog.Z
-        End If
-    Catch
-        oSig = Nothing
-    End Try
-    ctx.oSigCache(sFull) = oSig
-    Return oSig
-End Function
-
-Function DupInv_RelClose(x As Double, y As Double) As Boolean
-    Dim dDenom As Double = Math.Max(Math.Abs(x), Math.Abs(y))
-    If dDenom < 0.0000001 Then Return True
-    Return (Math.Abs(x - y) / dDenom) <= 0.001
-End Function
-
-Function DupInv_AbsClose(x As Double, y As Double) As Boolean
-    Return Math.Abs(x - y) <= 0.01
-End Function
-
-' Geometry + material/spec fingerprint match against a catalogue
-' (same tolerances and rules as REPORT_ONLY FindCatalogueCandidates).
-Function DupInv_FindCatalogueGeoMatches(ctx As DupInv_Context, oSourceDoc As Document, sSourceFile As String, _
-    oCatMassBucket As System.Collections.Generic.Dictionary(Of String, System.Collections.Generic.List(Of DupInv_CatEntry))) _
-    As System.Collections.Generic.List(Of DupInv_CatEntry)
-    Dim oResults As New System.Collections.Generic.List(Of DupInv_CatEntry)
-    Try
-        Dim oSig As DupInv_Sig = DupInv_GetSig(ctx, oSourceDoc, sSourceFile)
-        If oSig Is Nothing Then Return oResults
-
-        Dim sSrcMaterial As String = DupInv_GetProp(oSourceDoc, "Material").Trim().ToUpper()
-        Dim sSrcSpec As String = DupInv_GetProp(oSourceDoc, "SPECIFICATION").Trim().ToUpper()
-        If sSrcSpec = "" Then sSrcSpec = DupInv_GetProp(oSourceDoc, "Specification").Trim().ToUpper()
-
-        Dim oCandidates As New System.Collections.Generic.List(Of DupInv_CatEntry)
-        For iBucket As Integer = -1 To 1
-            Dim sBk As String = (oSig.dMass + iBucket * 0.001).ToString("F3")
-            If oCatMassBucket.ContainsKey(sBk) Then oCandidates.AddRange(oCatMassBucket(sBk))
-        Next
-        For Each oE As DupInv_CatEntry In oCandidates
-            If Not oE.bHasGeo Then Continue For
-            If String.Compare(oE.sFullPath, sSourceFile, True) = 0 Then Continue For
-            If oE.sDocType <> oSig.sDocType Then Continue For
-            If Not DupInv_RelClose(oSig.dMass, oE.dMass) Then Continue For
-            If Not DupInv_RelClose(oSig.dVolume, oE.dVolume) Then Continue For
-            If Not DupInv_RelClose(oSig.dArea, oE.dArea) Then Continue For
-            If Not DupInv_AbsClose(oSig.dCX, oE.dCOMx) Then Continue For
-            If Not DupInv_AbsClose(oSig.dCY, oE.dCOMy) Then Continue For
-            If Not DupInv_AbsClose(oSig.dCZ, oE.dCOMz) Then Continue For
-            Dim sEntryMat As String = oE.sMaterial.Trim().ToUpper()
-            Dim sEntrySpec As String = oE.sSpec.Trim().ToUpper()
-            If (sSrcMaterial <> "" OrElse sEntryMat <> "") AndAlso sSrcMaterial <> sEntryMat Then Continue For
-            If (sSrcSpec <> "" OrElse sEntrySpec <> "") AndAlso sSrcSpec <> sEntrySpec Then Continue For
-            oResults.Add(oE)
-        Next
-    Catch
-    End Try
-    Return oResults
-End Function
-
-' One-time (per run) list of every .ipt / .iam under a library folder,
-' skipping OldVersions folders. Replaces the REPORT_ONLY rule's repeated
-' Directory.GetFiles calls per item.
-Function DupInv_BuildFileIndex(sFolder As String) As System.Collections.Generic.List(Of String)
-    Dim oList As New System.Collections.Generic.List(Of String)
-    Try
-        If Not System.IO.Directory.Exists(sFolder) Then Return oList
-        For Each sPattern As String In New String() {"*.ipt", "*.iam"}
-            For Each sF As String In System.IO.Directory.GetFiles(sFolder, sPattern, System.IO.SearchOption.AllDirectories)
-                Dim sU As String = sF.ToUpper()
-                If sU.Contains("\OLDVERSIONS\") OrElse sU.Contains("\OLD VERSIONS\") Then Continue For
-                oList.Add(sF)
-            Next
-        Next
-    Catch
-    End Try
-    Return oList
-End Function
-
-Function DupInv_GetJCIndex(ctx As DupInv_Context) As System.Collections.Generic.List(Of String)
-    If ctx.oJCFileIndex Is Nothing Then ctx.oJCFileIndex = DupInv_BuildFileIndex(ctx.sLibraryFolder)
-    Return ctx.oJCFileIndex
-End Function
-
-Function DupInv_GetCCIndex(ctx As DupInv_Context) As System.Collections.Generic.List(Of String)
-    If ctx.oCCFileIndex Is Nothing Then ctx.oCCFileIndex = DupInv_BuildFileIndex(ctx.sContentCenterFolder)
-    Return ctx.oCCFileIndex
-End Function
-
-' Adds a candidate unless the same path is already listed.
-Sub DupInv_AddCandidate(oList As System.Collections.Generic.List(Of DupInv_Candidate), sPath As String, sNote As String)
-    For Each oC As DupInv_Candidate In oList
-        If String.Compare(oC.sPath, sPath, True) = 0 Then Return
-    Next
-    Dim oNew As New DupInv_Candidate
-    oNew.sPath = sPath
-    oNew.sNote = sNote
-    oList.Add(oNew)
-End Sub
-
-' Classifies one file as a JC / SJD / CC duplicate candidate (or Nothing).
-' Result is cached per file for the whole run.
-Function DupInv_Classify(ctx As DupInv_Context, oDoc As Document, sFull As String) As DupInv_Hit
-    If ctx.oHitCache.ContainsKey(sFull) Then Return ctx.oHitCache(sFull)
-    Dim oHit As DupInv_Hit = Nothing
-    Try
-        If DupInv_IsLibraryOriginal(sFull) Then
-            ctx.oHitCache(sFull) = Nothing
-            Return Nothing
-        End If
-
-        Dim sName As String = System.IO.Path.GetFileNameWithoutExtension(sFull)
-        Dim sNameUpper As String = sName.ToUpper()
-        Dim bIsJCCandidate As Boolean = sNameUpper.Contains("JC") OrElse sNameUpper.Contains("SJD")
-
-        ' ---------- JC / SJD ----------
-        If bIsJCCandidate Then
-            Dim oTok As System.Text.RegularExpressions.Match = _
-                System.Text.RegularExpressions.Regex.Match(sName, ctx.sTokenPattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase)
-            Dim sToken As String = If(oTok.Success, oTok.Value.ToUpper(), "")
-            oHit = New DupInv_Hit
-            oHit.sFullPath = sFull
-            oHit.sKind = If(sToken <> "", "JC", If(sNameUpper.Contains("SJD"), "SJD", "JC"))
-            oHit.sToken = If(sToken <> "", sToken, sName)
-
-            If ctx.bJCCatLoaded Then
-                ' 1. Token matches from the catalogue
-                If sToken <> "" Then
-                    For Each oE As DupInv_CatEntry In ctx.oJCEntries
-                        If oE.sToken = sToken AndAlso String.Compare(oE.sFullPath, sFull, True) <> 0 Then
-                            DupInv_AddCandidate(oHit.oCandidates, oE.sFullPath, "[JC catalogue token match]" & If(oE.sSpec <> "", "  Spec='" & oE.sSpec & "'", ""))
-                        End If
-                    Next
-                End If
-                ' 2. Geometry confirmation / extra geometry matches
-                Dim oGeoHits As System.Collections.Generic.List(Of DupInv_CatEntry) = _
-                    DupInv_FindCatalogueGeoMatches(ctx, oDoc, sFull, ctx.oJCMassBucket)
-                For Each oE As DupInv_CatEntry In oGeoHits
-                    Dim bUpgraded As Boolean = False
-                    For Each oC As DupInv_Candidate In oHit.oCandidates
-                        If String.Compare(oC.sPath, oE.sFullPath, True) = 0 Then
-                            oC.sNote = "[JC catalogue token + geometry confirmed]" & If(oE.sSpec <> "", "  Spec='" & oE.sSpec & "'", "")
-                            bUpgraded = True
-                            Exit For
-                        End If
-                    Next
-                    If Not bUpgraded Then
-                        DupInv_AddCandidate(oHit.oCandidates, oE.sFullPath, "[JC catalogue geometry confirmed]" & If(oE.sSpec <> "", "  Spec='" & oE.sSpec & "'", ""))
-                    End If
-                Next
-                oHit.sReason = "JC/SJD name; checked against JC catalogue (token + geometry)"
-            ElseIf sToken <> "" Then
-                For Each sLib As String In DupInv_GetJCIndex(ctx)
-                    If String.Compare(sLib, sFull, True) = 0 Then Continue For
-                    If System.IO.Path.GetFileName(sLib).ToUpper().Contains(sToken) Then
-                        DupInv_AddCandidate(oHit.oCandidates, sLib, "[JC library filename token match - geometry not checked]")
-                    End If
-                Next
-                oHit.sReason = "JC/SJD name; JC catalogue not found - JC Library filename token match only"
-            Else
-                oHit.sReason = "JC/SJD name without a JC00 token; JC catalogue not found - review manually"
-            End If
-        End If
-
-        ' ---------- Content Center ----------
-        ' Mirrors REPORT_ONLY order: CC is only checked when there is no JC hit,
-        ' and never for files already in the global Content Center folder.
-        Dim bJCHasCandidates As Boolean = (oHit IsNot Nothing AndAlso oHit.oCandidates.Count > 0)
-        If Not bJCHasCandidates AndAlso Not DupInv_IsUnderFolder(sFull, ctx.sContentCenterFolder) Then
-            Dim oCCCands As New System.Collections.Generic.List(Of DupInv_Candidate)
-            Dim sCCReason As String = ""
-            If ctx.bCCCatLoaded AndAlso oDoc IsNot Nothing AndAlso oDoc.DocumentType = kPartDocumentObject Then
-                For Each oE As DupInv_CatEntry In DupInv_FindCatalogueGeoMatches(ctx, oDoc, sFull, ctx.oCCMassBucket)
-                    DupInv_AddCandidate(oCCCands, oE.sFullPath, "[CC catalogue geometry + material/spec match]" & If(oE.sSpec <> "", "  Spec='" & oE.sSpec & "'", ""))
-                Next
-                If oCCCands.Count > 0 Then sCCReason = "CC catalogue geometry + material/spec match"
-            End If
-            Dim bIsFastener As Boolean = False
-            For Each sKw As String In ctx.oFastenerKeywords
-                If sNameUpper.Contains(sKw.ToUpper()) Then bIsFastener = True : Exit For
-            Next
-            If bIsFastener Then
-                Dim iBefore As Integer = oCCCands.Count
-                For Each sLib As String In DupInv_GetCCIndex(ctx)
-                    If String.Compare(sLib, sFull, True) = 0 Then Continue For
-                    If System.IO.Path.GetFileName(sLib).ToUpper().Contains(sNameUpper) Then
-                        DupInv_AddCandidate(oCCCands, sLib, "[CC filename match (fastener keyword) - geometry not checked]")
-                    End If
-                Next
-                If oCCCands.Count > iBefore Then
-                    sCCReason = If(sCCReason <> "", sCCReason & " + fastener-keyword filename match", "fastener-keyword name; Content Center filename match")
-                End If
-            End If
-            If oCCCands.Count > 0 Then
-                If oHit Is Nothing Then
-                    oHit = New DupInv_Hit
-                    oHit.sFullPath = sFull
-                    oHit.sToken = sName
-                    oHit.sReason = sCCReason
-                Else
-                    oHit.sReason = sCCReason & " (file is also JC/SJD-named, no JC library match)"
-                End If
-                oHit.sKind = "CC"
-                oHit.oCandidates.AddRange(oCCCands)
-            End If
-        End If
-
-        If oHit IsNot Nothing AndAlso oDoc IsNot Nothing Then
-            oHit.sPartNumber = DupInv_GetProp(oDoc, "Part Number")
-            oHit.sDescription = DupInv_GetProp(oDoc, "Description")
-            oHit.sSpecification = DupInv_GetProp(oDoc, "SPECIFICATION")
-        End If
-    Catch
-    End Try
-    ctx.oHitCache(sFull) = oHit
-    Return oHit
-End Function
-
-' Writes one "item to investigate" block. A file already printed earlier
-' in the report gets a one-line back-reference instead of full detail.
-Sub DupInv_AppendHit(ctx As DupInv_Context, sb As System.Text.StringBuilder, oHit As DupInv_Hit, sIndent As String)
-    Dim sTag As String = "[" & oHit.sKind & "]"
-    Dim sName As String = System.IO.Path.GetFileName(oHit.sFullPath)
-    If ctx.oPrintedHits.Contains(oHit.sFullPath) Then
-        sb.AppendLine(sIndent & ">> " & sTag & " " & sName & "   (same file - details listed earlier in this report)")
-        Return
-    End If
-    ctx.oPrintedHits.Add(oHit.sFullPath)
-    If oHit.sKind = "JC" Then
-        ctx.iJC += 1
-    ElseIf oHit.sKind = "SJD" Then
-        ctx.iSJD += 1
-    Else
-        ctx.iCC += 1
-    End If
-    sb.AppendLine(sIndent & ">> " & sTag & " " & sName & "   (" & oHit.oCandidates.Count & " library candidate(s))")
-    sb.AppendLine(sIndent & "     Current : " & oHit.sFullPath)
-    If oHit.sToken <> "" AndAlso String.Compare(oHit.sToken, System.IO.Path.GetFileNameWithoutExtension(oHit.sFullPath), True) <> 0 Then
-        sb.AppendLine(sIndent & "     Token   : " & oHit.sToken)
-    End If
-    sb.AppendLine(sIndent & "     Reason  : " & oHit.sReason)
-    sb.AppendLine(sIndent & "     Props   : PN='" & oHit.sPartNumber & "'  Desc='" & oHit.sDescription & "'  Spec='" & oHit.sSpecification & "'")
-    If oHit.oCandidates.Count = 0 Then
-        sb.AppendLine(sIndent & "     Compare : (no library candidate found - review manually)")
-    Else
-        For Each oC As DupInv_Candidate In oHit.oCandidates
-            sb.AppendLine(sIndent & "     Compare : " & oC.sPath & "  " & oC.sNote)
-        Next
-    End If
-End Sub
-
-' Walks one assembly level (read-only) and returns the report text for it,
-' or "" when nothing beneath it needs investigating.
-Function DupInv_WalkLevel(ctx As DupInv_Context, oCompDef As ComponentDefinition, iDepth As Integer, _
-    oPathStack As System.Collections.Generic.HashSet(Of String)) As String
-    Dim sb As New System.Text.StringBuilder()
-    Dim sIndent As String = New String(" "c, 4 + iDepth * 4)
-    Dim oSeenHere As New System.Collections.Generic.HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
-    Dim sParentFull As String = ""
-    Try : sParentFull = oCompDef.Document.FullFileName : Catch : End Try
-    Dim oOccs As ComponentOccurrences = Nothing
-    Try : oOccs = oCompDef.Occurrences : Catch : oOccs = Nothing : End Try
-    If oOccs Is Nothing Then Return ""
-
-    For Each oOcc As ComponentOccurrence In oOccs
-        Try
-            If oOcc.Suppressed Then Continue For
-            Dim oDoc As Document = Nothing
-            Try : oDoc = oOcc.Definition.Document : Catch : oDoc = Nothing : End Try
-            If oDoc Is Nothing Then Continue For
-            Dim sFull As String = ""
-            Try : sFull = oDoc.FullFileName : Catch : sFull = "" : End Try
-            If Trim(sFull) = "" OrElse sFull.Contains("*") Then Continue For
-            ' Virtual component / synthetic pattern member - no independent file
-            If String.Compare(sFull, sParentFull, True) = 0 Then Continue For
-            If IsSyntheticPatternMemberName(sFull) Then Continue For
-            If oSeenHere.Contains(sFull) Then Continue For
-            oSeenHere.Add(sFull)
-            ' Official library originals: never listed, never walked into
-            If DupInv_IsLibraryOriginal(sFull) Then Continue For
-
-            Dim oHit As DupInv_Hit = DupInv_Classify(ctx, oDoc, sFull)
-            If oHit IsNot Nothing Then DupInv_AppendHit(ctx, sb, oHit, sIndent)
-
-            If oDoc.DocumentType = kAssemblyDocumentObject Then
-                Dim sSubText As String = DupInv_WalkSub(ctx, CType(oDoc, AssemblyDocument), sFull, iDepth, oPathStack)
-                If sSubText <> "" Then
-                    sb.AppendLine(sIndent & "[SUB] " & System.IO.Path.GetFileName(sFull))
-                    sb.Append(sSubText)
-                End If
-            End If
-        Catch
-        End Try
-    Next
-    Return sb.ToString()
-End Function
-
-' Recurses into a sub-assembly with a current-path cycle guard. A shared
-' sub-assembly is expanded once; later appearances get a back-reference.
-Function DupInv_WalkSub(ctx As DupInv_Context, oSubDoc As AssemblyDocument, sFull As String, iDepth As Integer, _
-    oPathStack As System.Collections.Generic.HashSet(Of String)) As String
-    If oPathStack.Contains(sFull) Then Return ""
-    Dim sChildIndent As String = New String(" "c, 4 + (iDepth + 1) * 4)
-    If ctx.oAsmHasHits.ContainsKey(sFull) Then
-        If ctx.oAsmHasHits(sFull) Then
-            Return sChildIndent & "(candidates inside this sub-assembly are already listed earlier in this report)" & vbCrLf
-        End If
-        Return ""
-    End If
-    Dim sText As String = ""
-    oPathStack.Add(sFull)
-    Try
-        sText = DupInv_WalkLevel(ctx, oSubDoc.ComponentDefinition, iDepth + 1, oPathStack)
-    Catch
-        sText = ""
-    Finally
-        oPathStack.Remove(sFull)
-    End Try
-    ctx.oAsmHasHits(sFull) = (sText <> "")
-    Return sText
-End Function
-
-' Writes one MODEL block (and everything under it) for a drawing.
-Sub DupInv_AppendModel(ctx As DupInv_Context, sb As System.Text.StringBuilder, sModelRaw As String)
-    If sModelRaw.StartsWith("UNRESOLVED|") Then
-        sb.AppendLine("  MODEL: " & sModelRaw.Substring(11) & "   (not found in this GA tree - not scanned)")
-        ctx.iModelsSkipped += 1
-        Return
-    End If
-    Dim sModelPath As String = DupInv_CleanPath(sModelRaw)
-    sb.AppendLine("  MODEL: " & System.IO.Path.GetFileName(sModelPath))
-    sb.AppendLine("    Path : " & sModelPath)
-    If DupInv_IsLibraryOriginal(sModelPath) Then
-        sb.AppendLine("    (model is itself an official library file - not investigated)")
-        ctx.iModelsSkipped += 1
-        Return
-    End If
-
-    Dim bOpenedHere As Boolean = False
-    Dim oModelDoc As Document = OpenDocTracked(sModelPath, bOpenedHere)
-    If oModelDoc Is Nothing Then
-        sb.AppendLine("    (could not open model read-only - not scanned)")
-        ctx.iModelsSkipped += 1
-        Return
-    End If
-    ctx.iModels += 1
-    Try
-        Dim sKey As String = sModelPath
-        Try
-            If Trim(oModelDoc.FullFileName) <> "" Then sKey = oModelDoc.FullFileName
-        Catch
-        End Try
-        Dim sbModel As New System.Text.StringBuilder()
-        Dim oSelfHit As DupInv_Hit = DupInv_Classify(ctx, oModelDoc, sKey)
-        If oSelfHit IsNot Nothing Then DupInv_AppendHit(ctx, sbModel, oSelfHit, "    ")
-        If oModelDoc.DocumentType = kAssemblyDocumentObject Then
-            Dim sSub As String = ""
-            If ctx.oAsmHasHits.ContainsKey(sKey) Then
-                If ctx.oAsmHasHits(sKey) Then sSub = "    (candidates in this model are already listed under an earlier drawing in this report)" & vbCrLf
-            Else
-                Dim oStack As New System.Collections.Generic.HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
-                oStack.Add(sKey)
-                sSub = DupInv_WalkLevel(ctx, CType(oModelDoc, AssemblyDocument).ComponentDefinition, 0, oStack)
-                ctx.oAsmHasHits(sKey) = (sSub <> "")
-            End If
-            sbModel.Append(sSub)
-        End If
-        If sbModel.Length = 0 Then
-            sb.AppendLine("    (no JC / SJD / Content Center duplicate candidates found)")
-        Else
-            sb.Append(sbModel.ToString())
-        End If
-    Catch exM As Exception
-        sb.AppendLine("    (model scan failed: " & exM.Message & ")")
-    Finally
-        CloseIfOpenedHere(oModelDoc, bOpenedHere)
-    End Try
-End Sub
-
-' Assembly-run entry: turns Phase 0 data (drawing basename -> model
-' basenames) into drawing -> model full paths, resolving basenames against
-' the GA and its referenced documents. With no drawings, the GA itself is
-' reported under a pseudo-drawing node.
-Function DupInv_BuildDrawingModelListFromPhase0(oAsmDoc As AssemblyDocument, _
-    oPhase0Data As System.Collections.Generic.List(Of Object()), sDrawingsFolder As String) _
-    As System.Collections.Generic.List(Of Object())
-    Dim oResult As New System.Collections.Generic.List(Of Object())
-    Dim oByBase As New System.Collections.Generic.Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase)
-    Try
-        oByBase(System.IO.Path.GetFileNameWithoutExtension(oAsmDoc.FullFileName)) = oAsmDoc.FullFileName
-        For Each oD As Document In oAsmDoc.AllReferencedDocuments
-            Try
-                Dim sP As String = oD.FullFileName
-                If Trim(sP) = "" Then Continue For
-                Dim sExt As String = System.IO.Path.GetExtension(sP).ToUpper()
-                If sExt <> ".IAM" AndAlso sExt <> ".IPT" Then Continue For
-                Dim sB As String = System.IO.Path.GetFileNameWithoutExtension(sP)
-                If Not oByBase.ContainsKey(sB) Then oByBase(sB) = sP
-            Catch
-            End Try
-        Next
-    Catch
-    End Try
-
-    If oPhase0Data IsNot Nothing Then
-        For Each oEntry As Object() In oPhase0Data
-            Try
-                If oEntry.Length > 2 AndAlso CStr(oEntry(2)) = "AUTOCAD" Then Continue For   ' AutoCAD DWG - excluded
-                Dim sDwg As String = CStr(oEntry(0))
-                If Trim(sDrawingsFolder) <> "" Then sDwg = System.IO.Path.Combine(sDrawingsFolder, sDwg)
-                Dim oBases As System.Collections.Generic.List(Of String) = TryCast(oEntry(1), System.Collections.Generic.List(Of String))
-                Dim oModels As New System.Collections.Generic.List(Of String)
-                If oBases IsNot Nothing Then
-                    For Each sB As String In oBases
-                        If oByBase.ContainsKey(sB) Then
-                            oModels.Add(oByBase(sB))
-                        Else
-                            oModels.Add("UNRESOLVED|" & sB)
-                        End If
-                    Next
-                End If
-                oResult.Add(New Object() {sDwg, oModels})
-            Catch
-            End Try
-        Next
-    End If
-
-    If oResult.Count = 0 Then
-        Dim oTop As New System.Collections.Generic.List(Of String)
-        oTop.Add(oAsmDoc.FullFileName)
-        oResult.Add(New Object() {"(no drawings scanned - run started from the assembly)", oTop})
-    End If
-    Return oResult
-End Function
-
-' Main entry: builds the whole report and writes it next to the run log.
-' oDwgModels: each Object() = { drawing full path or label, List(Of String) model paths }.
-' Returns the report path. Read-only apart from writing the report file.
-Function DupInv_RunReport(oDwgModels As System.Collections.Generic.List(Of Object()), sStartedFrom As String, _
-    sLogFilePath As String, sRunContext As String) As String
-    Dim dStart As DateTime = DateTime.Now
-    Dim sReportPath As String = ""
-    Try
-        sReportPath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(sLogFilePath), _
-            System.IO.Path.GetFileNameWithoutExtension(sLogFilePath) & "_DupInvestigation.txt")
-    Catch
-        sReportPath = System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.Desktop), _
-            "DupInvestigation_" & DateTime.Now.ToString("yyyy-MM-dd_HHmmss") & ".txt")
-    End Try
-
-    Dim ctx As DupInv_Context = DupInv_InitContext()
-    Dim sbBody As New System.Text.StringBuilder()
-
-    If oDwgModels IsNot Nothing Then
-        For Each oEntry As Object() In oDwgModels
-            Try
-                Dim sDwg As String = CStr(oEntry(0))
-                Dim oModels As System.Collections.Generic.List(Of String) = TryCast(oEntry(1), System.Collections.Generic.List(Of String))
-                ctx.iDrawings += 1
-                sbBody.AppendLine(New String("="c, 100))
-                If System.IO.Path.IsPathRooted(sDwg) Then
-                    sbBody.AppendLine("DRAWING: " & System.IO.Path.GetFileName(sDwg))
-                    sbBody.AppendLine("  Path : " & sDwg)
-                Else
-                    sbBody.AppendLine("DRAWING: " & sDwg)
-                End If
-                sbBody.AppendLine(New String("="c, 100))
-                If oModels Is Nothing OrElse oModels.Count = 0 Then
-                    sbBody.AppendLine("  (no .iam / .ipt model references)")
-                Else
-                    For Each sModelRaw As String In oModels
-                        Try
-                            DupInv_AppendModel(ctx, sbBody, sModelRaw)
-                        Catch exModel As Exception
-                            sbBody.AppendLine("  (model section failed: " & exModel.Message & ")")
-                        End Try
-                    Next
-                End If
-                sbBody.AppendLine()
-            Catch exDwg As Exception
-                sbBody.AppendLine("  (drawing section failed: " & exDwg.Message & ")")
-            End Try
-        Next
-    End If
-
-    Dim dSecs As Double = (DateTime.Now - dStart).TotalSeconds
-    Dim sb As New System.Text.StringBuilder()
-    sb.AppendLine(New String("="c, 100))
-    sb.AppendLine("DUPLICATE INVESTIGATION REPORT (report-only - JC / SJD / Content Center)")
-    sb.AppendLine(New String("="c, 100))
-    sb.AppendLine("Generated     : " & DateTime.Now.ToString())
-    sb.AppendLine("Run context   : " & sRunContext)
-    sb.AppendLine("Started from  : " & sStartedFrom)
-    sb.AppendLine("Report file   : " & sReportPath)
-    sb.AppendLine("Status        : No files were modified, copied, saved, deleted or repointed.")
-    sb.AppendLine("Scan time     : " & dSecs.ToString("F1") & " s")
-    sb.AppendLine(New String("-"c, 100))
-    sb.AppendLine("OFFICIAL LIBRARY LOCATIONS")
-    sb.AppendLine("  JC Library     : " & ctx.sLibraryFolder & If(System.IO.Directory.Exists(ctx.sLibraryFolder), "", "   [FOLDER NOT FOUND]"))
-    sb.AppendLine("  JC catalogue   : " & ctx.sJCCatalogueFile & If(ctx.bJCCatLoaded, "   [loaded, " & ctx.oJCEntries.Count & " entries]", "   [not found - filename token match only]"))
-    sb.AppendLine("  Content Center : " & ctx.sContentCenterFolder & If(System.IO.Directory.Exists(ctx.sContentCenterFolder), "", "   [FOLDER NOT FOUND]"))
-    sb.AppendLine("  CC catalogue   : " & ctx.sCCCatalogueFile & If(ctx.bCCCatLoaded, "   [loaded, " & ctx.oCCEntries.Count & " entries]", "   [not found - fastener-keyword filename match only]"))
-    sb.AppendLine(New String("-"c, 100))
-    sb.AppendLine("SUMMARY")
-    sb.AppendLine("  Drawings listed              : " & ctx.iDrawings)
-    sb.AppendLine("  Models scanned               : " & ctx.iModels & "   (not scanned: " & ctx.iModelsSkipped & ")")
-    sb.AppendLine("  Distinct items to investigate: " & (ctx.iJC + ctx.iSJD + ctx.iCC) & "   (JC: " & ctx.iJC & "  SJD: " & ctx.iSJD & "  CC: " & ctx.iCC & ")")
-    sb.AppendLine(New String("-"c, 100))
-    sb.AppendLine("LEGEND")
-    sb.AppendLine("  >> [JC]  file name has a JC00 token / contains 'JC'")
-    sb.AppendLine("  >> [SJD] file name contains 'SJD' (no JC00 token)")
-    sb.AppendLine("  >> [CC]  local copy that matches a Content Center file (catalogue geometry or fastener filename)")
-    sb.AppendLine("  Compare : official library file(s) to compare against before deciding to repoint")
-    sb.AppendLine("  Files already inside the official library folders are originals and are not listed.")
-    sb.AppendLine("  A file or sub-assembly that appears more than once is detailed only the first time.")
-    sb.AppendLine(New String("-"c, 100))
-    sb.AppendLine("HIERARCHY (Drawing -> Model -> Sub-assembly -> items to investigate)")
-    sb.AppendLine(New String("-"c, 100))
-    sb.AppendLine()
-    sb.Append(sbBody.ToString())
-    sb.AppendLine(New String("="c, 100))
-    sb.AppendLine("END OF REPORT")
-    sb.AppendLine(New String("="c, 100))
-
-    System.IO.File.WriteAllText(sReportPath, sb.ToString())
-    Return sReportPath
 End Function
