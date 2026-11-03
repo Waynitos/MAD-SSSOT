@@ -2754,11 +2754,22 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument, Optional oPresetModelRenameMa
     Dim oDwgDescriptions As New System.Collections.Generic.Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase)
 
     ' Helper: add model refs from a DrawingDocument into oAllDwgRefs
+    ' Uses ReferencedDocumentDescriptors (not ReferencedDocuments) so that
+    ' DART SHUT references — model refs present in the drawing but in an
+    ' unloaded/shutdown state — are included. ReferencedDocuments silently
+    ' omits DART SHUT refs; descriptors return them all.
     Dim oScanRefs As New System.Collections.Generic.List(Of String)
     Try
-        For Each oRef As Document In oDwgDoc.ReferencedDocuments
+        For Each oDesc As ReferencedDocumentDescriptor In oDwgDoc.ReferencedDocumentDescriptors
             Dim sRefPath As String = ""
-            Try : sRefPath = oRef.FullDocumentName : Catch : Continue For : End Try
+            Try : sRefPath = oDesc.FullDocumentName : Catch : Continue For : End Try
+            ' Strip any DART state tag, e.g. "path.iam<DART SHUT>" → "path.iam"
+            Dim iAngle As Integer = sRefPath.IndexOf("<"c)
+            If iAngle > 0 Then
+                Dim sDartTag As String = sRefPath.Substring(iAngle)
+                sRefPath = sRefPath.Substring(0, iAngle)
+                Try : System.IO.File.AppendAllText(sLogFilePath, "DART-REF: " & System.IO.Path.GetFileName(sRefPath) & " " & sDartTag & vbCrLf) : Catch : End Try
+            End If
             If Trim(sRefPath) = "" Then Continue For
             Dim sExt As String = System.IO.Path.GetExtension(sRefPath).ToUpper()
             If sExt = ".IAM" OrElse sExt = ".IPT" Then
@@ -2767,9 +2778,24 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument, Optional oPresetModelRenameMa
             End If
         Next
     Catch exRef As Exception
-        MessageBox.Show("Could not read active drawing references: " & exRef.Message, "Drawing Copy Mode Error")
-        ThisApplication.SilentOperation = bOrigSilent
-        Return
+        ' ReferencedDocumentDescriptors failed — fall back to ReferencedDocuments
+        Try : System.IO.File.AppendAllText(sLogFilePath, "SCAN-FALLBACK: descriptors failed (" & exRef.Message & ") — using ReferencedDocuments" & vbCrLf) : Catch : End Try
+        Try
+            For Each oRef As Document In oDwgDoc.ReferencedDocuments
+                Dim sRefPath As String = ""
+                Try : sRefPath = oRef.FullDocumentName : Catch : Continue For : End Try
+                If Trim(sRefPath) = "" Then Continue For
+                Dim sExt As String = System.IO.Path.GetExtension(sRefPath).ToUpper()
+                If sExt = ".IAM" OrElse sExt = ".IPT" Then
+                    If Not oScanRefs.Contains(sRefPath) Then oScanRefs.Add(sRefPath)
+                    If Not oAllModelPaths.Contains(sRefPath) Then oAllModelPaths.Add(sRefPath)
+                End If
+            Next
+        Catch exRef2 As Exception
+            MessageBox.Show("Could not read active drawing references: " & exRef2.Message, "Drawing Copy Mode Error")
+            ThisApplication.SilentOperation = bOrigSilent
+            Return
+        End Try
     End Try
     oAllDwgRefs(sActiveDwgPath) = oScanRefs
     ' Read TB1_EN5_TYPE description from active drawing
@@ -2908,9 +2934,12 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument, Optional oPresetModelRenameMa
         End If
         Dim oSibRefs As New System.Collections.Generic.List(Of String)
         Try
-            For Each oSibRef As Document In oSibDwg.ReferencedDocuments
+            ' Use ReferencedDocumentDescriptors to catch DART SHUT refs
+            For Each oSibDesc As ReferencedDocumentDescriptor In oSibDwg.ReferencedDocumentDescriptors
                 Dim sSibRefPath As String = ""
-                Try : sSibRefPath = oSibRef.FullDocumentName : Catch : Continue For : End Try
+                Try : sSibRefPath = oSibDesc.FullDocumentName : Catch : Continue For : End Try
+                Dim iSibAngle As Integer = sSibRefPath.IndexOf("<"c)
+                If iSibAngle > 0 Then sSibRefPath = sSibRefPath.Substring(0, iSibAngle)
                 If Trim(sSibRefPath) = "" Then Continue For
                 Dim sSibExt As String = System.IO.Path.GetExtension(sSibRefPath).ToUpper()
                 If sSibExt = ".IAM" OrElse sSibExt = ".IPT" Then
@@ -2919,6 +2948,20 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument, Optional oPresetModelRenameMa
                 End If
             Next
         Catch
+            ' Fallback to ReferencedDocuments if descriptors unavailable
+            Try
+                For Each oSibRef As Document In oSibDwg.ReferencedDocuments
+                    Dim sSibRefPath As String = ""
+                    Try : sSibRefPath = oSibRef.FullDocumentName : Catch : Continue For : End Try
+                    If Trim(sSibRefPath) = "" Then Continue For
+                    Dim sSibExt As String = System.IO.Path.GetExtension(sSibRefPath).ToUpper()
+                    If sSibExt = ".IAM" OrElse sSibExt = ".IPT" Then
+                        If Not oSibRefs.Contains(sSibRefPath) Then oSibRefs.Add(sSibRefPath)
+                        If Not oAllModelPaths.Contains(sSibRefPath) Then oAllModelPaths.Add(sSibRefPath)
+                    End If
+                Next
+            Catch
+            End Try
         End Try
         oAllDwgRefs(sSibPath) = oSibRefs
         ' Read TB1_EN5_TYPE description from sibling drawing
