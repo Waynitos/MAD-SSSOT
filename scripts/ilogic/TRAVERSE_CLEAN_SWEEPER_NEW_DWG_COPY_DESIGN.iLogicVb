@@ -2686,6 +2686,40 @@ End Function
 '   5. ReplaceReference on oDwgDoc for each old→new pair
 '   6. Save drawing
 ' =====================================================================
+
+' =====================================================================
+' WALK TREE TO LOG
+' Recursive helper used by PRE/POST tree grabs inside RunDrawingCopyMode.
+' Mirrors the standalone Pre/Post Rule Subs Tree Grab iLogic rules.
+' Declared BEFORE RunDrawingCopyMode so iLogic compiler resolves the call.
+' Pure read-only — nothing is changed, opened extra, or saved.
+' =====================================================================
+Sub WalkTreeToLog(oOccs As Object, iDepth As Integer, sOutputPath As String, ByRef iCount As Integer)
+    Dim sIndent As String = New String(" "c, iDepth * 3)
+    For Each oOcc As ComponentOccurrence In oOccs
+        Dim sLine As String
+        Dim sSuppressed As String = If(oOcc.Suppressed, " [SUPPRESSED]", "")
+        Try
+            Dim oDoc As Document = oOcc.Definition.Document
+            Dim sFull As String = oDoc.FullFileName
+            If Trim(sFull) = "" OrElse sFull.Contains("*") Then
+                sLine = sIndent & "[VIRTUAL]  " & oOcc.Name & sSuppressed
+            Else
+                sLine = sIndent & sFull & sSuppressed
+            End If
+        Catch
+            sLine = sIndent & "[NO PATH - virtual or inaccessible]  " & oOcc.Name & sSuppressed
+        End Try
+        iCount = iCount + 1
+        Try : System.IO.File.AppendAllText(sOutputPath, sLine & vbCrLf) : Catch : End Try
+        Try
+            WalkTreeToLog(oOcc.SubOccurrences, iDepth + 1, sOutputPath, iCount)
+        Catch
+            ' Part occurrences have no SubOccurrences — expected, ignore
+        End Try
+    Next
+End Sub
+
 Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument, Optional oPresetModelRenameMap As System.Collections.Generic.Dictionary(Of String, String) = Nothing)
 
     Dim sLogFilePath As String = System.Environment.GetFolderPath(System.Environment.SpecialFolder.Desktop) & "\DrawingCopyMode_Log_" & DateTime.Now.ToString("yyyy-MM-dd_HHmmss") & ".txt"
@@ -3816,6 +3850,106 @@ Sub RunDrawingUpdatePass( _
     ElseIf iIntRepair + iIntCopyRepair > 0 Then
         Try : System.IO.File.AppendAllText(sLogFilePath, "INTEGRITY: all refs repaired and re-cemented into GA tree." & vbCrLf) : Catch : End Try
     End If
+
+    ' ── DRAWING REFS REPORT — rename-map match annotation ─────────────────
+    ' Append to the report file created earlier: for each drawing ref, show
+    ' whether oRenameMap has a new name for it (MATCHED) or not (NO-MATCH).
+    Try
+        Dim sbDwgRefsAnnot As New System.Text.StringBuilder()
+        sbDwgRefsAnnot.AppendLine()
+        sbDwgRefsAnnot.AppendLine(New String("="c, 120))
+        sbDwgRefsAnnot.AppendLine("RENAME-MAP MATCH STATUS  (annotated at end of run)")
+        sbDwgRefsAnnot.AppendLine("Generated: " & DateTime.Now.ToString())
+        sbDwgRefsAnnot.AppendLine(New String("="c, 120))
+        sbDwgRefsAnnot.AppendLine()
+        For Each oKvpDwg As System.Collections.Generic.KeyValuePair(Of String, System.Collections.Generic.List(Of String)) In oAllDwgRefs
+            sbDwgRefsAnnot.AppendLine("DWG: " & System.IO.Path.GetFileName(oKvpDwg.Key))
+            For Each sRefItem As String In oKvpDwg.Value
+                Dim sNewName As String = ""
+                Dim sMatchTag As String = If(oRenameMap.TryGetValue(sRefItem, sNewName), _
+                    "  MATCHED  → " & System.IO.Path.GetFileName(sNewName), _
+                    "  NO-MATCH (no rename entry)")
+                sbDwgRefsAnnot.AppendLine("   " & System.IO.Path.GetFileName(sRefItem) & sMatchTag)
+            Next
+            If oKvpDwg.Value.Count = 0 Then sbDwgRefsAnnot.AppendLine("   (no model refs resolved)")
+            sbDwgRefsAnnot.AppendLine()
+        Next
+        System.IO.File.AppendAllText(sDwgRefsDesktop, sbDwgRefsAnnot.ToString())
+        System.IO.File.AppendAllText(sDwgRefsDwgFolder, sbDwgRefsAnnot.ToString())
+    Catch exAnnot As Exception
+        Try : System.IO.File.AppendAllText(sLogFilePath, "DRAWING-REFS-ANNOT-FAIL: " & exAnnot.Message & vbCrLf) : Catch : End Try
+    End Try
+
+    ' ── POST-RULE TREE GRAB ────────────────────────────────────────────────
+    ' Captures the GA tree after all operations + integrity pass.
+    ' Diff PRE vs POST in Notepad++ Compare to see exactly what moved.
+    Dim sPostTreeDesktop As String = System.Environment.GetFolderPath(System.Environment.SpecialFolder.Desktop) & "\POST_Tree_" & sRunStamp & ".txt"
+    Dim sPostTreeDwgFolder As String = System.IO.Path.Combine(sDwgFolder, "POST_Tree_" & sRunStamp & ".txt")
+    Try
+        Dim sPostGaPath As String = ""
+        ' Use oRenameMap to find the new GA path (same logic as integrity pass Step 2)
+        For Each sOldRef As String In oScanRefs
+            Dim sMappedGa As String = ""
+            If oRenameMap.TryGetValue(sOldRef, sMappedGa) AndAlso _
+               String.Compare(System.IO.Path.GetExtension(sMappedGa), ".iam", True) = 0 Then
+                sPostGaPath = sMappedGa : Exit For
+            End If
+        Next
+        If Trim(sPostGaPath) = "" Then
+            For Each sOldRef As String In oScanRefs
+                If String.Compare(System.IO.Path.GetExtension(sOldRef), ".iam", True) = 0 AndAlso _
+                   System.IO.File.Exists(System.IO.Path.Combine(sTargetFolder, System.IO.Path.GetFileName(sOldRef))) Then
+                    sPostGaPath = System.IO.Path.Combine(sTargetFolder, System.IO.Path.GetFileName(sOldRef)) : Exit For
+                End If
+            Next
+        End If
+        If Trim(sPostGaPath) <> "" AndAlso System.IO.File.Exists(sPostGaPath) Then
+            Dim sPostHeader As String = "POST-RULE ASSEMBLY TREE SNAPSHOT" & vbCrLf & _
+                "Generated: " & DateTime.Now.ToString() & vbCrLf & _
+                "Assembly: " & sPostGaPath & vbCrLf & _
+                New String("="c, 120) & vbCrLf & vbCrLf
+            System.IO.File.WriteAllText(sPostTreeDesktop, sPostHeader)
+            System.IO.File.WriteAllText(sPostTreeDwgFolder, sPostHeader)
+            Dim oPostGaDoc As AssemblyDocument = Nothing
+            Dim bPostWasOpen As Boolean = False
+            Try
+                For Each oOpenD As Document In ThisApplication.Documents
+                    If String.Equals(oOpenD.FullFileName, sPostGaPath, StringComparison.OrdinalIgnoreCase) Then
+                        oPostGaDoc = TryCast(oOpenD, AssemblyDocument)
+                        bPostWasOpen = True : Exit For
+                    End If
+                Next
+                If oPostGaDoc Is Nothing Then
+                    oPostGaDoc = TryCast(ThisApplication.Documents.Open(sPostGaPath, False), AssemblyDocument)
+                End If
+            Catch : End Try
+            If oPostGaDoc IsNot Nothing Then
+                Dim iPostCount As Integer = 0
+                WalkTreeToLog(oPostGaDoc.ComponentDefinition.Occurrences, 0, sPostTreeDesktop, iPostCount)
+                WalkTreeToLog(oPostGaDoc.ComponentDefinition.Occurrences, 0, sPostTreeDwgFolder, iPostCount)
+                Dim sPostFooter As String = vbCrLf & New String("="c, 120) & vbCrLf & "Total occurrences listed: " & iPostCount & vbCrLf
+                System.IO.File.AppendAllText(sPostTreeDesktop, sPostFooter)
+                System.IO.File.AppendAllText(sPostTreeDwgFolder, sPostFooter)
+                If Not bPostWasOpen Then Try : oPostGaDoc.Close(False) : Catch : End Try
+                Try : System.IO.File.AppendAllText(sLogFilePath, "POST-TREE: " & iPostCount & " occurrence(s) captured → " & System.IO.Path.GetFileName(sPostTreeDwgFolder) & vbCrLf) : Catch : End Try
+            End If
+        Else
+            Try : System.IO.File.AppendAllText(sLogFilePath, "POST-TREE: GA path not resolved — skipped" & vbCrLf) : Catch : End Try
+        End If
+    Catch exPost As Exception
+        Try : System.IO.File.AppendAllText(sLogFilePath, "POST-TREE-FAIL: " & exPost.Message & vbCrLf) : Catch : End Try
+    End Try
+
+    ' ── COPY MAIN LOG TO DRAWINGS FOLDER ──────────────────────────────────
+    ' Desktop log stays for quick access. Drawings folder copy is the
+    ' permanent project record alongside PRE/POST trees and DrawingRefs.
+    Try
+        Dim sDwgFolderLog As String = System.IO.Path.Combine(sDwgFolder, "DrawingCopyMode_Log_" & sRunStamp & ".txt")
+        System.IO.File.Copy(sLogFilePath, sDwgFolderLog, True)
+        Try : System.IO.File.AppendAllText(sLogFilePath, "LOG-COPY: archived to drawings folder → " & System.IO.Path.GetFileName(sDwgFolderLog) & vbCrLf) : Catch : End Try
+    Catch exLogCopy As Exception
+        Try : System.IO.File.AppendAllText(sLogFilePath, "LOG-COPY-FAIL: " & exLogCopy.Message & vbCrLf) : Catch : End Try
+    End Try
 
     ThisApplication.SilentOperation = bOrigSilent
 
