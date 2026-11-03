@@ -4356,7 +4356,7 @@ Function ShowDrawingModelRenameForm( _
     oForm.MinimizeBox = False
     oForm.MaximizeBox = False
     oForm.Width = iFormW
-    oForm.Height = 640
+    oForm.Height = 668
 
     ' ---- Header label ----
     Dim oLblHdr As New Label()
@@ -4518,24 +4518,51 @@ Function ShowDrawingModelRenameForm( _
         Next
     End Sub
 
+    ' ---- Apply new model names checkbox ----
+    ' Default OFF  → clean sweep: copy to new location, all names kept as pre-filled.
+    ' Tick ON      → rename pass: apply whatever is typed in the NEW name fields.
+    ' This is the master mode switch for the form.
+    Dim oChkApplyNames As New CheckBox()
+    oChkApplyNames.Text = "Apply new model names  (leave un-ticked for clean sweep — copies without renaming)"
+    oChkApplyNames.Left = 10 : oChkApplyNames.Top = 572 : oChkApplyNames.Width = 580
+    oChkApplyNames.Checked = False   ' default = clean sweep
+    oForm.Controls.Add(oChkApplyNames)
+
+    ' Initialise all new-name fields as read-only (clean sweep default)
+    For Each oTxtInit As System.Windows.Forms.TextBox In oMasterTxtMap.Values
+        oTxtInit.ReadOnly = True
+        oTxtInit.BackColor = System.Drawing.SystemColors.Control
+    Next
+
+    ' Toggle editable / read-only on all new-name fields when checkbox changes
+    AddHandler oChkApplyNames.CheckedChanged, Sub(s, e)
+        For Each oTxtToggle As System.Windows.Forms.TextBox In oMasterTxtMap.Values
+            oTxtToggle.ReadOnly = Not oChkApplyNames.Checked
+            oTxtToggle.BackColor = If(oChkApplyNames.Checked, System.Drawing.SystemColors.Window, System.Drawing.SystemColors.Control)
+        Next
+    End Sub
+
     ' ---- OK / Cancel — with bottom margin ----
     Dim oOk As New Button()
     oOk.Text = "OK" : oOk.DialogResult = DialogResult.OK
-    oOk.Left = 476 : oOk.Top = 576 : oOk.Width = 80
+    oOk.Left = 476 : oOk.Top = 604 : oOk.Width = 80
     oForm.Controls.Add(oOk) : oForm.AcceptButton = oOk
 
     Dim oCancel As New Button()
     oCancel.Text = "Cancel" : oCancel.DialogResult = DialogResult.Cancel
-    oCancel.Left = 568 : oCancel.Top = 576 : oCancel.Width = 80
+    oCancel.Left = 568 : oCancel.Top = 604 : oCancel.Width = 80
     oForm.Controls.Add(oCancel) : oForm.CancelButton = oCancel
 
     If oForm.ShowDialog() <> DialogResult.OK Then Return False
 
     ' ---- Collect results ----
     oChoice.oExplicitModelRenameMap.Clear()
+    Dim bApplyNames As Boolean = oChkApplyNames.Checked
     For Each kvp As System.Collections.Generic.KeyValuePair(Of String, System.Windows.Forms.TextBox) In oMasterTxtMap
         Dim sOldBase As String = kvp.Key
-        Dim sNewBase As String = Trim(kvp.Value.Text)
+        ' If "Apply new model names" is unchecked (clean sweep), use the old name regardless
+        ' of what's in the text field — no renaming, just copy to new location.
+        Dim sNewBase As String = If(bApplyNames, Trim(kvp.Value.Text), sOldBase)
         If sNewBase = "" Then sNewBase = sOldBase   ' blank → keep original
         oChoice.oExplicitModelRenameMap(sOldBase) = sNewBase
     Next
