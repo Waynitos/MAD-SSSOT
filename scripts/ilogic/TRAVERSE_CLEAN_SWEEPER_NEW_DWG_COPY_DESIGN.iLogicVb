@@ -4608,21 +4608,25 @@ Function ShowGaSelectionDialog( _
     oLblNote.Left = 10 : oLblNote.Top = iY + 6 : oLblNote.Width = 520 : oLblNote.Height = 20
     oForm.Controls.Add(oLblNote)
 
-    ' OK / Cancel
+    ' OK / Cancel — right-aligned, no overlap.
+    ' Form client width ≈ 544px (560 outer − 16 border).
+    ' Cancel: right-flush at 534.  OK: 12px gap to its left.
     Dim iFootTop As Integer = iY + 32
-    Dim oOk As New System.Windows.Forms.Button()
-    oOk.Text = "OK — Use Selected as GA"
-    oOk.Left = 316 : oOk.Top = iFootTop : oOk.Width = 180
-    oOk.Enabled = False   ' disabled until a radio button is ticked
-    oForm.Controls.Add(oOk) : oForm.AcceptButton = oOk
-
     Dim oCancel As New System.Windows.Forms.Button()
     oCancel.Text = "Cancel"
     oCancel.DialogResult = System.Windows.Forms.DialogResult.Cancel
-    oCancel.Left = 460 : oCancel.Top = iFootTop : oCancel.Width = 80
+    oCancel.Left = 454 : oCancel.Top = iFootTop : oCancel.Width = 80
     oForm.Controls.Add(oCancel) : oForm.CancelButton = oCancel
 
-    oForm.Height = iFootTop + 60
+    Dim oOk As New System.Windows.Forms.Button()
+    oOk.Text = "OK — Use Selected as GA"
+    oOk.Left = 262 : oOk.Top = iFootTop : oOk.Width = 182
+    oOk.Enabled = False   ' disabled until a radio button is ticked
+    oForm.Controls.Add(oOk) : oForm.AcceptButton = oOk
+
+    ' +80 gives button (≈26px) + bottom padding + Windows chrome clearance.
+    ' Previous +60 clipped the button row at high DPI.
+    oForm.Height = iFootTop + 80
 
     ' Enable OK when any radio is selected.
     ' NOTE: For Each inside a lambda is not supported by the iLogic compiler —
