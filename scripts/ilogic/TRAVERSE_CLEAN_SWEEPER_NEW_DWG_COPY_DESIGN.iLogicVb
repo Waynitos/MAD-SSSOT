@@ -2828,6 +2828,45 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument, Optional oPresetModelRenameMa
         Return
     End If
 
+    ' ── PRINCIPAL GA SELECTION ──────────────────────────────────────────────
+    ' Collect all .iam refs from the active drawing scan.
+    ' - Exactly one  → assumed to be the principal GA, no dialog needed.
+    ' - Two or more  → user nominates the principal GA via radio-button dialog.
+    '   Secondary .iam refs (reference models placed for context) are removed
+    '   from oScanRefs so the downstream tree walk ignores them, but they will
+    '   still be copied into the model folder with their existing names and their
+    '   drawing references updated.
+    Dim oIamRefsInDrawing As New System.Collections.Generic.List(Of String)
+    For Each sChkIam As String In oScanRefs
+        If String.Compare(System.IO.Path.GetExtension(sChkIam), ".iam", True) = 0 Then
+            oIamRefsInDrawing.Add(sChkIam)
+        End If
+    Next
+
+    Dim sSelectedGaPath As String = ""
+    If oIamRefsInDrawing.Count = 1 Then
+        sSelectedGaPath = oIamRefsInDrawing(0)
+        Try : System.IO.File.AppendAllText(sLogFilePath, "GA-PRINCIPAL: single .iam in drawing — assumed GA: " & System.IO.Path.GetFileName(sSelectedGaPath) & vbCrLf) : Catch : End Try
+    Else
+        ' Multiple .iam refs — user must nominate the principal GA
+        sSelectedGaPath = ShowGaSelectionDialog(oIamRefsInDrawing, sActiveDwgPath)
+        If Trim(sSelectedGaPath) = "" Then
+            ' User cancelled without selecting
+            Try : System.IO.File.AppendAllText(sLogFilePath, "GA-CANCEL: user cancelled principal GA selection — rule aborted." & vbCrLf) : Catch : End Try
+            ThisApplication.SilentOperation = bOrigSilent
+            Return
+        End If
+        Try : System.IO.File.AppendAllText(sLogFilePath, "GA-PRINCIPAL: user nominated " & System.IO.Path.GetFileName(sSelectedGaPath) & " as principal GA (" & oIamRefsInDrawing.Count & " .iam refs in drawing)" & vbCrLf) : Catch : End Try
+        ' Strip secondary .iam refs from oScanRefs — they are not part of the GA tree.
+        ' The drawing ref-update pass will still re-point them to their new location.
+        For Each sNonGa As String In oIamRefsInDrawing
+            If String.Compare(sNonGa, sSelectedGaPath, True) <> 0 Then
+                oScanRefs.Remove(sNonGa)
+                Try : System.IO.File.AppendAllText(sLogFilePath, "GA-SECONDARY: excluded from tree walk (copied as-is): " & System.IO.Path.GetFileName(sNonGa) & vbCrLf) : Catch : End Try
+            End If
+        Next
+    End If
+
     ' ── PRE-RULE TREE GRAB ─────────────────────────────────────────────────
     ' Captures the full GA assembly tree before any changes are made.
     ' Written to sDwgFolder (permanent record) and Desktop (quick access).
@@ -4329,6 +4368,102 @@ End Function
 ' Returns True if user clicked OK, False if cancelled.
 ' oChoice.oExplicitModelRenameMap is populated on OK.
 ' oChoice.oDrawingStateMatch is populated on OK.
+' =====================================================================
+' ShowGaSelectionDialog
+' Shows a radio-button dialog when the active GA drawing references more
+' than one .iam assembly. The user nominates which is the principal GA.
+' Returns the full path of the selected .iam, or "" if cancelled.
+' OK is disabled until exactly one radio button is selected.
+' =====================================================================
+Function ShowGaSelectionDialog( _
+    oIamPaths As System.Collections.Generic.List(Of String), _
+    sDrawingPath As String) As String
+
+    Dim oForm As New System.Windows.Forms.Form()
+    oForm.Text = "Select Principal GA Assembly"
+    oForm.Width = 560
+    oForm.Height = 0   ' calculated below
+    oForm.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen
+    oForm.FormBorderStyle = System.Windows.Forms.FormBorderStyle.FixedDialog
+    oForm.MaximizeBox = False
+    oForm.MinimizeBox = False
+
+    ' Instruction label
+    Dim oLblInstruct As New System.Windows.Forms.Label()
+    oLblInstruct.Text = "This drawing references more than one assembly. Select the PRINCIPAL GA Assembly." & vbCrLf & _
+                        "Secondary assemblies (reference models) will be copied as-is — they will not drive the tree walk."
+    oLblInstruct.Left = 10 : oLblInstruct.Top = 10 : oLblInstruct.Width = 520 : oLblInstruct.Height = 44
+    oForm.Controls.Add(oLblInstruct)
+
+    Dim oLblDwg As New System.Windows.Forms.Label()
+    oLblDwg.Text = "Drawing: " & System.IO.Path.GetFileName(sDrawingPath)
+    oLblDwg.Left = 10 : oLblDwg.Top = 56 : oLblDwg.Width = 520 : oLblDwg.Height = 20
+    oForm.Controls.Add(oLblDwg)
+
+    ' One RadioButton per .iam ref
+    Dim oRadios As New System.Collections.Generic.List(Of System.Windows.Forms.RadioButton)()
+    Dim iY As Integer = 86
+    For Each sIamPath As String In oIamPaths
+        Dim oRad As New System.Windows.Forms.RadioButton()
+        oRad.Text = System.IO.Path.GetFileName(sIamPath)
+        oRad.Tag = sIamPath
+        oRad.Left = 20 : oRad.Top = iY : oRad.Width = 500 : oRad.Height = 24
+        oRad.Checked = False
+        oForm.Controls.Add(oRad)
+        oRadios.Add(oRad)
+        iY = iY + 28
+    Next
+
+    ' Separator note
+    Dim oLblNote As New System.Windows.Forms.Label()
+    oLblNote.Text = "Only one assembly can be the principal GA. You cannot proceed until one is selected."
+    oLblNote.Left = 10 : oLblNote.Top = iY + 6 : oLblNote.Width = 520 : oLblNote.Height = 20
+    oForm.Controls.Add(oLblNote)
+
+    ' OK / Cancel
+    Dim iFootTop As Integer = iY + 32
+    Dim oOk As New System.Windows.Forms.Button()
+    oOk.Text = "OK — Use Selected as GA"
+    oOk.Left = 316 : oOk.Top = iFootTop : oOk.Width = 180
+    oOk.Enabled = False   ' disabled until a radio button is ticked
+    oForm.Controls.Add(oOk) : oForm.AcceptButton = oOk
+
+    Dim oCancel As New System.Windows.Forms.Button()
+    oCancel.Text = "Cancel"
+    oCancel.DialogResult = System.Windows.Forms.DialogResult.Cancel
+    oCancel.Left = 460 : oCancel.Top = iFootTop : oCancel.Width = 80
+    oForm.Controls.Add(oCancel) : oForm.CancelButton = oCancel
+
+    oForm.Height = iFootTop + 60
+
+    ' Enable OK when any radio is selected
+    For Each oRad As Object In oRadios
+        AddHandler CType(oRad, System.Windows.Forms.RadioButton).CheckedChanged, Sub(s, e)
+            Dim bAny As Boolean = False
+            For Each oR As Object In oRadios
+                If CType(oR, System.Windows.Forms.RadioButton).Checked Then bAny = True
+            Next
+            oOk.Enabled = bAny
+        End Sub
+    Next
+
+    AddHandler oOk.Click, Sub(s, e)
+        oForm.DialogResult = System.Windows.Forms.DialogResult.OK
+        oForm.Close()
+    End Sub
+
+    If oForm.ShowDialog() <> System.Windows.Forms.DialogResult.OK Then Return ""
+
+    ' Return the path from the selected radio button
+    For Each oRad As Object In oRadios
+        If CType(oRad, System.Windows.Forms.RadioButton).Checked Then
+            Return CStr(CType(oRad, System.Windows.Forms.RadioButton).Tag)
+        End If
+    Next
+    Return ""
+End Function
+
+
 ' =====================================================================
 Function ShowDrawingModelRenameForm( _
     ByRef oChoice As RenameModeChoice, _
