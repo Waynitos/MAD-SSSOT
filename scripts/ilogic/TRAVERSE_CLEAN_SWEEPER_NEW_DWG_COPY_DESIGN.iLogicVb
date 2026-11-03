@@ -2778,6 +2778,28 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument, Optional oPresetModelRenameMa
     oDwgDescriptions(sActiveDwgPath) = Trim(sActiveDesc)
     Try : System.IO.File.AppendAllText(sLogFilePath, "Found " & oScanRefs.Count & " model ref(s) in active drawing." & vbCrLf) : Catch : End Try
 
+    ' ── GA DRAWING LAUNCH GUARD ────────────────────────────────────────────
+    ' The rule must be launched from the GA drawing — the drawing that directly
+    ' views the top-level assembly (.iam). This is always the first drawing
+    ' sequentially (e.g. 000001.dwg). If the active drawing has no .iam ref,
+    ' stop immediately rather than silently proceeding on wrong assumptions.
+    Dim bHasIamRef As Boolean = False
+    For Each sChkRef As String In oScanRefs
+        If String.Compare(System.IO.Path.GetExtension(sChkRef), ".iam", True) = 0 Then
+            bHasIamRef = True : Exit For
+        End If
+    Next
+    If Not bHasIamRef Then
+        Dim sGuardMsg As String = "No assembly (.iam) reference found in the active drawing." & vbCrLf & vbCrLf & _
+            "Please launch this rule from the GA drawing — the drawing that" & vbCrLf & _
+            "views the top-level assembly (usually the first drawing, e.g. 000001.dwg)." & vbCrLf & vbCrLf & _
+            "Active drawing: " & System.IO.Path.GetFileName(sActiveDwgPath)
+        MessageBox.Show(sGuardMsg, "Drawing Copy Mode — Wrong Starting Drawing", MessageBoxButtons.OK, MessageBoxIcon.Warning)
+        Try : System.IO.File.AppendAllText(sLogFilePath, "GUARD-FAIL: no .iam ref in active drawing — user directed to GA drawing." & vbCrLf) : Catch : End Try
+        ThisApplication.SilentOperation = bOrigSilent
+        Return
+    End If
+
     ' ── PRE-RULE TREE GRAB ─────────────────────────────────────────────────
     ' Captures the full GA assembly tree before any changes are made.
     ' Written to sDwgFolder (permanent record) and Desktop (quick access).
