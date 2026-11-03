@@ -2786,13 +2786,49 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument, Optional oPresetModelRenameMa
     Dim sPreTreeDesktop As String = System.Environment.GetFolderPath(System.Environment.SpecialFolder.Desktop) & "\PRE_Tree_" & sRunStamp & ".txt"
     Dim sPreTreeDwgFolder As String = System.IO.Path.Combine(sDwgFolder, "PRE_Tree_" & sRunStamp & ".txt")
     Try
-        ' Find the GA assembly from oScanRefs (first .iam ref in active drawing)
+        ' Find the GA assembly: scan open Documents first (safe, no IO, no resolve).
+        ' This works even when the active drawing is a title sheet with 0 model refs.
+        ' Fallback 1: oScanRefs (active drawing refs). Fallback 2: any open .iam in same folder.
         Dim sPreGaPath As String = ""
-        For Each sScanRef As String In oScanRefs
-            If String.Compare(System.IO.Path.GetExtension(sScanRef), ".iam", True) = 0 Then
-                sPreGaPath = sScanRef : Exit For
-            End If
-        Next
+        ' -- Primary: scan ThisApplication.Documents for an open .iam in same project tree --
+        Dim sDwgParent As String = System.IO.Path.GetDirectoryName(sDwgFolder.TrimEnd(System.IO.Path.DirectorySeparatorChar))
+        Dim oOpenIamCandidates As New System.Collections.Generic.List(Of String)
+        Try
+            For Each oOpenD As Document In ThisApplication.Documents
+                Dim sOpenPath As String = ""
+                Try : sOpenPath = oOpenD.FullFileName : Catch : Continue For : End Try
+                If String.Compare(System.IO.Path.GetExtension(sOpenPath), ".iam", True) = 0 Then
+                    ' Accept .iam files in the same folder or any sibling/child of the project parent
+                    Dim sOpenFolder As String = System.IO.Path.GetDirectoryName(sOpenPath)
+                    If sOpenFolder.StartsWith(sDwgParent, StringComparison.OrdinalIgnoreCase) Then
+                        oOpenIamCandidates.Add(sOpenPath)
+                    End If
+                End If
+            Next
+        Catch : End Try
+        If oOpenIamCandidates.Count = 1 Then
+            sPreGaPath = oOpenIamCandidates(0)
+            Try : System.IO.File.AppendAllText(sLogFilePath, "PRE-TREE: GA found via open Documents → " & System.IO.Path.GetFileName(sPreGaPath) & vbCrLf) : Catch : End Try
+        ElseIf oOpenIamCandidates.Count > 1 Then
+            ' Multiple .iam open — pick the one in the same folder as drawings, or first one
+            sPreGaPath = oOpenIamCandidates(0)
+            For Each sCand As String In oOpenIamCandidates
+                If System.IO.Path.GetDirectoryName(sCand).Equals(sDwgFolder, StringComparison.OrdinalIgnoreCase) Then
+                    sPreGaPath = sCand : Exit For
+                End If
+            Next
+            Try : System.IO.File.AppendAllText(sLogFilePath, "PRE-TREE: multiple .iam open — using " & System.IO.Path.GetFileName(sPreGaPath) & " (" & oOpenIamCandidates.Count & " candidates)" & vbCrLf) : Catch : End Try
+        End If
+        ' -- Fallback: oScanRefs (active drawing model refs) --
+        If Trim(sPreGaPath) = "" Then
+            For Each sScanRef As String In oScanRefs
+                If String.Compare(System.IO.Path.GetExtension(sScanRef), ".iam", True) = 0 Then
+                    sPreGaPath = sScanRef
+                    Try : System.IO.File.AppendAllText(sLogFilePath, "PRE-TREE: GA found via active drawing ref → " & System.IO.Path.GetFileName(sPreGaPath) & vbCrLf) : Catch : End Try
+                    Exit For
+                End If
+            Next
+        End If
         If Trim(sPreGaPath) <> "" AndAlso System.IO.File.Exists(sPreGaPath) Then
             Dim sPreHeader As String = "PRE-RULE ASSEMBLY TREE SNAPSHOT" & vbCrLf & _
                 "Generated: " & DateTime.Now.ToString() & vbCrLf & _
@@ -2937,6 +2973,49 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument, Optional oPresetModelRenameMa
         End Try
     End If
     Try : System.IO.File.AppendAllText(sLogFilePath, "Target folder: " & sTargetFolder & vbCrLf) : Catch : End Try
+
+    ' ══════════════════════════════════════════════════════════════════════
+    ' RUN LOG — _CleanSweeper_RunLog.txt
+    ' Append-only per-run record written to sTargetFolder.
+    ' Pass 1 [ORIGIN] block captures original GA tree and drawing refs —
+    ' never overwritten on subsequent runs. All passes are cumulative so
+    ' any prior state can be recovered from the pass history.
+    ' ══════════════════════════════════════════════════════════════════════
+    Dim sRunLogPath As String = System.IO.Path.Combine(sTargetFolder, "_CleanSweeper_RunLog.txt")
+    Dim iRunPass As Integer = 1
+    Dim bIsOriginPass As Boolean = False
+    ' Determine pass number by counting existing pass headers
+    Try
+        If System.IO.File.Exists(sRunLogPath) Then
+            Dim sExistLog As String = System.IO.File.ReadAllText(sRunLogPath)
+            Dim iHeaderPos As Integer = 0
+            Dim iFoundCount As Integer = 0
+            Do
+                Dim iNext As Integer = sExistLog.IndexOf("PASS ", iHeaderPos, StringComparison.OrdinalIgnoreCase)
+                If iNext < 0 Then Exit Do
+                iFoundCount += 1
+                iHeaderPos = iNext + 5
+            Loop
+            If iFoundCount > 0 Then iRunPass = iFoundCount + 1
+        End If
+    Catch : End Try
+    bIsOriginPass = (iRunPass = 1)
+    Dim sPassLabel As String = "PASS " & iRunPass & " — " & sRunStamp & If(bIsOriginPass, "  [ORIGIN]", "")
+    Try
+        Dim sbPassHeader As New System.Text.StringBuilder()
+        sbPassHeader.AppendLine()
+        sbPassHeader.AppendLine(New String("="c, 53))
+        sbPassHeader.AppendLine(sPassLabel)
+        sbPassHeader.AppendLine(New String("="c, 53))
+        sbPassHeader.AppendLine("drawing_folder = " & sDwgFolder)
+        sbPassHeader.AppendLine("target_folder = " & sTargetFolder)
+        sbPassHeader.AppendLine("started_by = " & System.Environment.UserName)
+        sbPassHeader.AppendLine()
+        System.IO.File.AppendAllText(sRunLogPath, sbPassHeader.ToString())
+        Try : System.IO.File.AppendAllText(sLogFilePath, "RUN-LOG: pass " & iRunPass & " opened → " & System.IO.Path.GetFileName(sRunLogPath) & vbCrLf) : Catch : End Try
+    Catch exRunLog As Exception
+        Try : System.IO.File.AppendAllText(sLogFilePath, "RUN-LOG-FAIL: " & exRunLog.Message & vbCrLf) : Catch : End Try
+    End Try
 
     ' ── 2b. Re-run detection: look for existing copy in target folder ───
     ' Seed new prefix from the DRAWING's own filename — it already carries the
@@ -3092,6 +3171,17 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument, Optional oPresetModelRenameMa
         ThisApplication.SilentOperation = bOrigSilent
         Return
     End If
+
+    ' ── Write [RENAME_MAP] block to RunLog ─────────────────────────────
+    Try
+        Dim sbRenameMap As New System.Text.StringBuilder()
+        sbRenameMap.AppendLine("[RENAME_MAP]")
+        For Each kvpRm As System.Collections.Generic.KeyValuePair(Of String, String) In oRenameMap
+            sbRenameMap.AppendLine(System.IO.Path.GetFileName(kvpRm.Key) & " = " & System.IO.Path.GetFileName(kvpRm.Value))
+        Next
+        sbRenameMap.AppendLine()
+        System.IO.File.AppendAllText(sRunLogPath, sbRenameMap.ToString())
+    Catch : End Try
 
     ' ── 4. File.Copy each model; open copy in session ───────────────────
     ThisApplication.SilentOperation = True
@@ -3652,23 +3742,65 @@ Sub RunDrawingUpdatePass( _
         Try : System.IO.File.AppendAllText(sLogFilePath, "INTEGRITY: rename-map basename entries — " & oBasenameRenameMap.Count & vbCrLf) : Catch : End Try
 
         ' ── Step 2: Identify new GA .iam path ──────────────────────────────
-        ' Primary: oScanRefs holds active drawing's model refs; find the new path via oRenameMap.
-        ' Fallback: first .iam value in oRenameMap.
+        ' Strategy 1 (best): scan open Documents for a .iam already in sTargetFolder
+        '   — works even when the active drawing is a title sheet with 0 model refs.
+        ' Strategy 2: walk oRenameMap values for a .iam in sTargetFolder.
+        ' Strategy 3: walk oRenameMap values for any .iam (broadest fallback).
+        ' Strategy 4: scan open Documents for any .iam in the project parent tree.
         Dim sNewGaPath As String = ""
-        For Each sOldRef As String In oScanRefs
-            Dim sMapped As String = ""
-            If oRenameMap.TryGetValue(sOldRef, sMapped) AndAlso _
-               String.Compare(System.IO.Path.GetExtension(sMapped), ".iam", True) = 0 Then
-                sNewGaPath = sMapped
-                Exit For
+        ' -- Strategy 1: open Documents in sTargetFolder --
+        Try
+            Dim oIntegIamCandidates As New System.Collections.Generic.List(Of String)
+            For Each oOpenD As Document In ThisApplication.Documents
+                Dim sOpenFull As String = ""
+                Try : sOpenFull = oOpenD.FullFileName : Catch : Continue For : End Try
+                If String.Compare(System.IO.Path.GetExtension(sOpenFull), ".iam", True) = 0 Then
+                    If System.IO.Path.GetDirectoryName(sOpenFull).Equals(sTargetFolder, StringComparison.OrdinalIgnoreCase) Then
+                        oIntegIamCandidates.Add(sOpenFull)
+                    End If
+                End If
+            Next
+            If oIntegIamCandidates.Count = 1 Then
+                sNewGaPath = oIntegIamCandidates(0)
+                Try : System.IO.File.AppendAllText(sLogFilePath, "INTEGRITY: GA found via open Documents in target folder → " & System.IO.Path.GetFileName(sNewGaPath) & vbCrLf) : Catch : End Try
+            ElseIf oIntegIamCandidates.Count > 1 Then
+                sNewGaPath = oIntegIamCandidates(0)
+                Try : System.IO.File.AppendAllText(sLogFilePath, "INTEGRITY: multiple .iam open in target — using first: " & System.IO.Path.GetFileName(sNewGaPath) & vbCrLf) : Catch : End Try
             End If
-        Next
+        Catch : End Try
+        ' -- Strategy 2 & 3: oRenameMap values --
+        If Trim(sNewGaPath) = "" Then
+            For Each sMapVal As String In oRenameMap.Values
+                If String.Compare(System.IO.Path.GetExtension(sMapVal), ".iam", True) = 0 AndAlso _
+                   System.IO.Path.GetDirectoryName(sMapVal).Equals(sTargetFolder, StringComparison.OrdinalIgnoreCase) Then
+                    sNewGaPath = sMapVal : Exit For
+                End If
+            Next
+        End If
         If Trim(sNewGaPath) = "" Then
             For Each sMapVal As String In oRenameMap.Values
                 If String.Compare(System.IO.Path.GetExtension(sMapVal), ".iam", True) = 0 Then
                     sNewGaPath = sMapVal : Exit For
                 End If
             Next
+        End If
+        ' -- Strategy 4: any open .iam in project parent tree --
+        If Trim(sNewGaPath) = "" Then
+            Try
+                Dim sProjParent As String = System.IO.Path.GetDirectoryName(sTargetFolder.TrimEnd(System.IO.Path.DirectorySeparatorChar))
+                For Each oOpenD As Document In ThisApplication.Documents
+                    Dim sOpenFull As String = ""
+                    Try : sOpenFull = oOpenD.FullFileName : Catch : Continue For : End Try
+                    If String.Compare(System.IO.Path.GetExtension(sOpenFull), ".iam", True) = 0 Then
+                        If System.IO.Path.GetDirectoryName(sOpenFull).StartsWith(sProjParent, StringComparison.OrdinalIgnoreCase) Then
+                            sNewGaPath = sOpenFull : Exit For
+                        End If
+                    End If
+                Next
+                If Trim(sNewGaPath) <> "" Then
+                    Try : System.IO.File.AppendAllText(sLogFilePath, "INTEGRITY: GA found via open Documents (project tree) → " & System.IO.Path.GetFileName(sNewGaPath) & vbCrLf) : Catch : End Try
+                End If
+            Catch : End Try
         End If
 
         If Trim(sNewGaPath) <> "" AndAlso System.IO.File.Exists(sNewGaPath) Then
@@ -3754,6 +3886,51 @@ Sub RunDrawingUpdatePass( _
                                 Catch exCopy As Exception
                                     Try : System.IO.File.AppendAllText(sLogFilePath, "INTEGRITY-COPY-FAIL: " & sExpectedFileName & " : " & exCopy.Message & vbCrLf) : Catch : End Try
                                 End Try
+                            ElseIf Not oBasenameRenameMap.ContainsKey(sOccFileName) Then
+                                ' Case C — COPY-AS-IS: sub not in rename map at all (GA direct child
+                                ' never referenced by any drawing — old-segment-style name).
+                                ' Copy it to target folder under its original basename and re-wire.
+                                ' This lands the file in the target folder for now; user can remap it
+                                ' via the GA-Tree-First form extension in a future pass.
+                                Dim sAsIsTarget As String = System.IO.Path.Combine(sTargetFolder, sOccFileName)
+                                Dim sSourceSearch As String = sOccPath   ' already confirmed not on disk above
+                                ' Try to find source in sibling folders relative to target
+                                Dim sSibParent As String = System.IO.Path.GetDirectoryName(sTargetFolder.TrimEnd(System.IO.Path.DirectorySeparatorChar))
+                                Dim sFoundSource As String = ""
+                                If System.IO.File.Exists(sOccPath) Then
+                                    sFoundSource = sOccPath
+                                Else
+                                    ' Search all open Documents for this filename
+                                    Try
+                                        For Each oOpenSearch As Document In ThisApplication.Documents
+                                            Dim sSearchPath As String = ""
+                                            Try : sSearchPath = oOpenSearch.FullFileName : Catch : Continue For : End Try
+                                            If String.Equals(System.IO.Path.GetFileName(sSearchPath), sOccFileName, StringComparison.OrdinalIgnoreCase) Then
+                                                sFoundSource = sSearchPath : Exit For
+                                            End If
+                                        Next
+                                    Catch : End Try
+                                End If
+                                If Trim(sFoundSource) <> "" AndAlso System.IO.File.Exists(sFoundSource) Then
+                                    Try
+                                        System.IO.File.Copy(sFoundSource, sAsIsTarget, True)
+                                        oOcc.Replace(sAsIsTarget, True)
+                                        oTargetInv(sOccFileName) = sAsIsTarget   ' update inventory
+                                        iIntCopyRepair += 1
+                                        Try : System.IO.File.AppendAllText(sLogFilePath, "INTEGRITY-COPY-AS-IS: " & sOccFileName & " ← " & sFoundSource & vbCrLf) : Catch : End Try
+                                    Catch exAsIs As Exception
+                                        iIntMissing += 1
+                                        Dim sAsIsFailLine As String = "INTEGRITY-COPY-AS-IS-FAIL: " & sOccFileName & " : " & exAsIs.Message
+                                        oIntMsgLines.Add(sAsIsFailLine)
+                                        Try : System.IO.File.AppendAllText(sLogFilePath, sAsIsFailLine & vbCrLf) : Catch : End Try
+                                    End Try
+                                Else
+                                    ' Source file not found anywhere — geometry gap
+                                    iIntMissing += 1
+                                    Dim sMissAsIsLine As String = "INTEGRITY-WARN-MISSING: " & sOccFileName & " (not in rename map, source not found) — NOT FOUND anywhere"
+                                    oIntMsgLines.Add(sMissAsIsLine)
+                                    Try : System.IO.File.AppendAllText(sLogFilePath, sMissAsIsLine & vbCrLf) : Catch : End Try
+                                End If
                             Else
                                 ' Neither in target folder nor on disk — geometry gap
                                 iIntMissing += 1
@@ -3836,7 +4013,7 @@ Sub RunDrawingUpdatePass( _
 
     ' ── Summary + popup ────────────────────────────────────────────────
     Try : System.IO.File.AppendAllText(sLogFilePath, _
-        "INTEGRITY SUMMARY: " & iIntRepair & " relinked, " & iIntCopyRepair & " copy-repaired, " & _
+        "INTEGRITY SUMMARY: " & iIntRepair & " relinked, " & iIntCopyRepair & " copy-repaired/as-is, " & _
         iIntMissing & " MISSING, " & iIntStalePath & " stale-drawing-paths" & vbCrLf) : Catch : End Try
 
     If iIntMissing > 0 OrElse iIntStalePath > 0 Then
@@ -3938,6 +4115,51 @@ Sub RunDrawingUpdatePass( _
         End If
     Catch exPost As Exception
         Try : System.IO.File.AppendAllText(sLogFilePath, "POST-TREE-FAIL: " & exPost.Message & vbCrLf) : Catch : End Try
+    End Try
+
+    ' ── Write RunLog [ORIGINAL_*] (Pass 1 only) + [SUMMARY] ──────────────
+    Try
+        Dim sbRunLogClose As New System.Text.StringBuilder()
+        ' ORIGINAL blocks — written ONLY on Pass 1, never overwritten
+        If bIsOriginPass Then
+            sbRunLogClose.AppendLine("[ORIGINAL_GA_TREE]")
+            ' Re-read the PRE-TREE file if it exists
+            Try
+                If System.IO.File.Exists(sPreTreeDwgFolder) Then
+                    Dim sPreContent As String = System.IO.File.ReadAllText(sPreTreeDwgFolder)
+                    sbRunLogClose.AppendLine(sPreContent)
+                Else
+                    sbRunLogClose.AppendLine("(pre-tree file not found — GA may not have been open)")
+                End If
+            Catch : sbRunLogClose.AppendLine("(pre-tree read failed)") : End Try
+            sbRunLogClose.AppendLine()
+            sbRunLogClose.AppendLine("[ORIGINAL_DRAWING_LIST]")
+            For Each sOrigDwgPath As String In oAllDwgPaths
+                sbRunLogClose.AppendLine(System.IO.Path.GetFileName(sOrigDwgPath))
+            Next
+            sbRunLogClose.AppendLine()
+            sbRunLogClose.AppendLine("[ORIGINAL_DRAWING_REFS]")
+            For Each oKvpOrig As System.Collections.Generic.KeyValuePair(Of String, System.Collections.Generic.List(Of String)) In oAllDwgRefs
+                For Each sOrigRef As String In oKvpOrig.Value
+                    sbRunLogClose.AppendLine(System.IO.Path.GetFileName(oKvpOrig.Key) & " = " & sOrigRef)
+                Next
+            Next
+            sbRunLogClose.AppendLine()
+        End If
+        ' [SUMMARY] — every pass
+        sbRunLogClose.AppendLine("[SUMMARY]")
+        sbRunLogClose.AppendLine("pass = " & iRunPass)
+        sbRunLogClose.AppendLine("timestamp = " & sRunStamp)
+        sbRunLogClose.AppendLine("rename_map_entries = " & oRenameMap.Count)
+        sbRunLogClose.AppendLine("integrity_relinked = " & iIntRepair)
+        sbRunLogClose.AppendLine("integrity_copy_repaired = " & iIntCopyRepair)
+        sbRunLogClose.AppendLine("integrity_missing = " & iIntMissing)
+        sbRunLogClose.AppendLine("integrity_stale_paths = " & iIntStalePath)
+        sbRunLogClose.AppendLine()
+        System.IO.File.AppendAllText(sRunLogPath, sbRunLogClose.ToString())
+        Try : System.IO.File.AppendAllText(sLogFilePath, "RUN-LOG: pass " & iRunPass & " closed → " & System.IO.Path.GetFileName(sRunLogPath) & vbCrLf) : Catch : End Try
+    Catch exRunLogClose As Exception
+        Try : System.IO.File.AppendAllText(sLogFilePath, "RUN-LOG-CLOSE-FAIL: " & exRunLogClose.Message & vbCrLf) : Catch : End Try
     End Try
 
     ' ── COPY MAIN LOG TO DRAWINGS FOLDER ──────────────────────────────────
