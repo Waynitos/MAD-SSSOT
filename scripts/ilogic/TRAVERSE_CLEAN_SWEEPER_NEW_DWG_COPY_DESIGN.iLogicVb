@@ -2722,6 +2722,152 @@ Sub WalkTreeToLog(oOccs As Object, iDepth As Integer, sOutputPath As String, ByR
     Next
 End Sub
 
+' ═══════════════════════════════════════════════════════════════════════════════
+' RunAssemblyRelinkPass  —  Phase 3 of the DrawingCopyMode 4-phase sequence
+'
+' Declared BEFORE RunDrawingCopyMode — iLogic compiler is single-pass and
+' requires a Sub to be declared before the first call to it.
+'
+' After ALL files are copied (Phase 2 / copy atomic), this pass opens each copied
+' .iam/.ipt in the rename map and updates its internal FileDescriptors to point to
+' the new filenames in the target folder.
+'
+' Uses Document.File.ReferencedFileDescriptors — the same file-record API used by
+' the drawing pass — so order is not critical for correctness: ReplaceReference
+' modifies the stored path string in the file XML directly without needing the
+' referenced document to be loaded.  Files are still sorted longest-path-first
+' (belt-and-suspenders deepest-first heuristic, consistent with Mode 2 Phase 3).
+'
+' Content Centre / locked FD (HResult = 0x80070057) → ASMRELINK-SKIP-CC (safe)
+'
+' Log tokens:
+'   ASMRELINK-OK   [file]: ref → ref  (reference replaced)
+'   ASMRELINK-SKIP [file]: no matching refs  (file needs no relinking)
+'   ASMRELINK-SKIP-CC [file]: ref  (Content Centre FD — not writable, safe)
+'   ASMRELINK-SAVE-OK [file]
+'   ASMRELINK-FAIL [file]: <reason>
+' ═══════════════════════════════════════════════════════════════════════════════
+Sub RunAssemblyRelinkPass( _
+    oRelinkMap As System.Collections.Generic.Dictionary(Of String, String), _
+    sLogFilePath As String, _
+    ByRef iRelinkOkOut As Integer, _
+    ByRef iRelinkFailOut As Integer, _
+    ByRef iRelinkSkipOut As Integer)
+
+    iRelinkOkOut = 0
+    iRelinkFailOut = 0
+    iRelinkSkipOut = 0
+
+    ' Collect unique new .iam/.ipt paths from the VALUE side of the rename map
+    Dim oNewPaths As New System.Collections.Generic.List(Of String)()
+    Dim oSeenPaths As New System.Collections.Generic.HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+    For Each kvpRl As System.Collections.Generic.KeyValuePair(Of String, String) In oRelinkMap
+        Dim sExtRl As String = System.IO.Path.GetExtension(kvpRl.Value).ToUpper()
+        If (sExtRl = ".IAM" OrElse sExtRl = ".IPT") AndAlso Not oSeenPaths.Contains(kvpRl.Value) Then
+            If System.IO.File.Exists(kvpRl.Value) Then
+                oSeenPaths.Add(kvpRl.Value)
+                oNewPaths.Add(kvpRl.Value)
+            End If
+        End If
+    Next
+
+    ' Sort longest-path-first (deepest assemblies first, GA last — consistent with Mode 2 Phase 3)
+    oNewPaths.Sort(Function(a, b2) b2.Length.CompareTo(a.Length))
+
+    Try : System.IO.File.AppendAllText(sLogFilePath, "ASMRELINK: " & oNewPaths.Count & " model file(s) queued." & vbCrLf) : Catch : End Try
+
+    For Each sAsmNewPath As String In oNewPaths
+        Dim sAsmFn As String = System.IO.Path.GetFileName(sAsmNewPath)
+        Dim bOpenedHere As Boolean = False
+        Dim oAsmDoc As Document = Nothing
+
+        Try
+            oAsmDoc = OpenDocTracked(sAsmNewPath, bOpenedHere)
+            If oAsmDoc Is Nothing Then
+                Try : System.IO.File.AppendAllText(sLogFilePath, "ASMRELINK-FAIL [" & sAsmFn & "]: could not open" & vbCrLf) : Catch : End Try
+                iRelinkFailOut = iRelinkFailOut + 1
+                Continue For
+            End If
+
+            ' Clear read-only before save
+            Try
+                Dim oFa As System.IO.FileAttributes = System.IO.File.GetAttributes(sAsmNewPath)
+                If (oFa And System.IO.FileAttributes.ReadOnly) = System.IO.FileAttributes.ReadOnly Then
+                    System.IO.File.SetAttributes(sAsmNewPath, oFa And Not System.IO.FileAttributes.ReadOnly)
+                End If
+            Catch : End Try
+
+            ' Suppress iLogic event rules during this pass
+            Try : oAsmDoc.iLogicVb.EventRuleManager.DisableEventRules = True : Catch : End Try
+
+            Dim iRepOkAsm As Integer = 0
+            Dim iRepFailAsm As Integer = 0
+            Try
+                For Each oAsmFD As FileDescriptor In oAsmDoc.File.ReferencedFileDescriptors
+                    Dim sAsmRefFull As String = ""
+                    Try : sAsmRefFull = oAsmFD.FullFileName : Catch : Continue For : End Try
+                    If Trim(sAsmRefFull) = "" Then Continue For
+                    ' Strip DART tag if present (<DART ...>)
+                    If sAsmRefFull.Contains("<") Then
+                        sAsmRefFull = sAsmRefFull.Substring(0, sAsmRefFull.IndexOf("<"c)).Trim()
+                    End If
+                    If Not oRelinkMap.ContainsKey(sAsmRefFull) Then Continue For
+                    Dim sAsmNewRef As String = oRelinkMap(sAsmRefFull)
+                    If String.Compare(sAsmRefFull, sAsmNewRef, True) = 0 Then Continue For
+                    Try
+                        oAsmFD.ReplaceReference(sAsmNewRef)
+                        iRepOkAsm = iRepOkAsm + 1
+                        Try : System.IO.File.AppendAllText(sLogFilePath, "ASMRELINK-OK [" & sAsmFn & "]: " & System.IO.Path.GetFileName(sAsmRefFull) & " -> " & System.IO.Path.GetFileName(sAsmNewRef) & vbCrLf) : Catch : End Try
+                    Catch exAsmFD As Exception
+                        ' E_INVALIDARG (0x80070057) = Content Centre / locked descriptor — safe skip
+                        If exAsmFD.HResult = &H80070057 Then
+                            Try : System.IO.File.AppendAllText(sLogFilePath, "ASMRELINK-SKIP-CC [" & sAsmFn & "]: " & System.IO.Path.GetFileName(sAsmRefFull) & vbCrLf) : Catch : End Try
+                        Else
+                            iRepFailAsm = iRepFailAsm + 1
+                            Try : System.IO.File.AppendAllText(sLogFilePath, "ASMRELINK-FAIL [" & sAsmFn & "]: FD " & System.IO.Path.GetFileName(sAsmRefFull) & " — " & exAsmFD.Message & vbCrLf) : Catch : End Try
+                        End If
+                    End Try
+                Next
+            Catch exFDLoop As Exception
+                iRepFailAsm = iRepFailAsm + 1
+                Try : System.IO.File.AppendAllText(sLogFilePath, "ASMRELINK-FAIL [" & sAsmFn & "]: FD loop — " & exFDLoop.Message & vbCrLf) : Catch : End Try
+            End Try
+
+            If iRepOkAsm = 0 AndAlso iRepFailAsm = 0 Then
+                iRelinkSkipOut = iRelinkSkipOut + 1
+                Try : System.IO.File.AppendAllText(sLogFilePath, "ASMRELINK-SKIP [" & sAsmFn & "]: no matching refs" & vbCrLf) : Catch : End Try
+            ElseIf iRepFailAsm > 0 Then
+                iRelinkFailOut = iRelinkFailOut + 1
+            End If
+
+            ' Save if any refs were replaced successfully
+            If iRepOkAsm > 0 Then
+                Try
+                    oAsmDoc.Save2(False)
+                    iRelinkOkOut = iRelinkOkOut + 1
+                    Try : System.IO.File.AppendAllText(sLogFilePath, "ASMRELINK-SAVE-OK: " & sAsmFn & vbCrLf) : Catch : End Try
+                Catch exAsmSave As Exception
+                    iRelinkFailOut = iRelinkFailOut + 1
+                    Try : System.IO.File.AppendAllText(sLogFilePath, "ASMRELINK-FAIL [" & sAsmFn & "]: save failed — " & exAsmSave.Message & vbCrLf) : Catch : End Try
+                End Try
+            End If
+
+        Catch exOuter As Exception
+            iRelinkFailOut = iRelinkFailOut + 1
+            Try : System.IO.File.AppendAllText(sLogFilePath, "ASMRELINK-FAIL [" & sAsmFn & "]: outer — " & exOuter.Message & vbCrLf) : Catch : End Try
+        Finally
+            If oAsmDoc IsNot Nothing Then
+                ' Re-enable event rules before closing
+                Try : oAsmDoc.iLogicVb.EventRuleManager.DisableEventRules = False : Catch : End Try
+                If bOpenedHere Then
+                    Try : oAsmDoc.Close(True) : Catch : End Try
+                End If
+            End If
+        End Try
+    Next
+
+End Sub
+
 Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument, Optional oPresetModelRenameMap As System.Collections.Generic.Dictionary(Of String, String) = Nothing)
 
     Dim sLogFilePath As String = System.Environment.GetFolderPath(System.Environment.SpecialFolder.Desktop) & "\DrawingCopyMode_Log_" & DateTime.Now.ToString("yyyy-MM-dd_HHmmss") & ".txt"
@@ -3629,150 +3775,6 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument, Optional oPresetModelRenameMa
             MessageBox.Show("Could not locate the GA assembly automatically." & vbCrLf & "Open it manually and re-run the rule.", "Full Sweep")
         End If
     End If
-
-End Sub
-
-
-' ═══════════════════════════════════════════════════════════════════════════════
-' RunAssemblyRelinkPass  —  Phase 3 of the DrawingCopyMode 4-phase sequence
-'
-' After ALL files are copied (Phase 2 / copy atomic), this pass opens each copied
-' .iam/.ipt in the rename map and updates its internal FileDescriptors to point to
-' the new filenames in the target folder.
-'
-' Uses Document.File.ReferencedFileDescriptors — the same file-record API used by
-' the drawing pass — so order is not critical for correctness: ReplaceReference
-' modifies the stored path string in the file XML directly without needing the
-' referenced document to be loaded.  Files are still sorted longest-path-first
-' (belt-and-suspenders deepest-first heuristic, consistent with Mode 2 Phase 3).
-'
-' Content Centre / locked FD (HResult = 0x80070057) → ASMRELINK-SKIP-CC (safe)
-'
-' Log tokens:
-'   ASMRELINK-OK   [file]: ref → ref  (reference replaced)
-'   ASMRELINK-SKIP [file]: no matching refs  (file needs no relinking)
-'   ASMRELINK-SKIP-CC [file]: ref  (Content Centre FD — not writable, safe)
-'   ASMRELINK-SAVE-OK [file]
-'   ASMRELINK-FAIL [file]: <reason>
-' ═══════════════════════════════════════════════════════════════════════════════
-Sub RunAssemblyRelinkPass( _
-    oRelinkMap As System.Collections.Generic.Dictionary(Of String, String), _
-    sLogFilePath As String, _
-    ByRef iRelinkOkOut As Integer, _
-    ByRef iRelinkFailOut As Integer, _
-    ByRef iRelinkSkipOut As Integer)
-
-    iRelinkOkOut = 0
-    iRelinkFailOut = 0
-    iRelinkSkipOut = 0
-
-    ' Collect unique new .iam/.ipt paths from the VALUE side of the rename map
-    Dim oNewPaths As New System.Collections.Generic.List(Of String)()
-    Dim oSeenPaths As New System.Collections.Generic.HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
-    For Each kvpRl As System.Collections.Generic.KeyValuePair(Of String, String) In oRelinkMap
-        Dim sExtRl As String = System.IO.Path.GetExtension(kvpRl.Value).ToUpper()
-        If (sExtRl = ".IAM" OrElse sExtRl = ".IPT") AndAlso Not oSeenPaths.Contains(kvpRl.Value) Then
-            If System.IO.File.Exists(kvpRl.Value) Then
-                oSeenPaths.Add(kvpRl.Value)
-                oNewPaths.Add(kvpRl.Value)
-            End If
-        End If
-    Next
-
-    ' Sort longest-path-first (deepest assemblies first, GA last — consistent with Mode 2 Phase 3)
-    oNewPaths.Sort(Function(a, b2) b2.Length.CompareTo(a.Length))
-
-    Try : System.IO.File.AppendAllText(sLogFilePath, "ASMRELINK: " & oNewPaths.Count & " model file(s) queued." & vbCrLf) : Catch : End Try
-
-    For Each sAsmNewPath As String In oNewPaths
-        Dim sAsmFn As String = System.IO.Path.GetFileName(sAsmNewPath)
-        Dim bOpenedHere As Boolean = False
-        Dim oAsmDoc As Document = Nothing
-
-        Try
-            oAsmDoc = OpenDocTracked(sAsmNewPath, bOpenedHere)
-            If oAsmDoc Is Nothing Then
-                Try : System.IO.File.AppendAllText(sLogFilePath, "ASMRELINK-FAIL [" & sAsmFn & "]: could not open" & vbCrLf) : Catch : End Try
-                iRelinkFailOut = iRelinkFailOut + 1
-                Continue For
-            End If
-
-            ' Clear read-only before save
-            Try
-                Dim oFa As System.IO.FileAttributes = System.IO.File.GetAttributes(sAsmNewPath)
-                If (oFa And System.IO.FileAttributes.ReadOnly) = System.IO.FileAttributes.ReadOnly Then
-                    System.IO.File.SetAttributes(sAsmNewPath, oFa And Not System.IO.FileAttributes.ReadOnly)
-                End If
-            Catch : End Try
-
-            ' Suppress iLogic event rules during this pass
-            Try : oAsmDoc.iLogicVb.EventRuleManager.DisableEventRules = True : Catch : End Try
-
-            Dim iRepOkAsm As Integer = 0
-            Dim iRepFailAsm As Integer = 0
-            Try
-                For Each oAsmFD As FileDescriptor In oAsmDoc.File.ReferencedFileDescriptors
-                    Dim sAsmRefFull As String = ""
-                    Try : sAsmRefFull = oAsmFD.FullFileName : Catch : Continue For : End Try
-                    If Trim(sAsmRefFull) = "" Then Continue For
-                    ' Strip DART tag if present (<DART ...>)
-                    If sAsmRefFull.Contains("<") Then
-                        sAsmRefFull = sAsmRefFull.Substring(0, sAsmRefFull.IndexOf("<"c)).Trim()
-                    End If
-                    If Not oRelinkMap.ContainsKey(sAsmRefFull) Then Continue For
-                    Dim sAsmNewRef As String = oRelinkMap(sAsmRefFull)
-                    If String.Compare(sAsmRefFull, sAsmNewRef, True) = 0 Then Continue For
-                    Try
-                        oAsmFD.ReplaceReference(sAsmNewRef)
-                        iRepOkAsm = iRepOkAsm + 1
-                        Try : System.IO.File.AppendAllText(sLogFilePath, "ASMRELINK-OK [" & sAsmFn & "]: " & System.IO.Path.GetFileName(sAsmRefFull) & " -> " & System.IO.Path.GetFileName(sAsmNewRef) & vbCrLf) : Catch : End Try
-                    Catch exAsmFD As Exception
-                        ' E_INVALIDARG (0x80070057) = Content Centre / locked descriptor — safe skip
-                        If exAsmFD.HResult = &H80070057 Then
-                            Try : System.IO.File.AppendAllText(sLogFilePath, "ASMRELINK-SKIP-CC [" & sAsmFn & "]: " & System.IO.Path.GetFileName(sAsmRefFull) & vbCrLf) : Catch : End Try
-                        Else
-                            iRepFailAsm = iRepFailAsm + 1
-                            Try : System.IO.File.AppendAllText(sLogFilePath, "ASMRELINK-FAIL [" & sAsmFn & "]: FD " & System.IO.Path.GetFileName(sAsmRefFull) & " — " & exAsmFD.Message & vbCrLf) : Catch : End Try
-                        End If
-                    End Try
-                Next
-            Catch exFDLoop As Exception
-                iRepFailAsm = iRepFailAsm + 1
-                Try : System.IO.File.AppendAllText(sLogFilePath, "ASMRELINK-FAIL [" & sAsmFn & "]: FD loop — " & exFDLoop.Message & vbCrLf) : Catch : End Try
-            End Try
-
-            If iRepOkAsm = 0 AndAlso iRepFailAsm = 0 Then
-                iRelinkSkipOut = iRelinkSkipOut + 1
-                Try : System.IO.File.AppendAllText(sLogFilePath, "ASMRELINK-SKIP [" & sAsmFn & "]: no matching refs" & vbCrLf) : Catch : End Try
-            ElseIf iRepFailAsm > 0 Then
-                iRelinkFailOut = iRelinkFailOut + 1
-            End If
-
-            ' Save if any refs were replaced successfully
-            If iRepOkAsm > 0 Then
-                Try
-                    oAsmDoc.Save2(False)
-                    iRelinkOkOut = iRelinkOkOut + 1
-                    Try : System.IO.File.AppendAllText(sLogFilePath, "ASMRELINK-SAVE-OK: " & sAsmFn & vbCrLf) : Catch : End Try
-                Catch exAsmSave As Exception
-                    iRelinkFailOut = iRelinkFailOut + 1
-                    Try : System.IO.File.AppendAllText(sLogFilePath, "ASMRELINK-FAIL [" & sAsmFn & "]: save failed — " & exAsmSave.Message & vbCrLf) : Catch : End Try
-                End Try
-            End If
-
-        Catch exOuter As Exception
-            iRelinkFailOut = iRelinkFailOut + 1
-            Try : System.IO.File.AppendAllText(sLogFilePath, "ASMRELINK-FAIL [" & sAsmFn & "]: outer — " & exOuter.Message & vbCrLf) : Catch : End Try
-        Finally
-            If oAsmDoc IsNot Nothing Then
-                ' Re-enable event rules before closing
-                Try : oAsmDoc.iLogicVb.EventRuleManager.DisableEventRules = False : Catch : End Try
-                If bOpenedHere Then
-                    Try : oAsmDoc.Close(True) : Catch : End Try
-                End If
-            End If
-        End Try
-    Next
 
 End Sub
 
