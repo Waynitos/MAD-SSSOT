@@ -3263,10 +3263,13 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument, Optional oPresetModelRenameMa
     Dim oRenameMap As New System.Collections.Generic.Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase)
     For Each kvp As System.Collections.Generic.KeyValuePair(Of String, String) In oFormChoice.oExplicitModelRenameMap
         Dim sOldBase As String = kvp.Key        ' no extension
-        Dim sNewBase As String = kvp.Value      ' no extension
+        ' Defensively strip extension — user may have typed ".iam" in the form field.
+        ' Extension is always taken from the original file so it is never doubled.
+        Dim sNewBase As String = System.IO.Path.GetFileNameWithoutExtension(kvp.Value)
+        If sNewBase = "" Then sNewBase = System.IO.Path.GetFileNameWithoutExtension(kvp.Key)
         If Not oBasenameToFullPath.ContainsKey(sOldBase) Then Continue For
         Dim sOldFull As String = oBasenameToFullPath(sOldBase)
-        Dim sExt2 As String = System.IO.Path.GetExtension(sOldFull)
+        Dim sExt2 As String = System.IO.Path.GetExtension(sOldFull)   ' always from original
         Dim sNewFull As String = System.IO.Path.Combine(sTargetFolder, sNewBase & sExt2)
         oRenameMap(sOldFull) = sNewFull
         Try : System.IO.File.AppendAllText(sLogFilePath, "MAP: " & sOldBase & sExt2 & " -> " & sNewBase & sExt2 & vbCrLf) : Catch : End Try
@@ -4710,6 +4713,11 @@ Function ShowDrawingModelRenameForm( _
         ' of what's in the text field — no renaming, just copy to new location.
         Dim sNewBase As String = If(bApplyNames, Trim(kvp.Value.Text), sOldBase)
         If sNewBase = "" Then sNewBase = sOldBase   ' blank → keep original
+        ' Strip any extension the user may have typed (e.g. ".iam") — the copy step
+        ' always preserves the original file's extension, so storing a bare stem here
+        ' prevents double-extension filenames like PJ00205-3450-001-V01-00.iam.iam.
+        sNewBase = System.IO.Path.GetFileNameWithoutExtension(sNewBase)
+        If sNewBase = "" Then sNewBase = System.IO.Path.GetFileNameWithoutExtension(sOldBase)
         oChoice.oExplicitModelRenameMap(sOldBase) = sNewBase
     Next
 
