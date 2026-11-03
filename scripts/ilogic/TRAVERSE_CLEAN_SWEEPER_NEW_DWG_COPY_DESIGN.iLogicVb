@@ -4439,14 +4439,13 @@ Function ShowGaSelectionDialog( _
 
     oForm.Height = iFootTop + 60
 
-    ' Enable OK when any radio is selected
+    ' Enable OK when any radio is selected.
+    ' NOTE: For Each inside a lambda is not supported by the iLogic compiler —
+    '       use the sender directly instead. RadioButtons are mutually exclusive,
+    '       so OK fires enabled on the first Checked=True and stays enabled.
     For Each oRad As Object In oRadios
         AddHandler CType(oRad, System.Windows.Forms.RadioButton).CheckedChanged, Sub(s, e)
-            Dim bAny As Boolean = False
-            For Each oR As Object In oRadios
-                If CType(oR, System.Windows.Forms.RadioButton).Checked Then bAny = True
-            Next
-            oOk.Enabled = bAny
+            If CType(s, System.Windows.Forms.RadioButton).Checked Then oOk.Enabled = True
         End Sub
     Next
 
