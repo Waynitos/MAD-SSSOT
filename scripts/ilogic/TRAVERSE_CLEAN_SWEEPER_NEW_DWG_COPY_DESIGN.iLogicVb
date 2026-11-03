@@ -2,7 +2,7 @@
 ' TRAVERSE_Through_Main_ASM_Relplcae_Old_Subs_With_New_Subs
 ' iLogic Rule: Rename & Replace Parts AND Sub-Assemblies (Recursive)
 ' + Derived Source Parts
-' Last updated: 2026-11-04 (Mode 6 Phase 3: RunAssemblyRelinkPass — GA tree relink before drawings)
+' Last updated: 2026-11-04 (Mode 6: DisableEventRules suppressed from function entry — no more Working Drawing Stamp dialogs)
 ' (run from inside an ASSEMBLY)
 '
 ' TWO MODES, chosen via a form at the start (see WHY TWO MODES below):
@@ -2467,6 +2467,15 @@ Function ShowDrawingSelectionForm( _
     ' --- determine which drawings have matching refs (for pre-tick) ---
     ' A drawing is pre-ticked only if it was in Phase 0 AND has at least one
     ' reference in oRenameMap. Drawings outside Phase 0 are shown greyed/unticked.
+    '
+    ' Disable event-driven rules at APPLICATION level before ANY Documents.Open.
+    ' Event-driven rules (e.g. "Working Drawing Stamp") fire DURING Documents.Open —
+    ' setting DisableEventRules on the doc after open is too late and produces a
+    ' modal error dialog that blocks the rule and hides behind other windows.
+    ' Application-level disable prevents ALL iLogic event rules from firing across
+    ' all documents until we restore it. Restored after the scan loop below.
+    Try : ThisApplication.iLogicVb.EventRuleManager.DisableEventRules = True : Catch : End Try
+
     Dim oHasMatch As New System.Collections.Generic.HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
     If oRenameMap IsNot Nothing Then
         For Each sIdw As String In oIdwFiles
@@ -2490,8 +2499,6 @@ Function ShowDrawingSelectionForm( _
                     End Try
                 End If
                 If oDwgDoc IsNot Nothing Then
-                    ' Suppress event-driven rules (e.g. Working Drawing Stamp) during scan
-                    Try : oDwgDoc.iLogicVb.EventRuleManager.DisableEventRules = True : Catch : End Try
                     For Each oRef As Document In oDwgDoc.ReferencedDocuments
                         Dim sRefPath As String = ""
                         Try : sRefPath = oRef.FullDocumentName : Catch : Continue For : End Try
@@ -2507,6 +2514,9 @@ Function ShowDrawingSelectionForm( _
             End Try
         Next
     End If
+    ' Restore event rules after the scan loop — form dialogs (the drawing selection form
+    ' shown next) must not suppress event rules; only document-open phases need the guard.
+    Try : ThisApplication.iLogicVb.EventRuleManager.DisableEventRules = False : Catch : End Try
 
     ' --- build form ---
     Dim oForm As New System.Windows.Forms.Form()
@@ -2877,6 +2887,12 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument, Optional oPresetModelRenameMa
     End Try
 
     Dim bOrigSilent As Boolean = ThisApplication.SilentOperation
+    ' Suppress iLogic event-driven rules (e.g. "Working Drawing Stamp") for the entire
+    ' RunDrawingCopyMode run — sibling drawings opened in Phase 1 scan fire event rules
+    ' before SilentOperation has any effect. Restored at every exit point below.
+    Dim bOrigEventRules As Boolean = False
+    Try : bOrigEventRules = ThisApplication.iLogicVb.EventRuleManager.DisableEventRules : Catch : End Try
+    Try : ThisApplication.iLogicVb.EventRuleManager.DisableEventRules = True : Catch : End Try
     ThisApplication.SilentOperation = False  ' keep dialogs visible
 
     ' ── 1. Scan ALL drawings in folder for model references ────────────
@@ -2941,6 +2957,7 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument, Optional oPresetModelRenameMa
             Next
         Catch exRef2 As Exception
             MessageBox.Show("Could not read active drawing references: " & exRef2.Message, "Drawing Copy Mode Error")
+            Try : ThisApplication.iLogicVb.EventRuleManager.DisableEventRules = bOrigEventRules : Catch : End Try
             ThisApplication.SilentOperation = bOrigSilent
             Return
         End Try
@@ -2970,6 +2987,7 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument, Optional oPresetModelRenameMa
             "Active drawing: " & System.IO.Path.GetFileName(sActiveDwgPath)
         MessageBox.Show(sGuardMsg, "Drawing Copy Mode — Wrong Starting Drawing", MessageBoxButtons.OK, MessageBoxIcon.Warning)
         Try : System.IO.File.AppendAllText(sLogFilePath, "GUARD-FAIL: no .iam ref in active drawing — user directed to GA drawing." & vbCrLf) : Catch : End Try
+        Try : ThisApplication.iLogicVb.EventRuleManager.DisableEventRules = bOrigEventRules : Catch : End Try
         ThisApplication.SilentOperation = bOrigSilent
         Return
     End If
@@ -2999,6 +3017,7 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument, Optional oPresetModelRenameMa
         If Trim(sSelectedGaPath) = "" Then
             ' User cancelled without selecting
             Try : System.IO.File.AppendAllText(sLogFilePath, "GA-CANCEL: user cancelled principal GA selection — rule aborted." & vbCrLf) : Catch : End Try
+            Try : ThisApplication.iLogicVb.EventRuleManager.DisableEventRules = bOrigEventRules : Catch : End Try
             ThisApplication.SilentOperation = bOrigSilent
             Return
         End If
@@ -3164,6 +3183,7 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument, Optional oPresetModelRenameMa
 
     If oAllModelPaths.Count = 0 Then
         MessageBox.Show("No .iam or .ipt model references found in any drawing in this folder.", "Drawing Copy Mode")
+        Try : ThisApplication.iLogicVb.EventRuleManager.DisableEventRules = bOrigEventRules : Catch : End Try
         ThisApplication.SilentOperation = bOrigSilent
         Return
     End If
@@ -3211,6 +3231,7 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument, Optional oPresetModelRenameMa
     If System.IO.Directory.Exists(sSeedFolder) Then oFbd.SelectedPath = sSeedFolder
     If oFbd.ShowDialog() <> DialogResult.OK Then
         MessageBox.Show("Cancelled — no changes made.", "Drawing Copy Mode")
+        Try : ThisApplication.iLogicVb.EventRuleManager.DisableEventRules = bOrigEventRules : Catch : End Try
         ThisApplication.SilentOperation = bOrigSilent
         Return
     End If
@@ -3220,6 +3241,7 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument, Optional oPresetModelRenameMa
             System.IO.Directory.CreateDirectory(sTargetFolder)
         Catch exMk As Exception
             MessageBox.Show("Could not create target folder: " & exMk.Message, "Drawing Copy Mode")
+            Try : ThisApplication.iLogicVb.EventRuleManager.DisableEventRules = bOrigEventRules : Catch : End Try
             ThisApplication.SilentOperation = bOrigSilent
             Return
         End Try
@@ -3349,12 +3371,14 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument, Optional oPresetModelRenameMa
 
     If oCfgForm.ShowDialog() <> System.Windows.Forms.DialogResult.OK Then
         MessageBox.Show("Cancelled — no changes made.", "Drawing Copy Mode")
+        Try : ThisApplication.iLogicVb.EventRuleManager.DisableEventRules = bOrigEventRules : Catch : End Try
         ThisApplication.SilentOperation = bOrigSilent
         Return
     End If
     sNewPrefix = Trim(oCfgTxt.Text)
     If sNewPrefix = "" Then
         MessageBox.Show("New prefix cannot be empty.", "Drawing Copy Mode")
+        Try : ThisApplication.iLogicVb.EventRuleManager.DisableEventRules = bOrigEventRules : Catch : End Try
         ThisApplication.SilentOperation = bOrigSilent
         Return
     End If
@@ -3401,6 +3425,7 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument, Optional oPresetModelRenameMa
 
     If Not ShowDrawingModelRenameForm(oFormChoice, oPhase0Data) Then
         MessageBox.Show("Cancelled — no changes made.", "Drawing Copy Mode")
+        Try : ThisApplication.iLogicVb.EventRuleManager.DisableEventRules = bOrigEventRules : Catch : End Try
         ThisApplication.SilentOperation = bOrigSilent
         Return
     End If
@@ -3423,6 +3448,7 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument, Optional oPresetModelRenameMa
 
     If oRenameMap.Count = 0 Then
         MessageBox.Show("No rename entries — nothing to do.", "Drawing Copy Mode")
+        Try : ThisApplication.iLogicVb.EventRuleManager.DisableEventRules = bOrigEventRules : Catch : End Try
         ThisApplication.SilentOperation = bOrigSilent
         Return
     End If
@@ -3474,6 +3500,7 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument, Optional oPresetModelRenameMa
 
     If oCopiedPairs.Count = 0 Then
         MessageBox.Show("No model copies were made or found — nothing to replace." & vbCrLf & "Check log: " & sLogFilePath, "Drawing Copy Mode")
+        Try : ThisApplication.iLogicVb.EventRuleManager.DisableEventRules = bOrigEventRules : Catch : End Try
         ThisApplication.SilentOperation = bOrigSilent
         Return
     End If
@@ -3485,6 +3512,7 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument, Optional oPresetModelRenameMa
     ' is simply "delete the target folder".
     If iCopyFail > 0 Then
         Try : System.IO.File.AppendAllText(sLogFilePath, "ABORT: " & iCopyFail & " copy failure(s) — assembly relink and drawing update skipped." & vbCrLf) : Catch : End Try
+        Try : ThisApplication.iLogicVb.EventRuleManager.DisableEventRules = bOrigEventRules : Catch : End Try
         ThisApplication.SilentOperation = bOrigSilent
         MessageBox.Show("COPY FAILED: " & iCopyFail & " file(s) could not be copied." & vbCrLf & vbCrLf & _
             "Assembly relink and drawing update ABORTED — no originals were modified." & vbCrLf & _
@@ -3510,6 +3538,9 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument, Optional oPresetModelRenameMa
     '   - Active drawing: use ThisDoc.Document directly (already open, no close)
     '   - Sibling: check if open; if not open silently, replace, save, close
     ' FileDescriptor.ReplaceReference(newPath) works by path — no model doc needed.
+    '
+    ' Event-driven rules already disabled at function entry (before Phase 1 scan).
+    ' Re-enable SilentOperation for the drawing replace phase to suppress unneeded prompts.
     ThisApplication.SilentOperation = True
     Dim iDwgOkCM As Integer = 0
     Dim iDwgFailCM As Integer = 0
@@ -3621,6 +3652,7 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument, Optional oPresetModelRenameMa
             Try : oRepDoc.Close(True) : Catch : End Try
         End If
     Next
+    Try : ThisApplication.iLogicVb.EventRuleManager.DisableEventRules = bOrigEventRules : Catch : End Try
     ThisApplication.SilentOperation = bOrigSilent
 
     ' ── 6. Summary ──────────────────────────────────────────────────────
