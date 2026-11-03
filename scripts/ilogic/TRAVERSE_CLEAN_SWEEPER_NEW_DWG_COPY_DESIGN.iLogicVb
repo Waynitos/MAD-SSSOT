@@ -2,7 +2,7 @@
 ' TRAVERSE_Through_Main_ASM_Relplcae_Old_Subs_With_New_Subs
 ' iLogic Rule: Rename & Replace Parts AND Sub-Assemblies (Recursive)
 ' + Derived Source Parts
-' Last updated: 2026-11-04 (Mode 6: DisableEventRules suppressed from function entry — no more Working Drawing Stamp dialogs)
+' Last updated: 2026-11-04 (Fix: Phase 2 reuses identical file from prior pass instead of _Duplicate; ScanPrefixes PJ#####-only guard; Phase 4 oNameToNew built from oRenameMap actuals)
 ' (run from inside an ASSEMBLY)
 '
 ' TWO MODES, chosen via a form at the start (see WHY TWO MODES below):
@@ -1317,7 +1317,19 @@ Mode2Phase2:
                         Dim sNewName As String = System.IO.Path.GetFileName(sNewFull)
                         Try
                             ' If the target already exists and is not the same file as the source,
-                            ' do not reuse it. Take the next free sequence number instead.
+                            ' check whether a previous pass (e.g. Mode 6 DrawingCopyMode) already
+                            ' copied this exact file there.  If the content appears identical, reuse
+                            ' the existing copy — do NOT generate a _Duplicate name.  A _Duplicate
+                            ' would propagate into the assembly tree as a spurious new occurrence.
+                            If System.IO.File.Exists(sNewFull) AndAlso String.Compare(sOldFull, sNewFull, True) <> 0 Then
+                                If FilesAppearIdentical(sOldFull, sNewFull) Then
+                                    ' Already correctly placed by a prior phase — reuse it.
+                                    oRenameMap(sOldFull) = sNewFull
+                                    iAlreadyThere += 1
+                                    Try : System.IO.File.AppendAllText(sLogFilePath, "REUSE (already placed by prior phase): " & sOldName & " -> " & sNewName & vbCrLf) : Catch : End Try
+                                    Continue For
+                                End If
+                            End If
                             If System.IO.File.Exists(sNewFull) AndAlso String.Compare(sOldFull, sNewFull, True) <> 0 Then
                                 Dim sDestDir2 As String = System.IO.Path.GetDirectoryName(sNewFull)
                                 Dim sBase2 As String = System.IO.Path.GetFileNameWithoutExtension(sNewFull)
@@ -1600,8 +1612,11 @@ Mode2Phase2:
                     ' O(1) filename fallback map - ONLY true renames (old filename <> new filename).
                     ' No-op / same-name entries (e.g. non-std parts that kept their descriptive name)
                     ' are excluded so Phase 4 does not attempt useless ReplaceReference calls.
+                    ' IMPORTANT: built from oRenameMap (Phase 2 actuals) NOT oMode2Map (Phase 1 plan),
+                    ' so Phase 4 targets the files that were actually placed on disk — including any
+                    ' that were reused from a prior pass (e.g. Mode 6 DrawingCopyMode copies).
                     Dim oNameToNew As New System.Collections.Generic.Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase)
-                    For Each kvpM As System.Collections.Generic.KeyValuePair(Of String, String) In oMode2Map
+                    For Each kvpM As System.Collections.Generic.KeyValuePair(Of String, String) In oRenameMap
                         Dim sOldFn As String = System.IO.Path.GetFileName(kvpM.Key)
                         Dim sNewFn As String = System.IO.Path.GetFileName(kvpM.Value)
                         If String.Compare(sOldFn, sNewFn, True) = 0 Then Continue For   ' same name - skip
@@ -11198,6 +11213,11 @@ Function ScanPrefixes(oAsmDoc As AssemblyDocument) As System.Collections.Generic
         End If
 
         If sToken.Length < 2 Then Continue For
+        ' GUARD: only accept real project-code prefixes (PJ + exactly 5 digits).
+        ' Without this, product-description filenames like "PARKER MALE TAPER THREAD 1"
+        ' or "PJ00205 DN400 SLIP ON FLANGE" are extracted as prefix tokens and cause
+        ' catastrophic renames (e.g. "Parker Male Taper Thread 1_2.ipt" → "PJ00205_2.ipt").
+        If Not System.Text.RegularExpressions.Regex.IsMatch(sToken, "^PJ\d{5}$") Then Continue For
 
         If Not oTokenFiles.ContainsKey(sToken) Then
             oTokenFiles(sToken) = New System.Collections.Generic.HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
