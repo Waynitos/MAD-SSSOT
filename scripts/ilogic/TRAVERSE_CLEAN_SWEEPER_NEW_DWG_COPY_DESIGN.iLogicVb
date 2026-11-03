@@ -2490,6 +2490,8 @@ Function ShowDrawingSelectionForm( _
                     End Try
                 End If
                 If oDwgDoc IsNot Nothing Then
+                    ' Suppress event-driven rules (e.g. Working Drawing Stamp) during scan
+                    Try : oDwgDoc.iLogicVb.EventRuleManager.DisableEventRules = True : Catch : End Try
                     For Each oRef As Document In oDwgDoc.ReferencedDocuments
                         Dim sRefPath As String = ""
                         Try : sRefPath = oRef.FullDocumentName : Catch : Continue For : End Try
@@ -3589,6 +3591,10 @@ Sub RunDrawingUpdatePass( _
                 Continue For
             End If
 
+            ' Suppress event-driven rules (e.g. Working Drawing Stamp) for the
+            ' duration of this pass — prevents missing-rule dialogs from blocking the run.
+            Try : oDrawDoc.iLogicVb.EventRuleManager.DisableEventRules = True : Catch : End Try
+
             ' --- Phase A: collect which refs need updating ---
             ' Build a list of (oldDoc, newPath) pairs from oRenameMap
             Dim oSwaps As New System.Collections.Generic.List(Of Object())  ' {oldDoc, newFullPath}
@@ -3728,6 +3734,10 @@ Sub RunDrawingUpdatePass( _
             sLog = sLog & vbCrLf & "DRAW-OPEN-FAIL: " & System.IO.Path.GetFileName(sDrawPath) & " : " & exOuter.Message
             Try : System.IO.File.AppendAllText(sLogFilePath, "DRAW-OPEN-FAIL: " & sDrawPath & " : " & exOuter.Message & vbCrLf) : Catch : End Try
         Finally
+            ' Re-enable event-driven rules before closing (restores document state cleanly)
+            If oDrawDoc IsNot Nothing Then
+                Try : oDrawDoc.iLogicVb.EventRuleManager.DisableEventRules = False : Catch : End Try
+            End If
             ' Always close the drawing after processing - it's not part of the model tree
             If oDrawDoc IsNot Nothing Then
                 Try : oDrawDoc.Close(False) : Catch : End Try
