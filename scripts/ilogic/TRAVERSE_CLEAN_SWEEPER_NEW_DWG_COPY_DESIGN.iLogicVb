@@ -2760,7 +2760,7 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument, Optional oPresetModelRenameMa
     ' omits DART SHUT refs; descriptors return them all.
     Dim oScanRefs As New System.Collections.Generic.List(Of String)
     Try
-        For Each oDesc As ReferencedDocumentDescriptor In oDwgDoc.ReferencedDocumentDescriptors
+        For Each oDesc As Object In oDwgDoc.ReferencedDocumentDescriptors
             Dim sRefPath As String = ""
             Try : sRefPath = oDesc.FullDocumentName : Catch : Continue For : End Try
             ' Strip any DART state tag, e.g. "path.iam<DART SHUT>" → "path.iam"
@@ -2935,7 +2935,7 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument, Optional oPresetModelRenameMa
         Dim oSibRefs As New System.Collections.Generic.List(Of String)
         Try
             ' Use ReferencedDocumentDescriptors to catch DART SHUT refs
-            For Each oSibDesc As ReferencedDocumentDescriptor In oSibDwg.ReferencedDocumentDescriptors
+            For Each oSibDesc As Object In oSibDwg.ReferencedDocumentDescriptors
                 Dim sSibRefPath As String = ""
                 Try : sSibRefPath = oSibDesc.FullDocumentName : Catch : Continue For : End Try
                 Dim iSibAngle As Integer = sSibRefPath.IndexOf("<"c)
