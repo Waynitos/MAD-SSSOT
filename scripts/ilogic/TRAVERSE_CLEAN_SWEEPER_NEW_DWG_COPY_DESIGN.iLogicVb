@@ -4374,7 +4374,7 @@ Function ShowDrawingModelRenameForm( _
     oForm.Controls.Add(oLblColOld)
 
     Dim oLblColNew As New Label()
-    oLblColNew.Text = "NEW model name (editable — grey = unchanged, click to rename)"
+    oLblColNew.Text = "NEW model name (editable)"
     oLblColNew.Left = iHdrNewLeft : oLblColNew.Top = 30 : oLblColNew.Width = iNewW
     oForm.Controls.Add(oLblColNew)
 
@@ -4492,22 +4492,9 @@ Function ShowDrawingModelRenameForm( _
                 oTxtNew.Left = iTxtLeft : oTxtNew.Top = iMY : oTxtNew.Width = iTxtW
                 oTxtNew.Text = sPreFilled
                 oTxtNew.Tag = sModelBasename
-                ' If the name isn't changing, shade the field grey as a visual hint —
-                ' but keep it EDITABLE so the user can override it.
-                ' (Previously ReadOnly = True here, which blocked intentional renaming.)
-                Dim sOrigFilled As String = sPreFilled
-                If String.Compare(sPreFilled, sModelBasename, True) = 0 Then
-                    oTxtNew.BackColor = System.Drawing.Color.FromArgb(220, 220, 220)
-                End If
-                ' Clear the grey background as soon as the user edits the field
-                Dim oTxtRef2 As System.Windows.Forms.TextBox = oTxtNew
-                AddHandler oTxtNew.TextChanged, Sub(s2, e2)
-                    If String.Compare(oTxtRef2.Text, sOrigFilled, True) <> 0 Then
-                        oTxtRef2.BackColor = System.Drawing.SystemColors.Window
-                    Else
-                        oTxtRef2.BackColor = System.Drawing.Color.FromArgb(220, 220, 220)
-                    End If
-                End Sub
+                ' All new-name fields are always editable — no locking, no grey.
+                ' User can rename any model regardless of whether the auto-detected
+                ' name is identical to the old name (e.g. to rename GA-direct subs).
                 oModelBorder.Controls.Add(oTxtNew)
                 oMasterTxtMap(sModelBasename) = oTxtNew
             End If
