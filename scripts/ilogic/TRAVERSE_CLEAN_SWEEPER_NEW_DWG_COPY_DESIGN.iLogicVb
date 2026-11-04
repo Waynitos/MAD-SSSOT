@@ -3502,6 +3502,56 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument, Optional oPresetModelRenameMa
         Try : System.IO.File.AppendAllText(sLogFilePath, "MAP: " & sOldBase & sExt2 & " -> " & sNewBase & sExt2 & vbCrLf) : Catch : End Try
     Next
 
+    ' ── CATCH-ALL: drawing refs not covered by preset/form map ────────────────
+    ' The preset map and Phase-A auto-detect cover the main GA tree.  But drawings
+    ' commonly reference ancillary files that are NOT in the GA:
+    '   • Transport / shipping assembly variants
+    '   • Parts borrowed from other projects (PJ00141, PJ00165, …)
+    '   • Mirror parts, detail parts placed only on a drawing sheet
+    ' Without this sweep, those drawing refs are SILENTLY left pointing at the
+    ' old file location — the copied drawing breaks when opened.
+    '
+    ' Logic: for every file in oAllModelPaths (all drawing refs across all drawings)
+    ' that is NOT already covered by oRenameMap:
+    '   1. Confirm the source file exists on disk (can't copy what isn't there).
+    '   2. Derive a target name: apply prefix swap if the file starts with the
+    '      detected old prefix; otherwise keep the original filename.
+    '   3. Add old-full-path → new-full-path to oRenameMap so the normal copy
+    '      phase and Phase 3 drawing FD rewrite handle it automatically.
+    ' ────────────────────────────────────────────────────────────────────────────
+    Dim iAncillaryAdded As Integer = 0
+    Dim iAncillaryMissing As Integer = 0
+    For Each sAncPath As String In oAllModelPaths
+        ' Already handled by preset / form map?
+        If oRenameMap.ContainsKey(sAncPath) Then Continue For
+        ' Source must exist on disk — DART SHUT refs may point at checked-in files
+        If Not System.IO.File.Exists(sAncPath) Then
+            iAncillaryMissing += 1
+            Try : System.IO.File.AppendAllText(sLogFilePath, "ANCILLARY-MISSING: " & System.IO.Path.GetFileName(sAncPath) & " — not on disk, skipped" & vbCrLf) : Catch : End Try
+            Continue For
+        End If
+        ' Derive target filename: apply prefix swap when possible, else keep name
+        Dim sAncBase As String = System.IO.Path.GetFileNameWithoutExtension(sAncPath)
+        Dim sAncExt As String = System.IO.Path.GetExtension(sAncPath)
+        Dim sAncNewBase As String = sAncBase
+        If oOldPrefix <> "" AndAlso sNewPrefix <> "" Then
+            If sAncNewBase.StartsWith(oOldPrefix & "-", StringComparison.OrdinalIgnoreCase) Then
+                sAncNewBase = sNewPrefix & sAncNewBase.Substring(oOldPrefix.Length)
+            ElseIf sAncNewBase.StartsWith(oOldPrefix & "_", StringComparison.OrdinalIgnoreCase) Then
+                sAncNewBase = sNewPrefix & "-" & sAncNewBase.Substring(oOldPrefix.Length + 1)
+            End If
+        End If
+        Dim sAncTarget As String = System.IO.Path.Combine(sTargetFolder, sAncNewBase & sAncExt)
+        ' Don't add a no-op (file is already in target folder with same name)
+        If String.Compare(sAncPath, sAncTarget, True) = 0 Then Continue For
+        oRenameMap(sAncPath) = sAncTarget
+        iAncillaryAdded += 1
+        Try : System.IO.File.AppendAllText(sLogFilePath, "ANCILLARY-ADD: " & System.IO.Path.GetFileName(sAncPath) & " → " & System.IO.Path.GetFileName(sAncTarget) & vbCrLf) : Catch : End Try
+    Next
+    If iAncillaryAdded > 0 Then
+        Try : System.IO.File.AppendAllText(sLogFilePath, "ANCILLARY-SWEEP: " & iAncillaryAdded & " file(s) added to copy map (not in preset/form; drawing ref will be updated), " & iAncillaryMissing & " not on disk." & vbCrLf) : Catch : End Try
+    End If
+
     If oRenameMap.Count = 0 Then
         MessageBox.Show("No rename entries — nothing to do.", "Drawing Copy Mode")
         Try : ThisApplication.iLogicVb.EventRuleManager.DisableEventRules = bOrigEventRules : Catch : End Try
@@ -3673,18 +3723,52 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument, Optional oPresetModelRenameMa
         Next
     End If
     If oStillOrphans.Count > 0 Then
-        sbValMsg.AppendLine()
-        sbValMsg.AppendLine("⚠ WARNING — UNRESOLVED ORPHANS (" & oStillOrphans.Count & "):")
-        sbValMsg.AppendLine("  These files are referenced by drawings but NOT found in the GA")
-        sbValMsg.AppendLine("  tree and no stem match could be found to auto-resolve them.")
-        sbValMsg.AppendLine("  Copying them will create files the GA never loads.")
-        sbValMsg.AppendLine()
+        ' Partition: orphans that ARE in the catch-all sweep (will be copied ok) vs
+        ' those NOT on disk at all (genuine problem).
+        Dim oAncillaryOk As New System.Collections.Generic.List(Of String)
+        Dim oTrueOrphans As New System.Collections.Generic.List(Of String)
         For Each sOrph As String In oStillOrphans
-            sbValMsg.AppendLine("   ⚠ " & sOrph)
+            ' Find the full path for this orphan basename
+            Dim sOrphFull As String = ""
+            For Each sAncCand As String In oAllModelPaths
+                If System.IO.Path.GetFileNameWithoutExtension(sAncCand).Equals(sOrph, StringComparison.OrdinalIgnoreCase) Then
+                    sOrphFull = sAncCand : Exit For
+                End If
+            Next
+            Dim bInRenameMap As Boolean = sOrphFull <> "" AndAlso oRenameMap.ContainsKey(sOrphFull)
+            If bInRenameMap Then
+                oAncillaryOk.Add(sOrph)
+            Else
+                oTrueOrphans.Add(sOrph)
+            End If
         Next
-        sbValMsg.AppendLine()
-        sbValMsg.AppendLine("Continue anyway (unresolved orphans will be copied but won't")
-        sbValMsg.AppendLine("appear in the GA), or Cancel to investigate?")
+
+        If oAncillaryOk.Count > 0 Then
+            sbValMsg.AppendLine()
+            sbValMsg.AppendLine("ℹ ANCILLARY — not in GA, copied independently (" & oAncillaryOk.Count & "):")
+            sbValMsg.AppendLine("  These files are referenced by drawings but are NOT in the GA tree.")
+            sbValMsg.AppendLine("  This is normal for transport variants, borrowed parts from other")
+            sbValMsg.AppendLine("  projects, mirror parts, etc.  They will be copied to the target")
+            sbValMsg.AppendLine("  folder and all drawing refs will be updated automatically.")
+            sbValMsg.AppendLine()
+            For Each sAnc As String In oAncillaryOk
+                sbValMsg.AppendLine("   ℹ " & sAnc)
+            Next
+        End If
+
+        If oTrueOrphans.Count > 0 Then
+            sbValMsg.AppendLine()
+            sbValMsg.AppendLine("⚠ WARNING — NOT ON DISK (" & oTrueOrphans.Count & "):")
+            sbValMsg.AppendLine("  These files are referenced by drawings but cannot be found on")
+            sbValMsg.AppendLine("  disk.  They cannot be copied — drawing refs to them will remain")
+            sbValMsg.AppendLine("  pointing at the original (possibly Vault checked-in) location.")
+            sbValMsg.AppendLine()
+            For Each sTrueOrph As String In oTrueOrphans
+                sbValMsg.AppendLine("   ⚠ " & sTrueOrph)
+            Next
+            sbValMsg.AppendLine()
+            sbValMsg.AppendLine("Continue anyway, or Cancel to investigate?")
+        End If
     Else
         If oGaAllBasenames.Count > 0 Then
             Dim sResolvedNote As String = If(oAutoResolved.Count > 0, " (" & oAutoResolved.Count & " auto-resolved from WIP)", "")
@@ -3695,11 +3779,15 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument, Optional oPresetModelRenameMa
     End If
 
     Dim oValResult As System.Windows.Forms.DialogResult
-    If oStillOrphans.Count > 0 Then
-        oValResult = MessageBox.Show(sbValMsg.ToString(), "GA Validation — Orphan Warning", _
+    ' Only block with Cancel when files are genuinely NOT on disk — those can't be copied.
+    ' Ancillary files (covered by the catch-all sweep) are fine to proceed without Cancel.
+    Dim bHasTrueOrphans As Boolean = False
+    Try : bHasTrueOrphans = (oTrueOrphans IsNot Nothing AndAlso oTrueOrphans.Count > 0) : Catch : End Try
+    If bHasTrueOrphans Then
+        oValResult = MessageBox.Show(sbValMsg.ToString(), "GA Validation — Files Not On Disk", _
             System.Windows.Forms.MessageBoxButtons.OKCancel, System.Windows.Forms.MessageBoxIcon.Warning)
         If oValResult = System.Windows.Forms.DialogResult.Cancel Then
-            MessageBox.Show("Cancelled — no files copied.  Open the GA assembly and run the rule from it to use the GA-driven rename path.", "Drawing Copy Mode")
+            MessageBox.Show("Cancelled — no files copied.", "Drawing Copy Mode")
             If Not bGaValidWasOpen AndAlso oGaValidDoc IsNot Nothing Then
                 Try : oGaValidDoc.Close(False) : Catch : End Try
             End If
@@ -3707,6 +3795,10 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument, Optional oPresetModelRenameMa
             ThisApplication.SilentOperation = bOrigSilent
             Return
         End If
+    ElseIf oStillOrphans.Count > 0 Then
+        ' Ancillary files only — info popup, no Cancel needed
+        MessageBox.Show(sbValMsg.ToString(), "GA Validation — Ancillary Files (Safe to Proceed)", _
+            System.Windows.Forms.MessageBoxButtons.OK, System.Windows.Forms.MessageBoxIcon.Information)
     Else
         MessageBox.Show(sbValMsg.ToString(), "GA Validation — OK to Proceed", _
             System.Windows.Forms.MessageBoxButtons.OK, System.Windows.Forms.MessageBoxIcon.Information)
