@@ -3722,11 +3722,12 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument, Optional oPresetModelRenameMa
             sbValMsg.AppendLine(sRes)
         Next
     End If
+    ' Declare outside the If so the later Cancel check can see them
+    Dim oAncillaryOk As New System.Collections.Generic.List(Of String)
+    Dim oTrueOrphans As New System.Collections.Generic.List(Of String)
     If oStillOrphans.Count > 0 Then
         ' Partition: orphans that ARE in the catch-all sweep (will be copied ok) vs
         ' those NOT on disk at all (genuine problem).
-        Dim oAncillaryOk As New System.Collections.Generic.List(Of String)
-        Dim oTrueOrphans As New System.Collections.Generic.List(Of String)
         For Each sOrph As String In oStillOrphans
             ' Find the full path for this orphan basename
             Dim sOrphFull As String = ""
@@ -3782,7 +3783,7 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument, Optional oPresetModelRenameMa
     ' Only block with Cancel when files are genuinely NOT on disk — those can't be copied.
     ' Ancillary files (covered by the catch-all sweep) are fine to proceed without Cancel.
     Dim bHasTrueOrphans As Boolean = False
-    Try : bHasTrueOrphans = (oTrueOrphans IsNot Nothing AndAlso oTrueOrphans.Count > 0) : Catch : End Try
+    bHasTrueOrphans = (oTrueOrphans.Count > 0)
     If bHasTrueOrphans Then
         oValResult = MessageBox.Show(sbValMsg.ToString(), "GA Validation — Files Not On Disk", _
             System.Windows.Forms.MessageBoxButtons.OKCancel, System.Windows.Forms.MessageBoxIcon.Warning)
