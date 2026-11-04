@@ -3835,6 +3835,133 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument, Optional oPresetModelRenameMa
     Try : ThisApplication.iLogicVb.EventRuleManager.DisableEventRules = bOrigEventRules : Catch : End Try
     ThisApplication.SilentOperation = bOrigSilent
 
+    ' ── 5b. Internal reference rewrite (Phase 3-style, after drawing pass) ──
+    ' The copied GA / sub-assemblies can still point at the OLD children.
+    ' Open each NEW .iam in oRenameMap, walk File.ReferencedFileDescriptors and
+    ' ReplaceReference any old path found in oRenameMap with its new path.
+    ' Save the assembly only if something changed. Puts the Drawing-referenced
+    ' models into the new GA tree before the Full Clean Sweep prompt.
+    Dim iIntAsmSaved As Integer = 0
+    Dim iIntAsmFail As Integer = 0
+    Dim kvpInt As System.Collections.Generic.KeyValuePair(Of String, String)
+    Dim sIntAsmPath As String
+    Dim sIntAsmName As String
+    Dim oIntDoc As Object
+    Dim bIntOpened As Boolean
+    Dim iIntChanged As Integer
+    Dim oIntFD As Object
+    Dim sIntRefFull As String
+    Dim sIntTarget As String
+    Dim oIntAttrs As System.IO.FileAttributes
+    ThisApplication.SilentOperation = True
+    Try
+        ThisApplication.iLogicVb.EventRuleManager.DisableEventRules = True
+    Catch
+    End Try
+    Try
+        System.IO.File.AppendAllText(sLogFilePath, vbCrLf & "INTERNAL-REWRITE: starting (new .iam files in rename map)..." & vbCrLf)
+    Catch
+    End Try
+    For Each kvpInt In oRenameMap
+        sIntAsmPath = kvpInt.Value
+        If Not sIntAsmPath.EndsWith(".iam", StringComparison.OrdinalIgnoreCase) Then Continue For
+        sIntAsmName = System.IO.Path.GetFileName(sIntAsmPath)
+        If Not System.IO.File.Exists(sIntAsmPath) Then
+            iIntAsmFail = iIntAsmFail + 1
+            Try
+                System.IO.File.AppendAllText(sLogFilePath, "INTERNAL-FAIL: " & sIntAsmName & " : new file not found on disk" & vbCrLf)
+            Catch
+            End Try
+            Continue For
+        End If
+        oIntDoc = Nothing
+        bIntOpened = False
+        iIntChanged = 0
+        Try
+            oIntDoc = ThisApplication.Documents.ItemByName(sIntAsmPath)
+        Catch
+            oIntDoc = Nothing
+        End Try
+        Try
+            If oIntDoc Is Nothing Then
+                oIntDoc = ThisApplication.Documents.Open(sIntAsmPath, False)
+                bIntOpened = True
+            End If
+            For Each oIntFD In oIntDoc.File.ReferencedFileDescriptors
+                sIntRefFull = ""
+                Try
+                    sIntRefFull = CStr(oIntFD.FullFileName)
+                Catch
+                    sIntRefFull = ""
+                End Try
+                If sIntRefFull = "" Then Continue For
+                If Not oRenameMap.ContainsKey(sIntRefFull) Then Continue For
+                sIntTarget = oRenameMap(sIntRefFull)
+                If String.Compare(sIntRefFull, sIntTarget, True) = 0 Then Continue For
+                If Not System.IO.File.Exists(sIntTarget) Then
+                    Try
+                        System.IO.File.AppendAllText(sLogFilePath, "INTERNAL-FAIL: " & sIntAsmName & " : target missing " & System.IO.Path.GetFileName(sIntTarget) & vbCrLf)
+                    Catch
+                    End Try
+                    Continue For
+                End If
+                Try
+                    oIntFD.ReplaceReference(sIntTarget)
+                    iIntChanged = iIntChanged + 1
+                    Try
+                        System.IO.File.AppendAllText(sLogFilePath, "INTERNAL FD: " & sIntAsmName & " : " & System.IO.Path.GetFileName(sIntRefFull) & " -> " & System.IO.Path.GetFileName(sIntTarget) & vbCrLf)
+                    Catch
+                    End Try
+                Catch exIntFD As Exception
+                    Try
+                        System.IO.File.AppendAllText(sLogFilePath, "INTERNAL-FAIL: " & sIntAsmName & " : " & System.IO.Path.GetFileName(sIntRefFull) & " : " & exIntFD.Message & vbCrLf)
+                    Catch
+                    End Try
+                End Try
+            Next
+            If iIntChanged > 0 Then
+                Try
+                    oIntAttrs = System.IO.File.GetAttributes(sIntAsmPath)
+                    If (oIntAttrs And System.IO.FileAttributes.ReadOnly) = System.IO.FileAttributes.ReadOnly Then
+                        System.IO.File.SetAttributes(sIntAsmPath, oIntAttrs And Not System.IO.FileAttributes.ReadOnly)
+                    End If
+                Catch
+                End Try
+                Try
+                    oIntDoc.Update()
+                Catch
+                End Try
+                oIntDoc.Save()
+                iIntAsmSaved = iIntAsmSaved + 1
+                Try
+                    System.IO.File.AppendAllText(sLogFilePath, "INTERNAL-SAVED: " & sIntAsmName & " (" & iIntChanged & " ref(s) rewritten)" & vbCrLf)
+                Catch
+                End Try
+            End If
+        Catch exInt As Exception
+            iIntAsmFail = iIntAsmFail + 1
+            Try
+                System.IO.File.AppendAllText(sLogFilePath, "INTERNAL-FAIL: " & sIntAsmName & " : " & exInt.Message & vbCrLf)
+            Catch
+            End Try
+        End Try
+        If bIntOpened AndAlso oIntDoc IsNot Nothing Then
+            Try
+                oIntDoc.Close(True)
+            Catch
+            End Try
+        End If
+    Next
+    Try
+        System.IO.File.AppendAllText(sLogFilePath, "INTERNAL-REWRITE: done - " & iIntAsmSaved & " assembly(ies) saved, " & iIntAsmFail & " failed." & vbCrLf)
+    Catch
+    End Try
+    Try
+        ThisApplication.iLogicVb.EventRuleManager.DisableEventRules = bOrigEventRules
+    Catch
+    End Try
+    ThisApplication.SilentOperation = bOrigSilent
+
     ' ── 6. Summary ──────────────────────────────────────────────────────
     Dim sSummary As String = ""
     If iDwgOkCM > 0 AndAlso iDwgFailCM = 0 AndAlso iAsmRelinkFail = 0 Then
