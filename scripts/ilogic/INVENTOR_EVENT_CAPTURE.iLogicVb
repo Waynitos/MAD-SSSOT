@@ -1,116 +1,75 @@
 '' =====================================================================
 '' INVENTOR_EVENT_CAPTURE.iLogicVb
 ''
-'' Live event interceptor — hooks Inventor ApplicationEvents and writes
-'' a timestamped line to a Desktop log file for every event that fires.
+'' Hooks CommandManager.CommandEvents.OnCommand and writes every
+'' Inventor command ID to a Desktop log file + the iLogic Logger.
 '' Run once to START, run again to STOP.
 ''
-'' HOW TO USE:
-''   1. Run this rule — click OK on the "ACTIVE" dialog.
-''   2. Do your manual operations in Inventor:
-''        - Replace Component (browser right-click)
-''        - Update Drawing Model Reference
-''        - Save / Save As
-''        - Open / Close documents
-''   3. Run the rule AGAIN — it stops and opens the log in Notepad.
+'' WHY CommandEvents (not ApplicationEvents):
+''   ApplicationEvents.OnOpenDocument requires ByRef HandlingCode in
+''   the delegate signature, which cannot be used in iLogic lambdas and
+''   causes "Statement not valid in namespace" when defined as outer-scope
+''   Subs.  CommandEvents.OnCommand has no ByRef parameter — the Private
+''   Sub pattern works cleanly.
 ''
-'' WHAT TO LOOK FOR:
-''   OPEN BEFORE  — Inventor is about to load a file.
-''                  When you Replace Component, the NEW target file
-''                  appears here — this is the load that underpins
-''                  ReplaceReference / Occurrence.Replace in iLogic.
-''   OPEN AFTER   — file fully loaded.
-''   SAVE BEFORE/AFTER — which document is being saved and when.
-''   CLOSE        — old file released (fires when Replace removes last ref).
-''   ACTIVE       — which document is now the active window.
-''   NEW          — a brand-new document was created.
+'' WHAT TO DO:
+''   1. Run this rule → "CAPTURE ACTIVE" dialog appears.
+''   2. In Inventor, perform the operations you want to identify:
+''        - Right-click an occurrence → Replace Component
+''        - In a drawing → Update Model Reference
+''        - Save, Save As, etc.
+''   3. Watch the iLogic Logger pane OR open the Desktop log in Notepad.
+''   4. Run the rule AGAIN → capture stops, log path shown.
 ''
-'' iLogic COMPILER CONSTRAINTS (learned from compile errors):
-''   - Do NOT add Imports System.IO or Imports System.Windows.Forms —
-''     iLogic pre-imports both; duplicates cause ambiguity with Inventor.
-''   - Do NOT declare Dim variables at module level (outside Sub Main /
-''     outside any Sub). iLogic only allows Sub/Function at the outer
-''     scope; a bare Dim causes "Statement is not valid in a namespace"
-''     and breaks every Sub below it in the file.
-''   - Use System.IO.File / System.IO.Path fully qualified throughout.
-''   - Event handlers share state via the sentinel FILE on disk
-''     (not via module-level variables).
+'' WHAT THE LOG TELLS YOU:
+''   Each line = one Inventor command ID.  For example:
+''     AssemblyReplaceComponentCmd   ← Replace Component in assembly
+''     DrawingDocumentUpdateCmd      ← Update drawing model reference
+''   Those IDs are the ground truth for what iLogic must trigger/replicate.
 ''
-'' Last updated: 2026-11-04 fix3 — removed module-level Dim g_sLog;
-''   WriteLog now reads log path from sentinel file on each call.
+'' iLogic COMPILER RULES (hard-won from compile errors):
+''   - Do NOT add Imports System.IO or Imports System.Windows.Forms
+''     (pre-imported; duplicates cause Inventor.File / System.IO.File ambiguity)
+''   - Do NOT add Imports Inventor (pre-imported; would conflict)
+''   - Do NOT place bare Dim at outer scope (only Sub/Function/Class valid there)
+''   - Private Sub OUTSIDE Sub Main() works for CommandEvents handlers
+''   - Use System.IO.File / System.IO.Path fully qualified throughout
+''
+'' Last updated: 2026-11-04 fix4 — rewrote to use CommandManager.CommandEvents
 '' =====================================================================
 
-' ══════════════════════════════════════════════════════════════════
-' Helper: returns the Desktop path of the sentinel file.
-' ══════════════════════════════════════════════════════════════════
+' ── Desktop sentinel path ───────────────────────────────────────────
+' (Function at outer scope is valid in iLogic)
 Function SentinelPath() As String
     Return System.IO.Path.Combine(
         System.Environment.GetFolderPath(System.Environment.SpecialFolder.Desktop),
         "INVENTOR_CAPTURE_ACTIVE.flag")
 End Function
 
-' ══════════════════════════════════════════════════════════════════
-' WriteLog — reads log path from sentinel; appends one timestamped line.
-' Self-contained: no shared variables needed.
-' ══════════════════════════════════════════════════════════════════
-Sub WriteLog(sEvent As String, sTiming As String, sDetail As String)
+' ── Event handler — fires for EVERY Inventor command ────────────────
+' Private Sub at outer scope is valid when delegate has no ByRef param.
+Private Sub CaptureCommand(ByVal CommandID As String, ByVal Context As NameValueMap)
+    ' Skip the constant noise commands to keep the log readable
+    Select Case CommandID
+        Case "AppCancelCmd", "AppDoNothingCmd", "AppUpdateViewCmd",
+             "AppOKCmd", "AppPanViewCmd", "AppRotateViewCmd", "AppZoomViewCmd",
+             "AppZoomAllViewCmd", "AppZoomWindowCmd"
+            Return  ' ignore navigation / generic UI noise
+    End Select
+
     Try
+        ' Write to iLogic Logger (visible in the iLogic pane)
+        Logger.Info("CMD: " & CommandID)
+
+        ' Write to Desktop log file
         Dim sSentinel As String = SentinelPath()
         If Not System.IO.File.Exists(sSentinel) Then Return
         Dim sLog As String = System.IO.File.ReadAllText(sSentinel).Trim()
         If sLog = "" Then Return
-        Dim sLine As String =
-            DateTime.Now.ToString("HH:mm:ss.fff") & "  " &
-            sEvent.PadRight(7) & "  " & sTiming.PadRight(7) & "  " & sDetail
+        Dim sLine As String = DateTime.Now.ToString("HH:mm:ss.fff") & "  " & CommandID
         System.IO.File.AppendAllText(sLog, sLine & vbCrLf)
     Catch
     End Try
-End Sub
-
-' ── Event handlers (Subs at outer scope — no Dim declarations here) ──
-
-Sub OnOpen(oDocObj As Object, sFullName As String,
-           Timing As EventTimingEnum, Context As NameValueMap,
-           ByRef HandlingCode As HandlingCodeEnum)
-    WriteLog("OPEN", If(Timing = EventTimingEnum.kBefore, "BEFORE", "AFTER"), sFullName)
-    HandlingCode = HandlingCodeEnum.kEventNotHandled
-End Sub
-
-Sub OnSave(oDocObj As Object, sFullName As String,
-           Timing As EventTimingEnum, Context As NameValueMap,
-           ByRef HandlingCode As HandlingCodeEnum)
-    WriteLog("SAVE", If(Timing = EventTimingEnum.kBefore, "BEFORE", "AFTER"), sFullName)
-    HandlingCode = HandlingCodeEnum.kEventNotHandled
-End Sub
-
-Sub OnClose(oDocObj As Object, sFullName As String,
-            Timing As EventTimingEnum, Context As NameValueMap,
-            ByRef HandlingCode As HandlingCodeEnum)
-    WriteLog("CLOSE", If(Timing = EventTimingEnum.kBefore, "BEFORE", "AFTER"), sFullName)
-    HandlingCode = HandlingCodeEnum.kEventNotHandled
-End Sub
-
-Sub OnActivate(oDocObj As Object,
-               Timing As EventTimingEnum, Context As NameValueMap,
-               ByRef HandlingCode As HandlingCodeEnum)
-    ' OnActivateDocument has no FullDocumentName — read from document object.
-    If Timing <> EventTimingEnum.kAfter Then
-        HandlingCode = HandlingCodeEnum.kEventNotHandled : Return
-    End If
-    Dim sFn As String = ""
-    Try : sFn = CType(oDocObj, Document).FullFileName : Catch : sFn = "[unknown]" : End Try
-    WriteLog("ACTIVE", "AFTER", sFn)
-    HandlingCode = HandlingCodeEnum.kEventNotHandled
-End Sub
-
-Sub OnNew(oDocObj As Object, sFullName As String,
-          Timing As EventTimingEnum, Context As NameValueMap,
-          ByRef HandlingCode As HandlingCodeEnum)
-    If Timing <> EventTimingEnum.kAfter Then
-        HandlingCode = HandlingCodeEnum.kEventNotHandled : Return
-    End If
-    WriteLog("NEW", "AFTER", sFullName)
-    HandlingCode = HandlingCodeEnum.kEventNotHandled
 End Sub
 
 ' ══════════════════════════════════════════════════════════════════
@@ -129,9 +88,10 @@ Sub Main()
                     DateTime.Now.ToString("HH:mm:ss.fff") & " ===" & vbCrLf)
             Catch : End Try
             System.IO.File.Delete(sSentinel)
+            Logger.Info("--- Command capture STOPPED ---")
 
             Dim oRes As DialogResult = MessageBox.Show(
-                "Event capture stopped." & vbCrLf & vbCrLf &
+                "Command capture stopped." & vbCrLf & vbCrLf &
                 "Log:" & vbCrLf & sLogPath & vbCrLf & vbCrLf &
                 "Open in Notepad now?",
                 "CAPTURE STOPPED", MessageBoxButtons.YesNo, MessageBoxIcon.Information)
@@ -150,39 +110,37 @@ Sub Main()
     Dim sTimestamp As String = DateTime.Now.ToString("yyyy-MM-dd_HHmmss")
     Dim sLog As String = System.IO.Path.Combine(
         System.Environment.GetFolderPath(System.Environment.SpecialFolder.Desktop),
-        "INVENTOR_EVENT_CAPTURE_" & sTimestamp & ".log")
+        "INVENTOR_COMMAND_CAPTURE_" & sTimestamp & ".log")
 
     Dim oHdr As New System.Text.StringBuilder()
-    oHdr.AppendLine("INVENTOR EVENT CAPTURE — " & DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"))
-    oHdr.AppendLine("FORMAT:  HH:mm:ss.fff  EVENT   TIMING   detail")
-    oHdr.AppendLine("OPEN  = file load  |  SAVE = file save  |  CLOSE = file release")
-    oHdr.AppendLine("ACTIVE = window focus changed  |  NEW = new document created")
+    oHdr.AppendLine("INVENTOR COMMAND CAPTURE — " & DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"))
+    oHdr.AppendLine("FORMAT:  HH:mm:ss.fff  CommandID")
+    oHdr.AppendLine("Noise commands (pan/zoom/cancel/OK) are filtered out.")
+    oHdr.AppendLine("Look for: Replace Component, Update Drawing Reference, Save-related IDs.")
     oHdr.AppendLine(New String("="c, 80))
     oHdr.AppendLine()
     System.IO.File.WriteAllText(sLog, oHdr.ToString())
-    ' Sentinel stores the log path so event handlers can find it.
+    ' Sentinel stores the log path so CaptureCommand can find it.
     System.IO.File.WriteAllText(sSentinel, sLog)
 
-    ' ── Hook events ───────────────────────────────────────────────
+    ' ── Hook command events ────────────────────────────────────────
     Try
-        AddHandler ThisApplication.ApplicationEvents.OnOpenDocument,     AddressOf OnOpen
-        AddHandler ThisApplication.ApplicationEvents.OnSaveDocument,     AddressOf OnSave
-        AddHandler ThisApplication.ApplicationEvents.OnCloseDocument,    AddressOf OnClose
-        AddHandler ThisApplication.ApplicationEvents.OnActivateDocument, AddressOf OnActivate
-        AddHandler ThisApplication.ApplicationEvents.OnNewDocument,      AddressOf OnNew
-        WriteLog("---", "---", "Hooks registered")
+        Dim oApp As Application = ThisApplication
+        AddHandler oApp.CommandManager.CommandEvents.OnCommand, AddressOf CaptureCommand
+        Logger.Info("--- Command capture STARTED — " & sLog & " ---")
     Catch exHook As Exception
-        System.IO.File.AppendAllText(sLog, "HOOK ERROR: " & exHook.Message & vbCrLf)
         System.IO.File.Delete(sSentinel)
-        MessageBox.Show("Failed to hook events: " & exHook.Message,
+        MessageBox.Show("Failed to hook CommandEvents: " & exHook.Message,
             "Capture", MessageBoxButtons.OK, MessageBoxIcon.Error)
         Return
     End Try
 
     MessageBox.Show(
-        "Event capture is ACTIVE." & vbCrLf & vbCrLf &
-        "Do your manual operations in Inventor now." & vbCrLf & vbCrLf &
-        "Log file (open in Notepad, hit F5 to refresh):" & vbCrLf & sLog & vbCrLf & vbCrLf &
+        "Command capture is ACTIVE." & vbCrLf & vbCrLf &
+        "Do your manual operations in Inventor now." & vbCrLf &
+        "(Replace Component, Update Drawing Ref, Save, etc.)" & vbCrLf & vbCrLf &
+        "Watch the iLogic Logger pane — or open this in Notepad (hit F5 to refresh):" & vbCrLf &
+        sLog & vbCrLf & vbCrLf &
         "Run this rule AGAIN to stop.",
         "CAPTURE ACTIVE", MessageBoxButtons.OK, MessageBoxIcon.Information)
 
