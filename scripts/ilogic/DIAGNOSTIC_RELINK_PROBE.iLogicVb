@@ -1,0 +1,447 @@
+'' =====================================================================
+'' DIAGNOSTIC_RELINK_PROBE.iLogicVb
+'' Manual relink probe — validates which Inventor API calls correctly
+'' replace assembly references so the automatic rule uses the right ones.
+''
+'' TWO MODES (chosen via form at startup):
+''
+''   SNAPSHOT  — Walk the entire open assembly tree, record every
+''               FileDescriptor path for every occurrence.  Save to
+''               Desktop as RELINK_PROBE_SNAPSHOT_<timestamp>.txt.
+''               Run this BEFORE making any manual change in Inventor.
+''
+''   PROBE     — You supply: (a) an old filename fragment to match, and
+''               (b) the full path of the new file to point at.
+''               The rule tries every known Inventor API method in turn
+''               and logs which one succeeded, what error code fired for
+''               each failure, and what the assembly looks like after.
+''               If a SNAPSHOT file exists on the Desktop it generates
+''               a DIFF showing every descriptor that changed.
+''
+'' PURPOSE: confirms the correct iLogic functions to use in the
+'' automatic Traverse Rename rule before trusting them in production.
+''
+'' Run from inside the top-level assembly you want to probe.
+'' Last updated: 2026-11-04 (initial version)
+'' =====================================================================
+
+Imports System.IO
+Imports System.Windows.Forms
+Imports System.Collections.Generic
+Imports System.Text.RegularExpressions
+
+' ── Entry point ────────────────────────────────────────────────────
+Dim oAsmDoc As AssemblyDocument
+Try
+    oAsmDoc = ThisDoc.Document
+Catch
+    MessageBox.Show("Run this rule from inside an Assembly document.", "Diagnostic Probe", MessageBoxButtons.OK, MessageBoxIcon.Warning)
+    GoTo Done
+End Try
+
+Dim sDesktop As String = Environment.GetFolderPath(Environment.SpecialFolder.Desktop)
+Dim sTimestamp As String = DateTime.Now.ToString("yyyy-MM-dd_HHmmss")
+
+' ── Mode selection form ────────────────────────────────────────────
+Dim oForm As New Form()
+oForm.Text = "Diagnostic Relink Probe"
+oForm.Width = 480 : oForm.Height = 220
+oForm.StartPosition = FormStartPosition.CenterScreen
+oForm.FormBorderStyle = FormBorderStyle.FixedDialog
+oForm.MaximizeBox = False
+
+Dim oLbl As New Label()
+oLbl.Text = "Choose operation:"
+oLbl.Left = 20 : oLbl.Top = 20 : oLbl.Width = 420 : oLbl.Height = 20
+oForm.Controls.Add(oLbl)
+
+Dim oBtnSnap As New Button()
+oBtnSnap.Text = "SNAPSHOT — record current descriptor state"
+oBtnSnap.Left = 20 : oBtnSnap.Top = 55 : oBtnSnap.Width = 420 : oBtnSnap.Height = 36
+oBtnSnap.BackColor = System.Drawing.Color.SteelBlue
+oBtnSnap.ForeColor = System.Drawing.Color.White
+oForm.Controls.Add(oBtnSnap)
+
+Dim oBtnProbe As New Button()
+oBtnProbe.Text = "PROBE — manually test a file swap"
+oBtnProbe.Left = 20 : oBtnProbe.Top = 100 : oBtnProbe.Width = 420 : oBtnProbe.Height = 36
+oBtnProbe.BackColor = System.Drawing.Color.DarkOliveGreen
+oBtnProbe.ForeColor = System.Drawing.Color.White
+oForm.Controls.Add(oBtnProbe)
+
+Dim oBtnCancel As New Button()
+oBtnCancel.Text = "Cancel"
+oBtnCancel.Left = 350 : oBtnCancel.Top = 148 : oBtnCancel.Width = 90 : oBtnCancel.Height = 28
+oForm.Controls.Add(oBtnCancel)
+
+Dim sMode As String = ""
+AddHandler oBtnSnap.Click,   Sub(s, e) : sMode = "SNAPSHOT" : oForm.Close() : End Sub
+AddHandler oBtnProbe.Click,  Sub(s, e) : sMode = "PROBE"    : oForm.Close() : End Sub
+AddHandler oBtnCancel.Click, Sub(s, e) : sMode = "CANCEL"   : oForm.Close() : End Sub
+
+oForm.ShowDialog()
+If sMode = "CANCEL" OrElse sMode = "" Then GoTo Done
+
+' ── Collect full descriptor tree ───────────────────────────────────
+' Returns List(Of String): "AssemblyPath|OccurrenceName|DescriptorPath"
+Function CollectDescriptors(oTopDoc As AssemblyDocument) As List(Of String)
+    Dim oLines As New List(Of String)()
+    Dim oVisited As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+
+    Sub WalkAsm(oDoc As AssemblyDocument)
+        Dim sDocPath As String = ""
+        Try : sDocPath = oDoc.FullFileName : Catch : sDocPath = "[unknown]" : End Try
+        If oVisited.Contains(sDocPath) Then Return
+        oVisited.Add(sDocPath)
+
+        Try
+            For Each oOcc As ComponentOccurrence In oDoc.ComponentDefinition.Occurrences
+                Dim sOccName As String = ""
+                Try : sOccName = oOcc.Name : Catch : End Try
+
+                Dim sFDPath As String = "[no descriptor]"
+                Try
+                    Dim oFD As FileDescriptor = oOcc.ReferencedFileDescriptor
+                    If oFD IsNot Nothing Then sFDPath = oFD.FullDocumentName
+                Catch
+                End Try
+
+                oLines.Add(sDocPath & "|" & sOccName & "|" & sFDPath)
+
+                ' Recurse into sub-assemblies
+                Try
+                    If oOcc.DefinitionDocumentType = kAssemblyDocumentObject Then
+                        Dim oSubDoc As AssemblyDocument = oOcc.Definition.Document
+                        WalkAsm(oSubDoc)
+                    End If
+                Catch
+                End Try
+            Next
+        Catch
+        End Try
+    End Sub
+
+    WalkAsm(oTopDoc)
+    Return oLines
+End Function
+
+' ══════════════════════════════════════════════════════════════════
+' SNAPSHOT MODE
+' ══════════════════════════════════════════════════════════════════
+If sMode = "SNAPSHOT" Then
+    Dim oLines As List(Of String) = CollectDescriptors(oAsmDoc)
+
+    Dim sSnapPath As String = Path.Combine(sDesktop, "RELINK_PROBE_SNAPSHOT_" & sTimestamp & ".txt")
+    Dim oSB As New System.Text.StringBuilder()
+    oSB.AppendLine("RELINK PROBE — SNAPSHOT")
+    oSB.AppendLine("Captured: " & DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"))
+    oSB.AppendLine("Top assembly: " & oAsmDoc.FullFileName)
+    oSB.AppendLine("Descriptor count: " & oLines.Count)
+    oSB.AppendLine(New String("="c, 80))
+    oSB.AppendLine("FORMAT: ParentAssembly | OccurrenceName | ReferencedDescriptorPath")
+    oSB.AppendLine(New String("="c, 80))
+    For Each sLine As String In oLines
+        oSB.AppendLine(sLine)
+    Next
+    File.WriteAllText(sSnapPath, oSB.ToString())
+    MessageBox.Show("Snapshot saved (" & oLines.Count & " descriptors):" & vbCrLf & sSnapPath,
+                    "SNAPSHOT complete", MessageBoxButtons.OK, MessageBoxIcon.Information)
+    GoTo Done
+End If
+
+' ══════════════════════════════════════════════════════════════════
+' PROBE MODE
+' ══════════════════════════════════════════════════════════════════
+' Form: old fragment + new full path
+Dim oProbeForm As New Form()
+oProbeForm.Text = "PROBE — specify the swap"
+oProbeForm.Width = 600 : oProbeForm.Height = 280
+oProbeForm.StartPosition = FormStartPosition.CenterScreen
+oProbeForm.FormBorderStyle = FormBorderStyle.FixedDialog
+oProbeForm.MaximizeBox = False
+
+Dim addLabel As Action(Of Form, String, Integer, Integer, Integer) =
+    Sub(f, t, x, y, w)
+        Dim l As New Label() : l.Text = t : l.Left = x : l.Top = y : l.Width = w : l.Height = 18 : f.Controls.Add(l)
+    End Sub
+
+addLabel(oProbeForm, "Old filename fragment to match (case-insensitive, no path needed):", 15, 15, 560)
+Dim oTxtOld As New TextBox() : oTxtOld.Left = 15 : oTxtOld.Top = 36 : oTxtOld.Width = 555 : oTxtOld.Height = 22 : oProbeForm.Controls.Add(oTxtOld)
+
+addLabel(oProbeForm, "New file — full path to point occurrences at:", 15, 72, 560)
+Dim oTxtNew As New TextBox() : oTxtNew.Left = 15 : oTxtNew.Top = 93 : oTxtNew.Width = 475 : oTxtNew.Height = 22 : oProbeForm.Controls.Add(oTxtNew)
+
+Dim oBtnBrowse As New Button() : oBtnBrowse.Text = "..." : oBtnBrowse.Left = 497 : oBtnBrowse.Top = 92 : oBtnBrowse.Width = 73 : oBtnBrowse.Height = 24 : oProbeForm.Controls.Add(oBtnBrowse)
+AddHandler oBtnBrowse.Click,
+    Sub(s, e)
+        Dim oDlg As New OpenFileDialog()
+        oDlg.Filter = "Inventor files (*.iam;*.ipt)|*.iam;*.ipt|All files (*.*)|*.*"
+        oDlg.Title = "Select new target file"
+        If oDlg.ShowDialog() = DialogResult.OK Then oTxtNew.Text = oDlg.FileName
+    End Sub
+
+Dim oChkSave As New CheckBox() : oChkSave.Text = "Save affected assemblies after probe" : oChkSave.Left = 15 : oChkSave.Top = 130 : oChkSave.Width = 300 : oChkSave.Checked = False : oProbeForm.Controls.Add(oChkSave)
+
+Dim oBtnRun As New Button() : oBtnRun.Text = "RUN PROBE" : oBtnRun.Left = 400 : oBtnRun.Top = 128 : oBtnRun.Width = 170 : oBtnRun.Height = 32 : oBtnRun.BackColor = System.Drawing.Color.DarkOliveGreen : oBtnRun.ForeColor = System.Drawing.Color.White : oProbeForm.Controls.Add(oBtnRun)
+Dim oBtnAbort As New Button() : oBtnAbort.Text = "Cancel" : oBtnAbort.Left = 310 : oBtnAbort.Top = 128 : oBtnAbort.Width = 80 : oBtnAbort.Height = 32 : oProbeForm.Controls.Add(oBtnAbort)
+
+Dim bProbeRun As Boolean = False
+AddHandler oBtnRun.Click,    Sub(s, e) : bProbeRun = True  : oProbeForm.Close() : End Sub
+AddHandler oBtnAbort.Click,  Sub(s, e) : bProbeRun = False : oProbeForm.Close() : End Sub
+oProbeForm.ShowDialog()
+
+If Not bProbeRun Then GoTo Done
+
+Dim sOldFrag As String = Trim(oTxtOld.Text)
+Dim sNewPath As String = Trim(oTxtNew.Text)
+Dim bSave As Boolean = oChkSave.Checked
+
+If sOldFrag = "" OrElse sNewPath = "" Then
+    MessageBox.Show("Both fields are required.", "Probe", MessageBoxButtons.OK, MessageBoxIcon.Warning)
+    GoTo Done
+End If
+If Not File.Exists(sNewPath) Then
+    MessageBox.Show("New file does not exist on disk:" & vbCrLf & sNewPath, "Probe", MessageBoxButtons.OK, MessageBoxIcon.Warning)
+    GoTo Done
+End If
+
+' ── Run the probe ──────────────────────────────────────────────────
+Dim oLog As New System.Text.StringBuilder()
+oLog.AppendLine("RELINK PROBE — PROBE RUN")
+oLog.AppendLine("Timestamp : " & DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"))
+oLog.AppendLine("Top asm   : " & oAsmDoc.FullFileName)
+oLog.AppendLine("Old frag  : " & sOldFrag)
+oLog.AppendLine("New path  : " & sNewPath)
+oLog.AppendLine(New String("="c, 80))
+
+Dim iHit As Integer = 0
+Dim iOK_FD As Integer = 0      ' FileDescriptor.ReplaceReference succeeded
+Dim iOK_OCC As Integer = 0     ' Occurrence.Replace succeeded
+Dim iOK_BC As Integer = 0      ' Bolted-connection header fallback succeeded
+Dim iFail As Integer = 0
+Dim oAffectedAsms As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+
+Dim oVisited2 As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+
+Sub ProbeWalkAsm(oDoc As AssemblyDocument)
+    Dim sDocPath As String = ""
+    Try : sDocPath = oDoc.FullFileName : Catch : sDocPath = "[unknown]" : End Try
+    If oVisited2.Contains(sDocPath) Then Return
+    oVisited2.Add(sDocPath)
+
+    Try
+        For Each oOcc As ComponentOccurrence In oDoc.ComponentDefinition.Occurrences
+            Dim sFDPath As String = ""
+            Try
+                Dim oFD As FileDescriptor = oOcc.ReferencedFileDescriptor
+                If oFD IsNot Nothing Then sFDPath = oFD.FullDocumentName
+            Catch
+            End Try
+
+            If sFDPath = "" Then Continue For
+
+            ' Does this occurrence reference a file matching the old fragment?
+            If sFDPath.IndexOf(sOldFrag, StringComparison.OrdinalIgnoreCase) < 0 Then
+                ' Recurse before skipping
+                Try
+                    If oOcc.DefinitionDocumentType = kAssemblyDocumentObject Then
+                        ProbeWalkAsm(oOcc.Definition.Document)
+                    End If
+                Catch
+                End Try
+                Continue For
+            End If
+
+            iHit += 1
+            Dim sOccName As String = ""
+            Try : sOccName = oOcc.Name : Catch : sOccName = "[?]" : End Try
+
+            oLog.AppendLine("")
+            oLog.AppendLine("HIT #" & iHit & ":  " & sDocPath)
+            oLog.AppendLine("  Occurrence : " & sOccName)
+            oLog.AppendLine("  Current FD : " & sFDPath)
+
+            ' ── Method 1: FileDescriptor.ReplaceReference ──────────
+            Dim bFDOK As Boolean = False
+            Try
+                Dim oFD2 As FileDescriptor = oOcc.ReferencedFileDescriptor
+                If oFD2 IsNot Nothing Then
+                    oFD2.ReplaceReference(sNewPath)
+                    bFDOK = True
+                    iOK_FD += 1
+                    oAffectedAsms.Add(sDocPath)
+                    oLog.AppendLine("  METHOD 1 (FD.ReplaceReference)      : SUCCESS")
+                End If
+            Catch exFD As Exception
+                oLog.AppendLine("  METHOD 1 (FD.ReplaceReference)      : FAILED  HResult=0x" & exFD.HResult.ToString("X8") & "  " & exFD.Message)
+            End Try
+
+            ' ── Method 2: Occurrence.Replace ──────────────────────
+            ' Only attempt if Method 1 failed (don't double-swap)
+            Dim bOccOK As Boolean = False
+            If Not bFDOK Then
+                Try
+                    oOcc.Replace(sNewPath, False)
+                    bOccOK = True
+                    iOK_OCC += 1
+                    oAffectedAsms.Add(sDocPath)
+                    oLog.AppendLine("  METHOD 2 (Occurrence.Replace)       : SUCCESS")
+                Catch exOcc As Exception
+                    oLog.AppendLine("  METHOD 2 (Occurrence.Replace)       : FAILED  HResult=0x" & exOcc.HResult.ToString("X8") & "  " & exOcc.Message)
+                End Try
+            End If
+
+            ' ── Method 3: Bolted-connection header fallback ────────
+            ' Bolted connections / frames expose a HeaderDocumentDescriptor
+            ' on the assembly definition rather than a per-occurrence FD.
+            Dim bBCOK As Boolean = False
+            If Not bFDOK AndAlso Not bOccOK Then
+                Try
+                    If oDoc.ComponentDefinition.BoltedConnections IsNot Nothing Then
+                        For Each oBC As Object In oDoc.ComponentDefinition.BoltedConnections
+                            Try
+                                Dim oHdr As Object = oBC.HeaderDocumentDescriptor
+                                If oHdr IsNot Nothing Then
+                                    Dim sHdrPath As String = ""
+                                    Try : sHdrPath = oHdr.FullDocumentName : Catch : End Try
+                                    If sHdrPath.IndexOf(sOldFrag, StringComparison.OrdinalIgnoreCase) >= 0 Then
+                                        oHdr.ReplaceReference(sNewPath)
+                                        bBCOK = True
+                                        iOK_BC += 1
+                                        oAffectedAsms.Add(sDocPath)
+                                        oLog.AppendLine("  METHOD 3 (BC header ReplaceRef)     : SUCCESS  header=" & sHdrPath)
+                                    End If
+                                End If
+                            Catch : End Try
+                        Next
+                    End If
+                Catch exBC As Exception
+                    oLog.AppendLine("  METHOD 3 (BC header ReplaceRef)     : FAILED  " & exBC.Message)
+                End Try
+            End If
+
+            If Not bFDOK AndAlso Not bOccOK AndAlso Not bBCOK Then
+                iFail += 1
+                oLog.AppendLine("  ALL METHODS FAILED for this occurrence")
+            End If
+
+            ' Recurse into sub-assemblies
+            Try
+                If oOcc.DefinitionDocumentType = kAssemblyDocumentObject Then
+                    ProbeWalkAsm(oOcc.Definition.Document)
+                End If
+            Catch
+            End Try
+        Next
+    Catch exWalk As Exception
+        oLog.AppendLine("  [WALK ERROR in " & sDocPath & ": " & exWalk.Message & "]")
+    End Try
+End Sub
+
+ProbeWalkAsm(oAsmDoc)
+
+' ── Save affected assemblies ───────────────────────────────────────
+If bSave AndAlso oAffectedAsms.Count > 0 Then
+    oLog.AppendLine("")
+    oLog.AppendLine(New String("-"c, 60))
+    oLog.AppendLine("SAVE PASS")
+    For Each sAsmPath As String In oAffectedAsms
+        Try
+            Dim oSaveDoc As Document = ThisApplication.Documents.ItemByName(sAsmPath)
+            If oSaveDoc IsNot Nothing Then
+                oSaveDoc.Save()
+                oLog.AppendLine("  SAVED: " & sAsmPath)
+            End If
+        Catch exSave As Exception
+            oLog.AppendLine("  SAVE FAILED: " & sAsmPath & " — " & exSave.Message)
+        End Try
+    Next
+End If
+
+' ── DIFF against snapshot if one exists ───────────────────────────
+oLog.AppendLine("")
+oLog.AppendLine(New String("="c, 80))
+oLog.AppendLine("DIFF vs SNAPSHOT")
+Try
+    ' Find most recent snapshot file on Desktop
+    Dim oSnapFiles() As String = Directory.GetFiles(sDesktop, "RELINK_PROBE_SNAPSHOT_*.txt")
+    If oSnapFiles.Length = 0 Then
+        oLog.AppendLine("No snapshot file found on Desktop — skipping diff.")
+    Else
+        Array.Sort(oSnapFiles)
+        Dim sLatestSnap As String = oSnapFiles(oSnapFiles.Length - 1)
+        oLog.AppendLine("Comparing against: " & sLatestSnap)
+
+        ' Load snapshot descriptors into a dictionary: "parent|occ" → oldFDPath
+        Dim oSnapMap As New Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase)
+        For Each sLine As String In File.ReadAllLines(sLatestSnap)
+            Dim sParts() As String = sLine.Split("|"c)
+            If sParts.Length = 3 Then
+                Dim sKey As String = sParts(0).Trim() & "|" & sParts(1).Trim()
+                oSnapMap(sKey) = sParts(2).Trim()
+            End If
+        Next
+
+        ' Collect current state
+        Dim oNowLines As List(Of String) = CollectDescriptors(oAsmDoc)
+        Dim oNowMap As New Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase)
+        For Each sLine As String In oNowLines
+            Dim sParts() As String = sLine.Split("|"c)
+            If sParts.Length = 3 Then
+                Dim sKey As String = sParts(0).Trim() & "|" & sParts(1).Trim()
+                oNowMap(sKey) = sParts(2).Trim()
+            End If
+        Next
+
+        Dim iChanged As Integer = 0
+        For Each kvp As KeyValuePair(Of String, String) In oNowMap
+            Dim sNow As String = kvp.Value
+            Dim sOld As String = ""
+            If oSnapMap.TryGetValue(kvp.Key, sOld) Then
+                If String.Compare(sOld, sNow, True) <> 0 Then
+                    iChanged += 1
+                    Dim sParts() As String = kvp.Key.Split("|"c)
+                    oLog.AppendLine("CHANGED  occ=" & (If(sParts.Length > 1, sParts(1), kvp.Key)))
+                    oLog.AppendLine("  WAS : " & sOld)
+                    oLog.AppendLine("  NOW : " & sNow)
+                End If
+            Else
+                oLog.AppendLine("NEW OCCURRENCE (not in snapshot): " & kvp.Key & " -> " & sNow)
+            End If
+        Next
+        If iChanged = 0 Then
+            oLog.AppendLine("No descriptor changes detected vs snapshot.")
+        Else
+            oLog.AppendLine("Total changed descriptors: " & iChanged)
+        End If
+    End If
+Catch exDiff As Exception
+    oLog.AppendLine("DIFF ERROR: " & exDiff.Message)
+End Try
+
+' ── Summary + write log ────────────────────────────────────────────
+oLog.AppendLine("")
+oLog.AppendLine(New String("="c, 80))
+oLog.AppendLine("SUMMARY")
+oLog.AppendLine("  Occurrences matched  : " & iHit)
+oLog.AppendLine("  FD.ReplaceReference  : " & iOK_FD & " succeeded")
+oLog.AppendLine("  Occurrence.Replace   : " & iOK_OCC & " succeeded")
+oLog.AppendLine("  BC header fallback   : " & iOK_BC & " succeeded")
+oLog.AppendLine("  All methods failed   : " & iFail)
+oLog.AppendLine("  Assemblies affected  : " & oAffectedAsms.Count)
+
+Dim sLogPath As String = Path.Combine(sDesktop, "RELINK_PROBE_" & sTimestamp & ".txt")
+File.WriteAllText(sLogPath, oLog.ToString())
+
+MessageBox.Show(
+    "Probe complete." & vbCrLf & vbCrLf &
+    "Matched occurrences : " & iHit & vbCrLf &
+    "FD.ReplaceReference : " & iOK_FD & " OK" & vbCrLf &
+    "Occurrence.Replace  : " & iOK_OCC & " OK" & vbCrLf &
+    "BC header fallback  : " & iOK_BC & " OK" & vbCrLf &
+    "All failed          : " & iFail & vbCrLf & vbCrLf &
+    "Full log saved to:" & vbCrLf & sLogPath,
+    "PROBE complete", MessageBoxButtons.OK,
+    If(iFail > 0, MessageBoxIcon.Warning, MessageBoxIcon.Information))
+
+Done:
