@@ -3430,6 +3430,47 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument, Optional oPresetModelRenameMa
     oFormChoice.sReplace = sNewPrefix
     oFormChoice.bPrefixLocked = bPrefixLocked
 
+    ' ── PHASE A: Pre-compute exact old→new pairs from drawing scan ─────────
+    ' Applies prefix swap to every file the active drawing directly references
+    ' (GA + its direct sub-assemblies and parts). Pre-seeds oExplicitModelRenameMap
+    ' so the rename form shows exact filename pairs rather than blank rows.
+    ' Handles JC assemblies (PJ00193_JCxxxxxx → PJ00205-JCxxxxxx) and other
+    ' underscore-separated names that the generic prefix logic misses.
+    ' The caller's oPresetModelRenameMap wins if the same key appears in both
+    ' (applied in the block immediately below this one).
+    If oOldPrefix <> "" AndAlso sNewPrefix <> "" Then
+        Dim oPhaseAPairs As New System.Collections.Generic.Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase)
+        Dim sPhaseARef As String
+        For Each sPhaseARef In oScanRefs
+            Dim sPhaseAOld As String = System.IO.Path.GetFileNameWithoutExtension(sPhaseARef)
+            If sPhaseAOld = "" Then Continue For
+            Dim sPhaseANew As String = sPhaseAOld
+            ' Dash-separated: PJ00193-GTA-3460-10-...  →  PJ00205-GTA-3460-10-...
+            If sPhaseANew.StartsWith(oOldPrefix & "-", StringComparison.OrdinalIgnoreCase) Then
+                sPhaseANew = sNewPrefix & sPhaseANew.Substring(oOldPrefix.Length)
+            ' Underscore-separated (JC / Bolted Connection assemblies):
+            ' PJ00193_JC002266  →  PJ00205-JC002266  (underscore becomes dash)
+            ElseIf sPhaseANew.StartsWith(oOldPrefix & "_", StringComparison.OrdinalIgnoreCase) Then
+                sPhaseANew = sNewPrefix & "-" & sPhaseANew.Substring(oOldPrefix.Length + 1)
+            End If
+            ' Only register when name actually changes
+            If String.Compare(sPhaseANew, sPhaseAOld, True) <> 0 Then
+                oPhaseAPairs(sPhaseAOld) = sPhaseANew
+            End If
+        Next
+        If oPhaseAPairs.Count > 0 Then
+            Try : System.IO.File.AppendAllText(sLogFilePath, "PHASE-A: pre-computed " & oPhaseAPairs.Count & " exact old→new pair(s) from drawing scan:" & vbCrLf) : Catch : End Try
+            Dim kvpA As System.Collections.Generic.KeyValuePair(Of String, String)
+            For Each kvpA In oPhaseAPairs
+                Try : System.IO.File.AppendAllText(sLogFilePath, "  " & kvpA.Key & " → " & kvpA.Value & vbCrLf) : Catch : End Try
+                ' Seed the form — caller preset map overrides in the block below
+                If Not oFormChoice.oExplicitModelRenameMap.ContainsKey(kvpA.Key) Then
+                    oFormChoice.oExplicitModelRenameMap(kvpA.Key) = kvpA.Value
+                End If
+            Next
+        End If
+    End If
+
     ' ── Pre-load preset map into form before it opens ──────────────────────
     If oPresetModelRenameMap IsNot Nothing AndAlso oPresetModelRenameMap.Count > 0 Then
         For Each kvp As System.Collections.Generic.KeyValuePair(Of String, String) In oPresetModelRenameMap
