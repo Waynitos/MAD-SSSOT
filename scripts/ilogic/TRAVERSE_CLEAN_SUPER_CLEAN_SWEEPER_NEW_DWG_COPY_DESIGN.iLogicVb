@@ -58,7 +58,7 @@
 ''   - Strip "<" state tag from descriptor paths
 ''   - No Imports System.IO or Imports System.Windows.Forms (pre-imported)
 ''   - No module-level Dim declarations (outside Sub/Function)
-''   - Sub Main() is mandatory; helpers defined ABOVE their callers
+''   - Sub Main() is mandatory and must be the first executable; helpers come AFTER Sub Main
 '' =====================================================================
 
 
