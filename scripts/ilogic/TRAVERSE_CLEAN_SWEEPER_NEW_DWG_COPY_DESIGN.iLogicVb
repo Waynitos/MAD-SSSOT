@@ -3534,6 +3534,8 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument, Optional oPresetModelRenameMa
     Dim oGaValidDoc As AssemblyDocument = Nothing
     Dim bGaValidWasOpen As Boolean = False
     Dim oGaAllBasenames As New System.Collections.Generic.HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+    ' Full-path lookup by basename — used by auto-resolve to reroute orphan copy sources to GA WIP equivalents
+    Dim oGaFullPathsByBase As New System.Collections.Generic.Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase)
 
     If System.IO.File.Exists(sSelectedGaPath) Then
         Try
@@ -3558,7 +3560,10 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument, Optional oPresetModelRenameMa
                 For Each oGaRefDoc In oGaValidDoc.AllReferencedDocuments
                     Try
                         Dim sGaMem As String = System.IO.Path.GetFileNameWithoutExtension(oGaRefDoc.FullFileName)
-                        If sGaMem <> "" Then oGaAllBasenames.Add(sGaMem)
+                        If sGaMem <> "" Then
+                            oGaAllBasenames.Add(sGaMem)
+                            If Not oGaFullPathsByBase.ContainsKey(sGaMem) Then oGaFullPathsByBase.Add(sGaMem, oGaRefDoc.FullFileName)
+                        End If
                     Catch : End Try
                 Next
                 ' Also add GA itself
@@ -3588,6 +3593,63 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument, Optional oPresetModelRenameMa
         Next
     End If
 
+    ' ── AUTO-RESOLVE ORPHANS — stem-match drawing-ref against GA WIP equivalents ──
+    ' When a drawing references a PJ00161 original that is NOT in the GA (because
+    ' the GA already has a WIP-renamed version), strip the project-number prefix
+    ' (^[^-]+-[^-]+-) from the orphan basename to get a stem, then search GA basenames
+    ' for any member whose name CONTAINS that stem.  If found, reroute the rename-map
+    ' entry so the copy SOURCE is the GA WIP file, not the stale original.
+    Dim oAutoResolved As New System.Collections.Generic.List(Of String)
+    Dim oStillOrphans As New System.Collections.Generic.List(Of String)
+    Dim oRxStrip As New System.Text.RegularExpressions.Regex("^[^-]+-[^-]+-", _
+        System.Text.RegularExpressions.RegexOptions.None)
+
+    If oGaFullPathsByBase.Count > 0 AndAlso oOrphans.Count > 0 Then
+        For Each sOrphanBase As String In oOrphans
+            Dim sStem As String = oRxStrip.Replace(sOrphanBase, "").Trim()
+            If sStem = "" Then oStillOrphans.Add(sOrphanBase) : Continue For
+
+            ' Search GA basenames for a member containing the stem
+            Dim sGaMatchBase As String = ""
+            For Each sGaCand As String In oGaAllBasenames
+                If sGaCand.IndexOf(sStem, StringComparison.OrdinalIgnoreCase) >= 0 Then
+                    sGaMatchBase = sGaCand
+                    Exit For
+                End If
+            Next
+
+            If sGaMatchBase <> "" AndAlso oGaFullPathsByBase.ContainsKey(sGaMatchBase) Then
+                ' Find the rename-map entry for this orphan (match by key basename)
+                Dim sOldKey As String = ""
+                Dim sOldValue As String = ""
+                For Each kvpScan As System.Collections.Generic.KeyValuePair(Of String, String) In oRenameMap
+                    If System.IO.Path.GetFileNameWithoutExtension(kvpScan.Key).Equals(sOrphanBase, StringComparison.OrdinalIgnoreCase) Then
+                        sOldKey = kvpScan.Key : sOldValue = kvpScan.Value : Exit For
+                    End If
+                Next
+                If sOldKey <> "" Then
+                    Dim sGaMatchFull As String = oGaFullPathsByBase(sGaMatchBase)
+                    oRenameMap.Remove(sOldKey)
+                    If Not oRenameMap.ContainsKey(sGaMatchFull) Then
+                        oRenameMap.Add(sGaMatchFull, sOldValue)
+                    End If
+                    Try : System.IO.File.AppendAllText(sLogFilePath, "GA-RESOLVE: " & sOrphanBase & " → GA:" & sGaMatchBase & " → target:" & System.IO.Path.GetFileNameWithoutExtension(sOldValue) & vbCrLf) : Catch : End Try
+                    oAutoResolved.Add("   " & sOrphanBase & vbCrLf & _
+                                      "     → GA file:  " & sGaMatchBase & vbCrLf & _
+                                      "     → target:   " & System.IO.Path.GetFileNameWithoutExtension(sOldValue))
+                Else
+                    oStillOrphans.Add(sOrphanBase)
+                    Try : System.IO.File.AppendAllText(sLogFilePath, "GA-ORPHAN-UNRESOLVED: " & sOrphanBase & " (stem '" & sStem & "' matched GA member " & sGaMatchBase & " but no rename-map key found)" & vbCrLf) : Catch : End Try
+                End If
+            Else
+                oStillOrphans.Add(sOrphanBase)
+                Try : System.IO.File.AppendAllText(sLogFilePath, "GA-ORPHAN-UNRESOLVED: " & sOrphanBase & " (stem '" & sStem & "' not found in GA tree)" & vbCrLf) : Catch : End Try
+            End If
+        Next
+    Else
+        oStillOrphans.AddRange(oOrphans)
+    End If
+
     ' Build and show validation summary popup (always — gives user confidence)
     Dim sbValMsg As New System.Text.StringBuilder()
     sbValMsg.AppendLine("═══ DRAWING COPY MODE — GA VALIDATION ═══")
@@ -3600,34 +3662,40 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument, Optional oPresetModelRenameMa
             sbValMsg.AppendLine("   " & sOk)
         Next
     End If
-    If oOrphans.Count > 0 Then
+    If oAutoResolved.Count > 0 Then
         sbValMsg.AppendLine()
-        sbValMsg.AppendLine("⚠ WARNING — NOT FOUND in GA tree (" & oOrphans.Count & "):")
-        sbValMsg.AppendLine("  These files are referenced by drawings but do NOT")
-        sbValMsg.AppendLine("  exist anywhere in the GA.  Copying them will create")
-        sbValMsg.AppendLine("  files the GA never loads (orphans).")
+        sbValMsg.AppendLine("✔ AUTO-RESOLVED (" & oAutoResolved.Count & ") — drawing ref was orphan but GA WIP equivalent found:")
+        sbValMsg.AppendLine("  Copy SOURCE has been rerouted from the stale PJ##### original")
+        sbValMsg.AppendLine("  to the GA's current WIP file so design changes are preserved.")
         sbValMsg.AppendLine()
-        For Each sOrph As String In oOrphans
+        For Each sRes As String In oAutoResolved
+            sbValMsg.AppendLine(sRes)
+        Next
+    End If
+    If oStillOrphans.Count > 0 Then
+        sbValMsg.AppendLine()
+        sbValMsg.AppendLine("⚠ WARNING — UNRESOLVED ORPHANS (" & oStillOrphans.Count & "):")
+        sbValMsg.AppendLine("  These files are referenced by drawings but NOT found in the GA")
+        sbValMsg.AppendLine("  tree and no stem match could be found to auto-resolve them.")
+        sbValMsg.AppendLine("  Copying them will create files the GA never loads.")
+        sbValMsg.AppendLine()
+        For Each sOrph As String In oStillOrphans
             sbValMsg.AppendLine("   ⚠ " & sOrph)
         Next
         sbValMsg.AppendLine()
-        sbValMsg.AppendLine("Likely cause: GA uses a WIP-renamed version of this")
-        sbValMsg.AppendLine("file while drawings still reference the old PJ##### original.")
-        sbValMsg.AppendLine("Recommendation: Run the rule from the GA assembly instead")
-        sbValMsg.AppendLine("so the GA tree drives what gets renamed and copied.")
-        sbValMsg.AppendLine()
-        sbValMsg.AppendLine("Continue anyway (orphans will be copied but won't appear")
-        sbValMsg.AppendLine("in the GA), or Cancel to run from the GA instead?")
+        sbValMsg.AppendLine("Continue anyway (unresolved orphans will be copied but won't")
+        sbValMsg.AppendLine("appear in the GA), or Cancel to investigate?")
     Else
         If oGaAllBasenames.Count > 0 Then
-            sbValMsg.AppendLine("All drawing-mapped models confirmed in GA tree.  Safe to proceed.")
+            Dim sResolvedNote As String = If(oAutoResolved.Count > 0, " (" & oAutoResolved.Count & " auto-resolved from WIP)", "")
+            sbValMsg.AppendLine("All drawing-mapped models confirmed or auto-resolved in GA tree" & sResolvedNote & ".  Safe to proceed.")
         Else
             sbValMsg.AppendLine("(GA validation skipped — GA could not be read)")
         End If
     End If
 
     Dim oValResult As System.Windows.Forms.DialogResult
-    If oOrphans.Count > 0 Then
+    If oStillOrphans.Count > 0 Then
         oValResult = MessageBox.Show(sbValMsg.ToString(), "GA Validation — Orphan Warning", _
             System.Windows.Forms.MessageBoxButtons.OKCancel, System.Windows.Forms.MessageBoxIcon.Warning)
         If oValResult = System.Windows.Forms.DialogResult.Cancel Then
