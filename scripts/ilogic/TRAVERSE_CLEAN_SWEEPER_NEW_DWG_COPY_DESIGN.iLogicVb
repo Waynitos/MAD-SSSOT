@@ -4904,7 +4904,7 @@ Function ShowDrawingModelRenameForm( _
     oForm.MinimizeBox = False
     oForm.MaximizeBox = False
     oForm.Width = iFormW
-    oForm.Height = 668
+    oForm.Height = 710
 
     ' ---- Header label ----
     Dim oLblHdr As New Label()
@@ -5054,10 +5054,22 @@ Function ShowDrawingModelRenameForm( _
     Next
 
     ' ---- Footer controls ----
+    ' ---- Report Only - Drawing/Model Grab checkbox ----
+    ' Default OFF. When ticked and OK is clicked: write a text report of every
+    ' drawing and its models (old name -> current NEW name field) to the Desktop,
+    ' show a message and return False so no clean-sweep changes are made.
+    Dim oChkReportOnly As New CheckBox()
+    oChkReportOnly.Text = "Report Only – Drawing/Model Grab  (print list & exit, no changes)"
+    oChkReportOnly.Left = 10
+    oChkReportOnly.Top = 548
+    oChkReportOnly.Width = 580
+    oChkReportOnly.Checked = False
+    oForm.Controls.Add(oChkReportOnly)
+
     ' Global include all / exclude all
     Dim oChkGlobalInclude As New CheckBox()
     oChkGlobalInclude.Text = "Include ALL drawings  (un-tick to exclude individual drawings above)"
-    oChkGlobalInclude.Left = 10 : oChkGlobalInclude.Top = 548 : oChkGlobalInclude.Width = 450
+    oChkGlobalInclude.Left = 10 : oChkGlobalInclude.Top = 572 : oChkGlobalInclude.Width = 450
     oChkGlobalInclude.Checked = True
     oForm.Controls.Add(oChkGlobalInclude)
     AddHandler oChkGlobalInclude.CheckedChanged, Sub(s, e)
@@ -5072,7 +5084,7 @@ Function ShowDrawingModelRenameForm( _
     ' This is the master mode switch for the form.
     Dim oChkApplyNames As New CheckBox()
     oChkApplyNames.Text = "Apply new model names  (leave un-ticked for clean sweep - copies without renaming)"
-    oChkApplyNames.Left = 10 : oChkApplyNames.Top = 572 : oChkApplyNames.Width = 580
+    oChkApplyNames.Left = 10 : oChkApplyNames.Top = 596 : oChkApplyNames.Width = 580
     oChkApplyNames.Checked = False   ' default = clean sweep
     oForm.Controls.Add(oChkApplyNames)
 
@@ -5094,15 +5106,76 @@ Function ShowDrawingModelRenameForm( _
     ' ---- OK / Cancel — with bottom margin ----
     Dim oOk As New Button()
     oOk.Text = "OK" : oOk.DialogResult = DialogResult.OK
-    oOk.Left = 476 : oOk.Top = 604 : oOk.Width = 80
+    oOk.Left = 476 : oOk.Top = 632 : oOk.Width = 80
     oForm.Controls.Add(oOk) : oForm.AcceptButton = oOk
 
     Dim oCancel As New Button()
     oCancel.Text = "Cancel" : oCancel.DialogResult = DialogResult.Cancel
-    oCancel.Left = 568 : oCancel.Top = 604 : oCancel.Width = 80
+    oCancel.Left = 568 : oCancel.Top = 632 : oCancel.Width = 80
     oForm.Controls.Add(oCancel) : oForm.CancelButton = oCancel
 
     If oForm.ShowDialog() <> DialogResult.OK Then Return False
+
+    ' ---- Report Only - Drawing/Model Grab: write report to Desktop and exit ----
+    If oChkReportOnly.Checked Then
+        Dim sRptStamp As String = DateTime.Now.ToString("yyyy-MM-dd_HHmmss")
+        Dim sRptFolder As String = Environment.GetFolderPath(Environment.SpecialFolder.Desktop)
+        Dim sRptPath As String = System.IO.Path.Combine(sRptFolder, "DrawingModelGrab_" & sRptStamp & ".txt")
+        Dim oRptSb As New System.Text.StringBuilder()
+        Dim oRptEntry As Object()
+        Dim sRptDwg As String
+        Dim sRptDesc As String
+        Dim oRptModels As System.Collections.Generic.List(Of String)
+        Dim sRptMdl As String
+        Dim sRptNew As String
+        Dim iRptDwgCount As Integer = 0
+        Dim iRptMdlCount As Integer = 0
+        oRptSb.AppendLine("REPORT ONLY - Drawing/Model Grab")
+        oRptSb.AppendLine("Generated : " & DateTime.Now.ToString())
+        oRptSb.AppendLine("Status    : No files were copied, renamed, repointed or saved.")
+        oRptSb.AppendLine(New String("="c, 100))
+        For Each oRptEntry In oPhase0Data
+            sRptDwg = CStr(oRptEntry(0))
+            sRptDesc = ""
+            If oRptEntry.Length > 2 Then
+                Try
+                    sRptDesc = CStr(oRptEntry(2))
+                Catch
+                    sRptDesc = ""
+                End Try
+            End If
+            If sRptDesc <> "" Then
+                oRptSb.AppendLine("DRAWING: " & sRptDwg & "  -  " & sRptDesc)
+            Else
+                oRptSb.AppendLine("DRAWING: " & sRptDwg)
+            End If
+            iRptDwgCount = iRptDwgCount + 1
+            oRptModels = TryCast(oRptEntry(1), System.Collections.Generic.List(Of String))
+            If oRptModels Is Nothing OrElse oRptModels.Count = 0 Then
+                oRptSb.AppendLine("    (no model refs)")
+            Else
+                For Each sRptMdl In oRptModels
+                    sRptNew = ""
+                    If oMasterTxtMap.ContainsKey(sRptMdl) Then
+                        sRptNew = Trim(oMasterTxtMap(sRptMdl).Text)
+                    End If
+                    oRptSb.AppendLine("    " & sRptMdl & " -> " & sRptNew)
+                    iRptMdlCount = iRptMdlCount + 1
+                Next
+            End If
+            oRptSb.AppendLine("")
+        Next
+        oRptSb.AppendLine(New String("="c, 100))
+        oRptSb.AppendLine("Drawings : " & iRptDwgCount)
+        oRptSb.AppendLine("Model rows: " & iRptMdlCount)
+        Try
+            System.IO.File.WriteAllText(sRptPath, oRptSb.ToString())
+            MessageBox.Show("Report Only - Drawing/Model Grab written to:" & vbCrLf & sRptPath & vbCrLf & vbCrLf & "No changes were made.", "Drawing/Model Grab")
+        Catch exRpt As Exception
+            MessageBox.Show("Could not write report: " & exRpt.Message, "Drawing/Model Grab")
+        End Try
+        Return False
+    End If
 
     ' ---- Collect results ----
     oChoice.oExplicitModelRenameMap.Clear()
