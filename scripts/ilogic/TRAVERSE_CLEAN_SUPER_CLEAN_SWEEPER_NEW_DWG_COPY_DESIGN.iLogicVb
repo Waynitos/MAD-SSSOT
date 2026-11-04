@@ -1,373 +1,65 @@
 ﻿'' =====================================================================
-'' TRAVERSE_CLEAN_SUPER_CLEAN_SWEEPER_NEW_DWG_COPY_DESIGN.iLogicVb
+'' SUPER_CLEAN_SWEEPER.iLogicVb
 '' Copy Design with full provenance architecture
-'' Version: 2.0.0 — 2026-11-05
-''
-'' WHAT'S NEW IN v2.0.0
-''   1. UNIVERSAL COPY — all files referenced under the old project
-''      path are copied, not just those with the old prefix.
-''      Unnamed parts (JCxxxxxx, AS 1111 - M16 x 50, FLOWMETER etc.)
-''      and WIP subfolder parts are now included.
-''   2. SMART RENAMING — new naming formula for all copied files:
-''         Strip existing "PJ#####-E####-#-" prefix if present
-''         Prepend new "PJ#####-E####-#-" prefix
-''      This avoids double-prefixing on reruns and handles mixed
-''      prefixed / non-prefixed files uniformly.
-''   3. DELTA-PROVENANCE CHAIN — provenance properties extended:
-''         CS_SourcePath    = path this file was copied FROM (this run)
-''         CS_SourceName    = filename of that source
-''         CS_SourceGUID    = GUID of source at copy time
-''         CS_RootSource    = very first PJ##### origin (never changes)
-''         CS_RootGUID      = GUID of that original root file
-''         CS_CopyProject   = destination project prefix (guard key)
-''         CS_CopyDate      = date of THIS run (yyyy-MM-dd)
-''         CS_RunCount      = 1 on first run; increments on rerun
-''      On rerun: rule reads CS_RootSource + CS_RootGUID from the
-''      SOURCE file and carries them into the new file, so the chain
-''      back to PJ00161 is preserved no matter how many generations.
-''   4. RERUN-SAFE — IsAlreadyProcessed() guard unchanged; already-
-''      processed files are skipped cleanly.  New files missed by
-''      v1 (unnamed parts, WIP subs) are caught on rerun.
+'' Version: 1.0.0 — 2026-11-04
 ''
 '' PURPOSE
 ''   Replicates Vault Copy Design outside of Vault.
 ''   Copies an entire GA assembly tree to a new folder with a new
 ''   project prefix, using SaveAs (not File.Copy) so every new file
-''   gets a fresh internal GUID.
+''   gets a fresh internal GUID.  Provenance iProperties are written
+''   to every new model file at save time (zero extra open/save cost
+''   since the file is already in Inventor's session).
+''
+'' KEY ARCHITECTURAL DIFFERENCES FROM TRAVERSE RULE (Mode 6)
+''   1. SaveAs replaces File.Copy — fresh GUID on every new file,
+''      matching Vault Copy Design behaviour.
+''   2. WriteProvenanceProps writes to every new .iam / .ipt:
+''         CS_SourcePath    = original full path before copy
+''         CS_SourceName    = original filename
+''         CS_CopyProject   = new project prefix (e.g. PJ00222)
+''         CS_CopyDate      = copy date (yyyy-MM-dd)
+''         CS_SourceGUID    = original InternalName GUID
+''   3. CS_SourceGUID is captured BEFORE the SaveAs call because
+''      Inventor assigns a new GUID to the saved file; the original
+''      GUID is then written to the new file as CS_SourceGUID.
+''   4. CS_ModelRefs is written to every new .idw / .dwg:
+''      pipe-delimited list of old model paths the drawing referenced.
+''      Enables autonomous drawing relink — scan _CLEAN for files
+''      whose CS_SourcePath matches, then ReplaceReference.
+''   5. Provenance skip guard: if a destination file already carries
+''      CS_CopyProject = new prefix, it was processed in a prior run;
+''      skip it rather than overwriting.
+''
+'' CODE-ASSASSIN FIXES (2026-11-04 audit)
+''   F1. Sub Main: Try/Finally restores SilentOperation — prevents
+''       Inventor being left dialog-less if an unexpected exception
+''       escapes the per-file Try/Catch during Phase 2 or 3.
+''   F2. Phase 3: oDoc3.File null-checked before .ReferencedFileDescriptors
+''       to produce a clear P3-FILE-NULL log entry instead of a
+''       misleading P3-ERROR on certain unresolved document types.
+''   F3. WalkTree: Content Centre parts excluded before they enter the
+''       rename map (kCCPartDocumentSubType check + path heuristic).
+''   F4. Mid-loop sLog concatenation removed — sLog was accumulating
+''       all per-file detail but only used for the final MessageBox
+''       (which truncates at ~32 KB anyway).  Counters already build
+''       the correct sSummary at step 9.
 ''
 '' PHASES
 ''   Phase 1  Build old->new rename map  (walk GA tree, no disk writes)
-''   Phase 2  SaveAs + Provenance        (creates new files, writes chain)
+''   Phase 2  SaveAs + Provenance        (creates new files, writes props)
 ''   Phase 3  Fix internal references    (open new .iam/.ipt, rewrite FDs)
 ''   (Phase 4 / drawing relink is a separate follow-on step)
 ''
-'' ILOGIC COMPILER CONSTRAINTS
-''   - No Imports System.IO or Imports System.Windows.Forms
+'' ILOGIC COMPILER CONSTRAINTS (from ILOGIC_EDIT_PROTOCOL.md)
+''   - No System.Drawing.Color / SystemColors
+''   - For Each loop variables: As Object for all non-primitive types
+''   - ReferencedDocumentDescriptors (not ReferencedDocuments) for DART SHUT
+''   - Strip "<" state tag from descriptor paths
+''   - No Imports System.IO or Imports System.Windows.Forms (pre-imported)
 ''   - No module-level Dim declarations (outside Sub/Function)
 ''   - Sub Main() is mandatory; helpers defined ABOVE their callers
-''   - For Each loop variables: As Object for all non-primitive types
-''   - Strip "<" state tag from descriptor paths
 '' =====================================================================
-
-
-' ─────────────────────────────────────────────────────────────────────────────
-' HELPER: Read a single provenance property from a file (read-only open)
-' Returns "" if not found or any error.
-' Used to carry CS_RootSource / CS_RootGUID / CS_RunCount forward in reruns.
-' ─────────────────────────────────────────────────────────────────────────────
-Function ReadProvProp(sFilePath As String, sPropName As String) As String
-    Dim sVal As String = ""
-    If Not System.IO.File.Exists(sFilePath) Then Return ""
-    Try
-        Dim oDoc As Document = Nothing
-        Try : oDoc = ThisApplication.Documents.ItemByName(sFilePath) : Catch : End Try
-        Dim bOpened As Boolean = False
-        If oDoc Is Nothing Then
-            Try
-                oDoc = ThisApplication.Documents.Open(sFilePath, False)
-                bOpened = True
-            Catch
-                Return ""
-            End Try
-        End If
-        Try
-            sVal = oDoc.PropertySets( _
-                "Inventor User Defined Properties").Item(sPropName).Value
-        Catch : End Try
-        If bOpened Then Try : oDoc.Close(True) : Catch : End Try
-    Catch : End Try
-    Return sVal
-End Function
-
-
-' ─────────────────────────────────────────────────────────────────────────────
-' HELPER: Write full provenance chain to a document
-' Call AFTER the document has been SaveAs'd and is open.
-' Carries CS_RootSource / CS_RootGUID forward from the source file.
-' If source has no CS_RootSource (virgin file), CS_RootSource = sOldPath.
-' ─────────────────────────────────────────────────────────────────────────────
-Sub WriteProvenanceProps(oDoc As Document, _
-                          sOldPath As String, _
-                          sNewProject As String, _
-                          sOldGUID As String, _
-                          sRootSource As String, _
-                          sRootGUID As String, _
-                          iRunCount As Integer, _
-                          sLogPath As String)
-    Try
-        Dim oUDP As PropertySet = oDoc.PropertySets("Inventor User Defined Properties")
-
-        Dim aNames(7) As String
-        Dim aVals(7)  As String
-        aNames(0) = "CS_SourcePath"  : aVals(0) = sOldPath
-        aNames(1) = "CS_SourceName"  : aVals(1) = System.IO.Path.GetFileName(sOldPath)
-        aNames(2) = "CS_CopyProject" : aVals(2) = sNewProject
-        aNames(3) = "CS_CopyDate"    : aVals(3) = Now.ToString("yyyy-MM-dd")
-        aNames(4) = "CS_SourceGUID"  : aVals(4) = sOldGUID
-        aNames(5) = "CS_RootSource"  : aVals(5) = sRootSource
-        aNames(6) = "CS_RootGUID"    : aVals(6) = sRootGUID
-        aNames(7) = "CS_RunCount"    : aVals(7) = iRunCount.ToString()
-
-        Dim i As Integer
-        For i = 0 To 7
-            Dim sPropName As String = aNames(i)
-            Dim sPropVal  As String = aVals(i)
-            Try
-                oUDP.Item(sPropName).Value = sPropVal
-            Catch
-                Try
-                    oUDP.Add(sPropVal, sPropName)
-                Catch exAdd As Exception
-                    Try
-                        System.IO.File.AppendAllText(sLogPath, _
-                            "PROV-WARN: could not set " & sPropName & _
-                            " on " & oDoc.DisplayName & " — " & exAdd.Message & vbCrLf)
-                    Catch : End Try
-                End Try
-            End Try
-        Next i
-    Catch ex As Exception
-        Try
-            System.IO.File.AppendAllText(sLogPath, _
-                "PROV-FAIL: " & oDoc.DisplayName & " — " & ex.Message & vbCrLf)
-        Catch : End Try
-    End Try
-End Sub
-
-
-' ─────────────────────────────────────────────────────────────────────────────
-' HELPER: Write CS_ModelRefs to a drawing document
-' ─────────────────────────────────────────────────────────────────────────────
-Sub WriteDrawingModelRefs(oDwg As Document, _
-                           oModelPaths As System.Collections.Generic.List(Of String), _
-                           sLogPath As String)
-    If oModelPaths Is Nothing Then Return
-    If oModelPaths.Count = 0 Then Return
-    Dim sJoined As String = String.Join("|", oModelPaths.ToArray())
-    Try
-        Dim oUDP As PropertySet = oDwg.PropertySets("Inventor User Defined Properties")
-        Try
-            oUDP.Item("CS_ModelRefs").Value = sJoined
-        Catch
-            Try
-                oUDP.Add(sJoined, "CS_ModelRefs")
-            Catch exA As Exception
-                Try
-                    System.IO.File.AppendAllText(sLogPath, _
-                        "MODELREFS-WARN: " & oDwg.DisplayName & " — " & exA.Message & vbCrLf)
-                Catch : End Try
-            End Try
-        End Try
-    Catch ex As Exception
-        Try
-            System.IO.File.AppendAllText(sLogPath, _
-                "MODELREFS-FAIL: " & oDwg.DisplayName & " — " & ex.Message & vbCrLf)
-        Catch : End Try
-    End Try
-End Sub
-
-
-' ─────────────────────────────────────────────────────────────────────────────
-' HELPER: Check if destination file was already processed in a prior run
-' ─────────────────────────────────────────────────────────────────────────────
-Function IsAlreadyProcessed(sNewFull As String, sProject As String) As Boolean
-    If Not System.IO.File.Exists(sNewFull) Then Return False
-    Dim sExisting As String = ""
-    Try
-        Dim oDoc As Document = Nothing
-        Try : oDoc = ThisApplication.Documents.ItemByName(sNewFull) : Catch : End Try
-        If oDoc IsNot Nothing Then
-            Try
-                sExisting = oDoc.PropertySets( _
-                    "Inventor User Defined Properties").Item("CS_CopyProject").Value
-            Catch : End Try
-        Else
-            Dim bPrevSilent As Boolean = ThisApplication.SilentOperation
-            ThisApplication.SilentOperation = True
-            Try
-                Dim oTmp As Document = ThisApplication.Documents.Open(sNewFull, False)
-                Try
-                    sExisting = oTmp.PropertySets( _
-                        "Inventor User Defined Properties").Item("CS_CopyProject").Value
-                Catch : End Try
-                Try : oTmp.Close(True) : Catch : End Try
-            Catch
-            Finally
-                ThisApplication.SilentOperation = bPrevSilent
-            End Try
-        End If
-    Catch : End Try
-    Return (String.Compare(sExisting, sProject, True) = 0)
-End Function
-
-
-' ─────────────────────────────────────────────────────────────────────────────
-' HELPER: Compute new filename for ANY file under the old project path.
-'
-' NAMING RULES (applied in order):
-'   1. If file is NOT under sOldProjectRoot → return "" (don't copy)
-'   2. Strip any existing "PJ#####-SubCode-" prefix from the basename
-'      where prefix = anything up to and including the second "-digit" segment
-'      (e.g. "PJ00161-E3432-8-" or "PJ00205-E3432-8-")
-'      Detection: basename starts with "PJ" followed by digits and dashes
-'      up to the sub-code, then another "-"
-'   3. Prepend sNewSubPrefix (e.g. "PJ00205-E3432-8-")
-'   4. Result goes flat into sTargetFolder (no subfolders preserved)
-'
-' sNewSubPrefix is the full prefix to prepend, e.g. "PJ00205-E3432-8-"
-' It is built from sNewProject + "-" + sSubCode + "-"
-' ─────────────────────────────────────────────────────────────────────────────
-Function ComputeNewName(sOldFull As String, _
-                         sOldProjectRoot As String, _
-                         sNewSubPrefix As String, _
-                         sTargetFolder As String) As String
-    ' Must be under old project root
-    If Not sOldFull.ToUpper().StartsWith(sOldProjectRoot.ToUpper()) Then Return ""
-    ' Skip Content Centre
-    If sOldFull.ToUpper().Contains("CONTENT CENTER") Then Return ""
-
-    Dim sBase As String = System.IO.Path.GetFileNameWithoutExtension(sOldFull)
-    Dim sExt  As String = System.IO.Path.GetExtension(sOldFull)
-
-    ' Strip existing PJ-style prefix if present
-    ' Pattern: starts with "PJ" + digits + "-" + alphanumeric subcode + "-"
-    ' We strip everything up to and including the SECOND hyphen-segment
-    ' that follows the PJ number.
-    ' Examples stripped:
-    '   "PJ00161-E3432-8-TANK UPPER" → "TANK UPPER"
-    '   "PJ00205-3450-001-V01-00"    → "PJ00205-3450-001-V01-00" (no sub-code match, keep as-is)
-    '   "JC002702"                   → "JC002702" (no PJ prefix, keep as-is)
-    Dim sClean As String = sBase
-    If sBase.ToUpper().StartsWith("PJ") Then
-        ' Find position of the prefix delimiter: "PJddddd-SUBCODE-"
-        ' SUBCODE is the segment like "E3432-8" — it ends at the next "-digit" or "-letter" group
-        ' Simplest approach: find the third "-" in the string (PJ#####-CODE-SUBCODE-)
-        ' Actually the prefix is variable; we detect by looking for the NEW sub prefix pattern
-        ' Strategy: strip if the basename starts with any "PJddddd-" pattern
-        ' Find first "-", then find next "-" after the sub-code
-        Dim iPJ As Integer = sBase.IndexOf("-"c)
-        If iPJ > 0 Then
-            ' Everything after first "-" might be "E3432-8-REST" or "3450-001-V01-00-REST"
-            ' We detect this is a project sub-code by checking if the NEW prefix
-            ' (minus the "PJ#####-" part) appears right after the first "-"
-            ' sNewSubPrefix = "PJ00205-E3432-8-"
-            ' subCode portion = "E3432-8-"
-            Dim iFirstDash As Integer = sNewSubPrefix.IndexOf("-"c)
-            Dim sSubCodePart As String = ""  ' e.g. "E3432-8-"
-            If iFirstDash >= 0 AndAlso iFirstDash < sNewSubPrefix.Length - 1 Then
-                sSubCodePart = sNewSubPrefix.Substring(iFirstDash + 1)  ' "E3432-8-"
-            End If
-            ' Check if basename after first "-" starts with the subcode part
-            Dim sAfterPJ As String = sBase.Substring(iPJ + 1)  ' "E3432-8-TANK UPPER" etc
-            If sSubCodePart <> "" AndAlso _
-               sAfterPJ.ToUpper().StartsWith(sSubCodePart.ToUpper()) Then
-                sClean = sAfterPJ.Substring(sSubCodePart.Length)
-            End If
-        End If
-    End If
-
-    Dim sNewBase As String = sNewSubPrefix & sClean
-    Dim sNewFull As String = System.IO.Path.Combine(sTargetFolder, sNewBase & sExt)
-    Return sNewFull
-End Function
-
-
-' ─────────────────────────────────────────────────────────────────────────────
-' HELPER: Walk assembly tree and build old->new rename map
-' NOW copies ALL files under old project root, not just prefixed ones.
-' ─────────────────────────────────────────────────────────────────────────────
-Sub WalkTree(oDoc As Document, _
-             sOldProjectRoot As String, _
-             sNewSubPrefix As String, _
-             sTargetFolder As String, _
-             oRenameMap As System.Collections.Generic.Dictionary(Of String, String), _
-             oSeen As System.Collections.Generic.HashSet(Of String), _
-             sLogPath As String)
-
-    Dim sFullPath As String = ""
-    Try : sFullPath = oDoc.FullFileName : Catch : Return : End Try
-
-    Dim sFullUpper As String = sFullPath.ToUpper()
-    If oSeen.Contains(sFullUpper) Then Return
-    oSeen.Add(sFullUpper)
-
-    ' ── Recurse into referenced children first (deepest-first) ───────────────
-    Try
-        For Each oDesc As Object In oDoc.ReferencedDocumentDescriptors
-            Dim sRefPath As String = ""
-            Try : sRefPath = oDesc.FullDocumentName : Catch : Continue For : End Try
-
-            ' Strip DART SHUT state tag
-            Dim iAngle As Integer = sRefPath.IndexOf("<"c)
-            If iAngle > 0 Then sRefPath = sRefPath.Substring(0, iAngle)
-            sRefPath = sRefPath.Trim()
-            If sRefPath = "" Then Continue For
-
-            Dim sRefExt As String = System.IO.Path.GetExtension(sRefPath).ToUpper()
-            If sRefExt <> ".IAM" AndAlso sRefExt <> ".IPT" Then Continue For
-            If Not System.IO.File.Exists(sRefPath) Then Continue For
-
-            ' Skip Content Centre
-            If sRefPath.ToUpper().Contains("CONTENT CENTER") Then Continue For
-
-            If oSeen.Contains(sRefPath.ToUpper()) Then Continue For
-
-            ' Open child (or reuse already-open instance)
-            Dim oChild As Document = Nothing
-            Try : oChild = ThisApplication.Documents.ItemByName(sRefPath) : Catch : End Try
-            If oChild Is Nothing Then
-                Try
-                    oChild = ThisApplication.Documents.Open(sRefPath, False)
-                Catch exOpen As Exception
-                    Try
-                        System.IO.File.AppendAllText(sLogPath, _
-                            "WALK-OPEN-FAIL: " & System.IO.Path.GetFileName(sRefPath) & _
-                            " — " & exOpen.Message & vbCrLf)
-                    Catch : End Try
-                    Continue For
-                End Try
-            End If
-
-            ' CC sub-type check on open document
-            Try
-                If oChild.DocumentSubType = kCCPartDocumentSubType Then
-                    Try
-                        System.IO.File.AppendAllText(sLogPath, _
-                            "WALK-CC-SKIP: " & System.IO.Path.GetFileName(sRefPath) & vbCrLf)
-                    Catch : End Try
-                    Continue For
-                End If
-            Catch : End Try
-
-            WalkTree(oChild, sOldProjectRoot, sNewSubPrefix, sTargetFolder, _
-                     oRenameMap, oSeen, sLogPath)
-        Next
-    Catch exWalk As Exception
-        Try
-            System.IO.File.AppendAllText(sLogPath, _
-                "WALK-DESC-FAIL: " & System.IO.Path.GetFileName(sFullPath) & _
-                " — " & exWalk.Message & vbCrLf)
-        Catch : End Try
-    End Try
-
-    ' ── Compute new name for THIS document ───────────────────────────────────
-    ' Skip files NOT under old project root (shared library, Vault library etc.)
-    If Not sFullPath.ToUpper().StartsWith(sOldProjectRoot.ToUpper()) Then Return
-
-    Dim sNewFull As String = ComputeNewName(sFullPath, sOldProjectRoot, sNewSubPrefix, sTargetFolder)
-    If sNewFull = "" Then Return
-
-    If String.Compare(sFullPath, sNewFull, True) <> 0 Then
-        If Not oRenameMap.ContainsKey(sFullPath) Then
-            oRenameMap(sFullPath) = sNewFull
-            Try
-                System.IO.File.AppendAllText(sLogPath, _
-                    "MAP: " & System.IO.Path.GetFileName(sFullPath) & _
-                    "  ->  " & System.IO.Path.GetFileName(sNewFull) & vbCrLf)
-            Catch : End Try
-        End If
-    End If
-End Sub
 
 
 ' ─────────────────────────────────────────────────────────────────────────────
@@ -380,7 +72,7 @@ Sub Main()
     If oAsmDoc Is Nothing Then
         MessageBox.Show( _
             "Open the top-level GA assembly first, then run Super Clean Sweeper.", _
-            "Super Clean Sweeper v2")
+            "Super Clean Sweeper")
         Exit Sub
     End If
     Dim sTopFull As String = oAsmDoc.FullFileName
@@ -392,7 +84,7 @@ Sub Main()
         System.Environment.SpecialFolder.Desktop)
     Dim sLogPath As String = System.IO.Path.Combine(sDesktop, _
         "SUPER_CLEAN_SWEEPER_" & Now.ToString("yyyyMMdd_HHmmss") & ".log")
-    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.0.0  —  " & Now.ToString() & vbCrLf & _
+    Dim sLog As String = "SUPER CLEAN SWEEPER  v1.0.0  —  " & Now.ToString() & vbCrLf & _
                          "GA: " & sTopFull & vbCrLf
     Try : System.IO.File.WriteAllText(sLogPath, sLog) : Catch : End Try
 
@@ -406,103 +98,41 @@ Sub Main()
     oFbd.Description = "Select destination folder for the new assembly copies  (the _CLEAN folder)"
     oFbd.SelectedPath = System.IO.Path.GetDirectoryName(sTopFull)
     If oFbd.ShowDialog() <> DialogResult.OK Then
-        MessageBox.Show("Cancelled — no changes made.", "Super Clean Sweeper v2")
+        MessageBox.Show("Cancelled — no changes made.", "Super Clean Sweeper")
         Exit Sub
     End If
     Dim sTargetFolder As String = oFbd.SelectedPath
     ThisApplication.SilentOperation = True
 
-    ' ── 4. Detect old prefix; detect sub-code; ask for new prefix ────────────
-    ' Old prefix = e.g. "PJ00161"
-    ' Sub-code   = e.g. "E3432-8"
-    ' Combined   = e.g. "PJ00161-E3432-8-"  (sOldSubPrefix)
-    ' New combined = e.g. "PJ00205-E3432-8-" (sNewSubPrefix)
-    Dim sOldPrefix  As String = ""
-    Dim sSubCode    As String = ""
-    Dim sOldSubPrefix As String = ""
-
-    Dim iPfxDash As Integer = sTopBase.IndexOf("-"c)
-    If iPfxDash > 0 Then
-        sOldPrefix = sTopBase.Substring(0, iPfxDash)       ' "PJ00161"
-        Dim sRest As String = sTopBase.Substring(iPfxDash + 1)   ' "E3432-8-NEW E8 TOP..."
-        ' Sub-code ends at the second "-" in rest (e.g. "E3432-8")
-        ' Find first "-" in rest
-        Dim iSubDash As Integer = sRest.IndexOf("-"c)
-        If iSubDash > 0 Then
-            Dim sPart1 As String = sRest.Substring(0, iSubDash)  ' "E3432"
-            Dim sAfterPart1 As String = sRest.Substring(iSubDash + 1)  ' "8-NEW E8 TOP..."
-            Dim iSubDash2 As Integer = sAfterPart1.IndexOf("-"c)
-            If iSubDash2 > 0 Then
-                Dim sPart2 As String = sAfterPart1.Substring(0, iSubDash2)  ' "8"
-                ' Check if sPart2 looks like a short alphanumeric code (not a word)
-                If sPart2.Length <= 4 Then
-                    sSubCode = sPart1 & "-" & sPart2  ' "E3432-8"
-                End If
-            End If
-        End If
-    End If
-    sOldSubPrefix = sOldPrefix & (If(sSubCode <> "", "-" & sSubCode & "-", "-"))
-
-    ' Derive old project root from GA path:
-    ' Walk UP from GA folder to find the PJ##### root
-    ' Strategy: GA path is like "...\PJ00161 South32 Hermosa...\20-Designs\Models\E3432-8\"
-    ' We find the folder that STARTS with sOldPrefix
-    Dim sOldProjectRoot As String = ""
-    Dim sParts() As String = sTopFull.Split(System.IO.Path.DirectorySeparatorChar)
-    Dim iP As Integer
-    For iP = 0 To sParts.Length - 1
-        If sParts(iP).ToUpper().StartsWith(sOldPrefix.ToUpper()) Then
-            ' Rebuild path up to and including this segment
-            Dim sRootBuild As String = ""
-            Dim iQ As Integer
-            For iQ = 0 To iP
-                If sRootBuild = "" Then
-                    sRootBuild = sParts(iQ)
-                Else
-                    sRootBuild = sRootBuild & System.IO.Path.DirectorySeparatorChar & sParts(iQ)
-                End If
-            Next iQ
-            sOldProjectRoot = sRootBuild & System.IO.Path.DirectorySeparatorChar
-            Exit For
-        End If
-    Next iP
-
-    If sOldProjectRoot = "" Then
-        sOldProjectRoot = System.IO.Path.GetDirectoryName(sTopFull) & System.IO.Path.DirectorySeparatorChar
-    End If
+    ' ── 4. Detect old prefix; ask for new prefix ─────────────────────────────
+    Dim sOldPrefix As String = ""
+    Dim iDash As Integer = sTopBase.IndexOf("-"c)
+    If iDash > 0 Then sOldPrefix = sTopBase.Substring(0, iDash)
 
     ThisApplication.SilentOperation = bOrigSilent
     Dim sNewPrefix As String = InputBox( _
-        "Detected current prefix : """ & sOldPrefix & """" & vbCrLf & _
-        "Detected sub-code       : """ & sSubCode & """" & vbCrLf & _
-        "Full old sub-prefix     : """ & sOldSubPrefix & """" & vbCrLf & _
-        "Old project root        : """ & sOldProjectRoot & """" & vbCrLf & vbCrLf & _
-        "ALL files under the old project root will be copied." & vbCrLf & _
-        "Enter the NEW project prefix (e.g. PJ00222):", _
-        "Super Clean Sweeper v2 — New Prefix", sOldPrefix)
+        "Detected current prefix: """ & sOldPrefix & """" & vbCrLf & vbCrLf & _
+        "Enter the NEW project prefix (e.g. PJ00222):" & vbCrLf & _
+        "(Only files whose name STARTS WITH the old prefix will be copied.)", _
+        "Super Clean Sweeper — New Prefix", sOldPrefix)
     sNewPrefix = Trim(sNewPrefix)
     If sNewPrefix = "" Then
-        MessageBox.Show("Cancelled — no prefix entered.", "Super Clean Sweeper v2")
+        MessageBox.Show("Cancelled — no prefix entered.", "Super Clean Sweeper")
         Exit Sub
     End If
-
-    Dim sNewSubPrefix As String = sNewPrefix & (If(sSubCode <> "", "-" & sSubCode & "-", "-"))
-
     If String.Compare(sOldPrefix, sNewPrefix, True) = 0 Then
         Dim oSameRes As DialogResult = MessageBox.Show( _
             "Old and new prefix are the same (" & sOldPrefix & ")." & vbCrLf & _
-            "Files will be SaveAs'd to the target folder without prefix change." & vbCrLf & vbCrLf & _
-            "Continue?", "Super Clean Sweeper v2 — Same Prefix", _
+            "Files will be SaveAs'd to the target folder without renaming." & vbCrLf & vbCrLf & _
+            "Continue?", "Super Clean Sweeper — Same Prefix", _
             MessageBoxButtons.YesNo, MessageBoxIcon.Warning)
         If oSameRes <> DialogResult.Yes Then Exit Sub
     End If
     ThisApplication.SilentOperation = True
 
     Try : System.IO.File.AppendAllText(sLogPath, _
-        "Target       : " & sTargetFolder & vbCrLf & _
-        "OldProjectRoot: " & sOldProjectRoot & vbCrLf & _
-        "OldSubPfx    : " & sOldSubPrefix & vbCrLf & _
-        "NewSubPfx    : " & sNewSubPrefix & vbCrLf) : Catch : End Try
+        "Target : " & sTargetFolder & vbCrLf & _
+        "OldPfx : " & sOldPrefix & "   NewPfx : " & sNewPrefix & vbCrLf) : Catch : End Try
 
     ' Ensure target folder exists
     If Not System.IO.Directory.Exists(sTargetFolder) Then
@@ -511,7 +141,7 @@ Sub Main()
         Catch exDir As Exception
             ThisApplication.SilentOperation = bOrigSilent
             MessageBox.Show("Could not create target folder:" & vbCrLf & exDir.Message, _
-                "Super Clean Sweeper v2")
+                "Super Clean Sweeper")
             Exit Sub
         End Try
     End If
@@ -525,22 +155,24 @@ Sub Main()
         StringComparer.OrdinalIgnoreCase)
 
     Try
-        WalkTree(oAsmDoc, sOldProjectRoot, sNewSubPrefix, sTargetFolder, _
+        WalkTree(oAsmDoc, sOldPrefix, sNewPrefix, sTargetFolder, _
                  oRenameMap, oSeen, sLogPath)
     Catch exWalk As Exception
         ThisApplication.SilentOperation = bOrigSilent
-        MessageBox.Show("Phase 1 walk failed: " & exWalk.Message, "Super Clean Sweeper v2")
+        MessageBox.Show("Phase 1 walk failed: " & exWalk.Message, "Super Clean Sweeper")
         Exit Sub
     End Try
 
     ' Add the top assembly itself
-    Dim sTopNewFull As String = ComputeNewName(sTopFull, sOldProjectRoot, sNewSubPrefix, sTargetFolder)
-    If sTopNewFull <> "" AndAlso String.Compare(sTopFull, sTopNewFull, True) <> 0 Then
-        If Not oRenameMap.ContainsKey(sTopFull) Then
-            oRenameMap(sTopFull) = sTopNewFull
-            Try : System.IO.File.AppendAllText(sLogPath, _
-                "MAP (TOP): " & System.IO.Path.GetFileName(sTopFull) & _
-                "  ->  " & System.IO.Path.GetFileName(sTopNewFull) & vbCrLf) : Catch : End Try
+    If sTopBase.ToUpper().StartsWith(sOldPrefix.ToUpper()) Then
+        Dim sTopNewBase As String = sNewPrefix & sTopBase.Substring(sOldPrefix.Length)
+        Dim sTopNewFull As String = System.IO.Path.Combine(sTargetFolder, sTopNewBase & sTopExt)
+        If String.Compare(sTopFull, sTopNewFull, True) <> 0 Then
+            If Not oRenameMap.ContainsKey(sTopFull) Then
+                oRenameMap(sTopFull) = sTopNewFull
+                Try : System.IO.File.AppendAllText(sLogPath, _
+                    "MAP (TOP): " & sTopBase & sTopExt & "  ->  " & sTopNewBase & sTopExt & vbCrLf) : Catch : End Try
+            End If
         End If
     End If
 
@@ -549,9 +181,9 @@ Sub Main()
 
     If oRenameMap.Count = 0 Then
         ThisApplication.SilentOperation = bOrigSilent
-        MessageBox.Show("No files found under old project root." & vbCrLf & _
+        MessageBox.Show("No files found with prefix '" & sOldPrefix & "'." & vbCrLf & _
             "Check the GA is open and the prefix matches its filename.", _
-            "Super Clean Sweeper v2 — Nothing to do")
+            "Super Clean Sweeper — Nothing to do")
         Exit Sub
     End If
 
@@ -560,29 +192,36 @@ Sub Main()
     Dim oConfirm As DialogResult = MessageBox.Show( _
         oRenameMap.Count & " file(s) will be processed:" & vbCrLf & _
         "• SaveAs (fresh GUID) → " & sTargetFolder & vbCrLf & _
-        "• All files under: " & sOldProjectRoot & vbCrLf & _
-        "• New prefix: " & sNewSubPrefix & vbCrLf & _
-        "• Provenance chain written (CS_SourcePath, CS_RootSource, CS_RunCount...)" & vbCrLf & _
+        "• Provenance properties written (CS_SourcePath, CS_SourceGUID, etc.)" & vbCrLf & _
         "• Original files are NOT modified" & vbCrLf & vbCrLf & _
         "Proceed?", _
-        "Super Clean Sweeper v2 — Confirm", _
+        "Super Clean Sweeper — Confirm", _
         MessageBoxButtons.YesNo, MessageBoxIcon.Question)
     If oConfirm <> DialogResult.Yes Then
-        MessageBox.Show("Cancelled — no changes made.", "Super Clean Sweeper v2")
+        MessageBox.Show("Cancelled — no changes made.", "Super Clean Sweeper")
         Exit Sub
     End If
     ThisApplication.SilentOperation = True
 
-    ' ── 6. PHASE 2 — SaveAs + Provenance chain ───────────────────────────────
-    Try : System.IO.File.AppendAllText(sLogPath, vbCrLf & "=== PHASE 2: SAVEAS + PROVENANCE ===" & vbCrLf) : Catch : End Try
-    Try  ' outer Try/Finally — always restores SilentOperation
-
-    Dim oMapKeys As New System.Collections.Generic.List(Of String)(oRenameMap.Keys)
-    oMapKeys.Sort(Function(a2, b2) b2.Length.CompareTo(a2.Length))
-
+    ' ── 6. PHASE 2 — SaveAs + Provenance ─────────────────────────────────────
+    ' F1: Wrap Phase 2 + 3 in Try/Finally so SilentOperation is ALWAYS
+    ' restored even if an unexpected exception escapes the per-file catches.
+    ' Process in deepest-first order: sort by OLD path length descending
+    ' (deeper paths are longer; this ensures children are saved before parents).
+    ' Declare counters before the Try so they are visible after the Finally
+    ' for the final summary, and so they do not hide enclosing-block names.
     Dim iSaved       As Integer = 0
     Dim iSkipped     As Integer = 0
     Dim iSaveFailed  As Integer = 0
+    Dim iRefFixed    As Integer = 0
+    Dim iRefFailed   As Integer = 0
+
+    Try : System.IO.File.AppendAllText(sLogPath, vbCrLf & "=== PHASE 2: SAVEAS + PROVENANCE ===" & vbCrLf) : Catch : End Try
+    Try  ' ← F1: outer Try/Finally begins here — Finally restores SilentOperation
+
+    Dim oMapKeys As New System.Collections.Generic.List(Of String)(oRenameMap.Keys)
+    oMapKeys.Sort(Function(a2, b2) b2.Length.CompareTo(a2.Length))
+    ' Track files actually placed on disk (Phase 3 uses this map)
     Dim oActualMap As New System.Collections.Generic.Dictionary(Of String, String)( _
         StringComparer.OrdinalIgnoreCase)
 
@@ -642,34 +281,15 @@ Sub Main()
             End If
 
             ' ── Capture GUID BEFORE SaveAs ───────────────────────────────────
+            ' InternalName returns the file's GUID.  SaveAs creates a NEW GUID
+            ' in the saved copy; we capture the OLD one here so it can be
+            ' written as CS_SourceGUID in the new file's iProperties.
             Dim sOldGUID2 As String = ""
             Try : sOldGUID2 = oDoc2.InternalName : Catch : End Try
 
-            ' ── Read provenance chain from SOURCE file ────────────────────────
-            ' If source already has CS_RootSource (it was itself a copy), carry
-            ' that root forward.  If not (virgin original), root = this source.
-            Dim sRootSource2 As String = ""
-            Dim sRootGUID2   As String = ""
-            Dim iRunCount2   As Integer = 1
-            Try
-                sRootSource2 = oDoc2.PropertySets( _
-                    "Inventor User Defined Properties").Item("CS_RootSource").Value
-            Catch : End Try
-            Try
-                sRootGUID2 = oDoc2.PropertySets( _
-                    "Inventor User Defined Properties").Item("CS_RootGUID").Value
-            Catch : End Try
-            Try
-                Dim sRunStr As String = oDoc2.PropertySets( _
-                    "Inventor User Defined Properties").Item("CS_RunCount").Value
-                iRunCount2 = CInt(sRunStr) + 1
-            Catch : End Try
-
-            ' If source has no CS_RootSource, it IS the root
-            If sRootSource2 = "" Then sRootSource2 = sOldFull2
-            If sRootGUID2   = "" Then sRootGUID2   = sOldGUID2
-
             ' ── Collect old model refs from drawings ─────────────────────────
+            ' For .idw / .dwg: record every referenced model path BEFORE the copy.
+            ' Written to CS_ModelRefs on the new drawing (pipe-delimited).
             Dim oModelRefs2 As New System.Collections.Generic.List(Of String)()
             If sExtU2 = ".IDW" OrElse sExtU2 = ".DWG" Then
                 Try
@@ -685,6 +305,9 @@ Sub Main()
             End If
 
             ' ── SaveAs to new path (SaveCopyAs = True) ───────────────────────
+            ' SaveCopyAs=True: writes a new independent copy to sNewFull2 and
+            ' assigns it a fresh GUID.  The current doc instance stays bound
+            ' to the ORIGINAL path — originals are never touched.
             Dim bSaveAsOk2 As Boolean = False
             Try
                 oDoc2.SaveAs(sNewFull2, True)
@@ -703,7 +326,9 @@ Sub Main()
                     End If
                 Catch : End Try
 
-                ' ── Open new file and write provenance chain ──────────────────
+                ' ── Open new file and write provenance ───────────────────────
+                ' SaveCopyAs=True does NOT leave the new file open in Inventor.
+                ' We must open it, write provenance props, save, then close.
                 Dim oNewDoc2 As Document = Nothing
                 Try
                     oNewDoc2 = ThisApplication.Documents.Open(sNewFull2, False)
@@ -713,14 +338,17 @@ Sub Main()
                 End Try
 
                 If oNewDoc2 IsNot Nothing Then
-                    WriteProvenanceProps(oNewDoc2, sOldFull2, sNewPrefix, _
-                        sOldGUID2, sRootSource2, sRootGUID2, iRunCount2, sLogPath)
+                    ' Write CS_SourcePath, CS_SourceName, CS_CopyProject,
+                    ' CS_CopyDate, CS_SourceGUID
+                    WriteProvenanceProps(oNewDoc2, sOldFull2, sNewPrefix, sOldGUID2, sLogPath)
 
+                    ' Write CS_ModelRefs for drawing files
                     If (sExtU2 = ".IDW" OrElse sExtU2 = ".DWG") AndAlso _
                        oModelRefs2.Count > 0 Then
                         WriteDrawingModelRefs(oNewDoc2, oModelRefs2, sLogPath)
                     End If
 
+                    ' Save provenance to disk
                     Try
                         oNewDoc2.Save()
                     Catch exSvProv2 As Exception
@@ -728,12 +356,12 @@ Sub Main()
                             "PROV-SAVE-FAIL: " & sNewName2 & " — " & exSvProv2.Message & vbCrLf) : Catch : End Try
                     End Try
 
+                    ' Close the new file (Phase 3 will reopen .iam/.ipt if needed)
                     Try : oNewDoc2.Close(True) : Catch : End Try
 
                     Try : System.IO.File.AppendAllText(sLogPath, _
                         "SAVED+PROV: " & sOldName2 & "  ->  " & sNewName2 & _
-                        "  [Run:" & iRunCount2 & " OldGUID:" & sOldGUID2 & _
-                        " Root:" & System.IO.Path.GetFileName(sRootSource2) & "]" & vbCrLf) : Catch : End Try
+                        "  [OldGUID:" & sOldGUID2 & "]" & vbCrLf) : Catch : End Try
                 End If
 
                 oActualMap(sOldFull2) = sNewFull2
@@ -742,6 +370,7 @@ Sub Main()
                 iSaveFailed += 1
             End If
 
+            ' ── Close source if we opened it ─────────────────────────────────
             If bOpenedHere2 AndAlso oDoc2 IsNot Nothing Then
                 Try : oDoc2.Close(True) : Catch : End Try
             End If
@@ -758,8 +387,13 @@ Sub Main()
         iSkipped & " prov-skipped, " & iSaveFailed & " failed." & vbCrLf) : Catch : End Try
 
     ' ── 7. PHASE 3 — Fix internal references in new files ────────────────────
+    ' Each new .iam / .ipt was SaveAs'd from the original, so its FileDescriptors
+    ' still point at the OLD paths.  Open each new file and rewrite FDs to new
+    ' paths using the actual map.  Deepest-first so nested assemblies are
+    ' consistent before their parents are saved.
     Try : System.IO.File.AppendAllText(sLogPath, vbCrLf & "=== PHASE 3: FIX INTERNAL REFS ===" & vbCrLf) : Catch : End Try
 
+    ' Collect unique new paths (avoid processing the same file twice)
     Dim oNewSet As New System.Collections.Generic.HashSet(Of String)( _
         StringComparer.OrdinalIgnoreCase)
     Dim sActualVal As String
@@ -769,14 +403,13 @@ Sub Main()
     Dim oNewSorted As New System.Collections.Generic.List(Of String)(oNewSet)
     oNewSorted.Sort(Function(a2, b2) b2.Length.CompareTo(a2.Length))
 
-    Dim iRefFixed  As Integer = 0
-    Dim iRefFailed As Integer = 0
     Dim sNewPath3  As String
 
     For Each sNewPath3 In oNewSorted
         Dim sNewName3 As String = System.IO.Path.GetFileName(sNewPath3)
         Dim sExtU3    As String = System.IO.Path.GetExtension(sNewPath3).ToUpper()
 
+        ' Only .iam and .ipt have internal file references to rewrite
         If sExtU3 <> ".IAM" AndAlso sExtU3 <> ".IPT" Then Continue For
         If Not System.IO.File.Exists(sNewPath3) Then Continue For
 
@@ -797,6 +430,9 @@ Sub Main()
 
             Dim bChanged3 As Boolean = False
             Try
+                ' F2: Null-check oDoc3.File before accessing ReferencedFileDescriptors.
+                ' On unresolved or error-state documents, .File can be Nothing, causing
+                ' a NullReferenceException caught only by the outer exP3 catch.
                 If oDoc3.File Is Nothing Then
                     Try : System.IO.File.AppendAllText(sLogPath, _
                         "P3-FILE-NULL: " & sNewName3 & vbCrLf) : Catch : End Try
@@ -855,17 +491,20 @@ Sub Main()
     Try : System.IO.File.AppendAllText(sLogPath, _
         "Phase 3 complete: " & iRefFixed & " fixed, " & iRefFailed & " failed." & vbCrLf) : Catch : End Try
 
+    ' F1: Finally block — SilentOperation restored even if Phase 2/3 throws
     Finally
         ThisApplication.SilentOperation = bOrigSilent
-    End Try  ' outer Try/Finally ends
+    End Try  ' ← F1: outer Try/Finally ends here
 
-    ' ── 8. Final summary ──────────────────────────────────────────────────────
+    ' ── 8. SilentOperation already restored in Finally above ─────────────────
+
+    ' ── 9. Final summary ──────────────────────────────────────────────────────
     Dim sSummary As String = _
-        "SUPER CLEAN SWEEPER v2.0.0 — COMPLETE" & vbCrLf & vbCrLf & _
+        "SUPER CLEAN SWEEPER — COMPLETE" & vbCrLf & vbCrLf & _
         "Phase 1  Rename map built:   " & oRenameMap.Count & " file(s)" & vbCrLf & _
-        "Phase 2  SaveAs + Provenance chain:" & vbCrLf & _
+        "Phase 2  SaveAs + Provenance:" & vbCrLf & _
         "         Saved    : " & iSaved & vbCrLf & _
-        "         Skipped  : " & iSkipped & "  (provenance guard)" & vbCrLf & _
+        "         Skipped  : " & iSkipped & "  (provenance guard — already processed)" & vbCrLf & _
         "         Failed   : " & iSaveFailed & vbCrLf & _
         "Phase 3  Ref fix  :" & vbCrLf & _
         "         Fixed    : " & iRefFixed & vbCrLf & _
@@ -874,12 +513,234 @@ Sub Main()
         "Log          : " & sLogPath & vbCrLf & vbCrLf & _
         "NEXT STEPS" & vbCrLf & _
         "1. Open the new GA from the target folder to verify the assembly tree." & vbCrLf & _
-        "2. Run the Drawing Relink pass (Phase 4) to update drawings." & vbCrLf & _
-        "3. Check log for SAVEAS-FAIL or P3-FD-FAIL entries."
+        "2. Run the Drawing Relink pass to update drawings to new model paths" & vbCrLf & _
+        "   (uses CS_ModelRefs + CS_SourcePath matching — no preset map needed)." & vbCrLf & _
+        "3. Check the log for any SAVEAS-FAIL or P3-FD-FAIL entries."
 
     Try : System.IO.File.AppendAllText(sLogPath, vbCrLf & sSummary) : Catch : End Try
 
-    MessageBox.Show(sSummary, "Super Clean Sweeper v2 — Complete", _
+    MessageBox.Show(sSummary, "Super Clean Sweeper — Complete", _
         MessageBoxButtons.OK, MessageBoxIcon.Information)
 
+End Sub
+
+
+' ─────────────────────────────────────────────────────────────────────────────
+' HELPER: Write provenance iProperties to a document
+' Call AFTER the document has been SaveAs'd to its new path and is open.
+' aNames / aVals are parallel arrays; we try to set each property,
+' adding it if it does not already exist.
+' ─────────────────────────────────────────────────────────────────────────────
+Sub WriteProvenanceProps(oDoc As Document, sOldPath As String, _
+                          sNewProject As String, sOldGUID As String, _
+                          sLogPath As String)
+    Try
+        Dim oUDP As PropertySet = oDoc.PropertySets("Inventor User Defined Properties")
+        Dim aNames(4) As String
+        Dim aVals(4) As String
+        aNames(0) = "CS_SourcePath"    : aVals(0) = sOldPath
+        aNames(1) = "CS_SourceName"    : aVals(1) = System.IO.Path.GetFileName(sOldPath)
+        aNames(2) = "CS_CopyProject"   : aVals(2) = sNewProject
+        aNames(3) = "CS_CopyDate"      : aVals(3) = Now.ToString("yyyy-MM-dd")
+        aNames(4) = "CS_SourceGUID"    : aVals(4) = sOldGUID
+        Dim i As Integer
+        For i = 0 To 4
+            Dim sPropName As String = aNames(i)
+            Dim sPropVal  As String = aVals(i)
+            Try
+                oUDP.Item(sPropName).Value = sPropVal
+            Catch
+                Try
+                    oUDP.Add(sPropVal, sPropName)
+                Catch exAdd As Exception
+                    Try
+                        System.IO.File.AppendAllText(sLogPath, _
+                            "PROV-WARN: could not set " & sPropName & _
+                            " on " & oDoc.DisplayName & " — " & exAdd.Message & vbCrLf)
+                    Catch : End Try
+                End Try
+            End Try
+        Next i
+    Catch ex As Exception
+        Try
+            System.IO.File.AppendAllText(sLogPath, _
+                "PROV-FAIL: " & oDoc.DisplayName & " — " & ex.Message & vbCrLf)
+        Catch : End Try
+    End Try
+End Sub
+
+
+' ─────────────────────────────────────────────────────────────────────────────
+' HELPER: Write CS_ModelRefs to a drawing document
+' Writes pipe-delimited list of old model paths the drawing referenced.
+' This enables autonomous relink: scan _CLEAN for CS_SourcePath matches.
+' ─────────────────────────────────────────────────────────────────────────────
+Sub WriteDrawingModelRefs(oDwg As Document, _
+                           oModelPaths As System.Collections.Generic.List(Of String), _
+                           sLogPath As String)
+    If oModelPaths Is Nothing Then Return
+    If oModelPaths.Count = 0 Then Return
+    Dim sJoined As String = String.Join("|", oModelPaths.ToArray())
+    Try
+        Dim oUDP As PropertySet = oDwg.PropertySets("Inventor User Defined Properties")
+        Try
+            oUDP.Item("CS_ModelRefs").Value = sJoined
+        Catch
+            Try
+                oUDP.Add(sJoined, "CS_ModelRefs")
+            Catch exA As Exception
+                Try
+                    System.IO.File.AppendAllText(sLogPath, _
+                        "MODELREFS-WARN: " & oDwg.DisplayName & " — " & exA.Message & vbCrLf)
+                Catch : End Try
+            End Try
+        End Try
+    Catch ex As Exception
+        Try
+            System.IO.File.AppendAllText(sLogPath, _
+                "MODELREFS-FAIL: " & oDwg.DisplayName & " — " & ex.Message & vbCrLf)
+        Catch : End Try
+    End Try
+End Sub
+
+
+' ─────────────────────────────────────────────────────────────────────────────
+' HELPER: Check if destination file was already processed in a prior run
+' Returns True only when the destination exists AND carries
+' CS_CopyProject = sProject (checked via already-open doc if possible,
+' so no extra open/close is needed on a first run).
+' ─────────────────────────────────────────────────────────────────────────────
+Function IsAlreadyProcessed(sNewFull As String, sProject As String) As Boolean
+    If Not System.IO.File.Exists(sNewFull) Then Return False
+    Dim sExisting As String = ""
+    Try
+        ' Use already-open instance if available (zero overhead)
+        Dim oDoc As Document = Nothing
+        Try : oDoc = ThisApplication.Documents.ItemByName(sNewFull) : Catch : End Try
+        If oDoc IsNot Nothing Then
+            Try
+                sExisting = oDoc.PropertySets( _
+                    "Inventor User Defined Properties").Item("CS_CopyProject").Value
+            Catch : End Try
+        Else
+            ' File exists on disk but is not open — open it briefly
+            Dim bPrevSilent As Boolean = ThisApplication.SilentOperation
+            ThisApplication.SilentOperation = True
+            Try
+                Dim oTmp As Document = ThisApplication.Documents.Open(sNewFull, False)
+                Try
+                    sExisting = oTmp.PropertySets( _
+                        "Inventor User Defined Properties").Item("CS_CopyProject").Value
+                Catch : End Try
+                Try : oTmp.Close(True) : Catch : End Try
+            Catch
+            Finally
+                ThisApplication.SilentOperation = bPrevSilent
+            End Try
+        End If
+    Catch : End Try
+    Return (String.Compare(sExisting, sProject, True) = 0)
+End Function
+
+
+' ─────────────────────────────────────────────────────────────────────────────
+' HELPER: Walk assembly tree and build old->new rename map
+' Visits every referenced .iam and .ipt, deepest children first.
+' Files with no old-prefix match are excluded from the map.
+' ─────────────────────────────────────────────────────────────────────────────
+Sub WalkTree(oDoc As Document, _
+             sOldPrefix As String, sNewPrefix As String, _
+             sTargetFolder As String, _
+             oRenameMap As System.Collections.Generic.Dictionary(Of String, String), _
+             oSeen As System.Collections.Generic.HashSet(Of String), _
+             sLogPath As String)
+
+    Dim sFullPath As String = ""
+    Try : sFullPath = oDoc.FullFileName : Catch : Return : End Try
+
+    Dim sFullUpper As String = sFullPath.ToUpper()
+    If oSeen.Contains(sFullUpper) Then Return
+    oSeen.Add(sFullUpper)
+
+    ' ── Recurse into referenced children first (deepest-first) ───────────────
+    Try
+        For Each oDesc As Object In oDoc.ReferencedDocumentDescriptors
+            Dim sRefPath As String = ""
+            Try : sRefPath = oDesc.FullDocumentName : Catch : Continue For : End Try
+
+            ' Strip DART SHUT state tag e.g. "C:\path\file.iam<DART SHUT>"
+            Dim iAngle As Integer = sRefPath.IndexOf("<"c)
+            If iAngle > 0 Then sRefPath = sRefPath.Substring(0, iAngle)
+            sRefPath = sRefPath.Trim()
+            If sRefPath = "" Then Continue For
+
+            Dim sRefExt As String = System.IO.Path.GetExtension(sRefPath).ToUpper()
+            If sRefExt <> ".IAM" AndAlso sRefExt <> ".IPT" Then Continue For
+            If Not System.IO.File.Exists(sRefPath) Then Continue For
+
+            ' F3: Skip Content Centre parts — SaveAs on a CC part detaches
+            ' it from the Content Centre and corrupts its metadata bindings.
+            ' Check both the document sub-type and a path heuristic for
+            ' environments where CC files may not be open yet.
+            If sRefPath.ToUpper().Contains("CONTENT CENTER") Then Continue For
+
+            If oSeen.Contains(sRefPath.ToUpper()) Then Continue For
+
+            ' Open child (or reuse already-open instance)
+            Dim oChild As Document = Nothing
+            Try : oChild = ThisApplication.Documents.ItemByName(sRefPath) : Catch : End Try
+            If oChild Is Nothing Then
+                Try
+                    oChild = ThisApplication.Documents.Open(sRefPath, False)
+                Catch exOpen As Exception
+                    Try
+                        System.IO.File.AppendAllText(sLogPath, _
+                            "WALK-OPEN-FAIL: " & System.IO.Path.GetFileName(sRefPath) & _
+                            " — " & exOpen.Message & vbCrLf)
+                    Catch : End Try
+                    Continue For
+                End Try
+            End If
+
+            ' F3: Sub-type check on the open document (most reliable CC guard)
+            Try
+                If oChild.DocumentType = DocumentTypeEnum.kPartDocumentObject AndAlso oChild.ComponentDefinition.IsContentMember Then
+                    Try
+                        System.IO.File.AppendAllText(sLogPath, _
+                            "WALK-CC-SKIP: " & System.IO.Path.GetFileName(sRefPath) & vbCrLf)
+                    Catch : End Try
+                    Continue For
+                End If
+            Catch : End Try  ' DocumentSubType may not be supported on all types
+
+            WalkTree(oChild, sOldPrefix, sNewPrefix, sTargetFolder, _
+                     oRenameMap, oSeen, sLogPath)
+        Next
+    Catch exWalk As Exception
+        Try
+            System.IO.File.AppendAllText(sLogPath, _
+                "WALK-DESC-FAIL: " & System.IO.Path.GetFileName(sFullPath) & _
+                " — " & exWalk.Message & vbCrLf)
+        Catch : End Try
+    End Try
+
+    ' ── Compute new name for THIS document ───────────────────────────────────
+    Dim sBase As String = System.IO.Path.GetFileNameWithoutExtension(sFullPath)
+    Dim sExt  As String = System.IO.Path.GetExtension(sFullPath)
+
+    ' Only rename files whose basename starts with the old prefix
+    If Not sBase.ToUpper().StartsWith(sOldPrefix.ToUpper()) Then Return
+
+    Dim sNewBase As String = sNewPrefix & sBase.Substring(sOldPrefix.Length)
+    Dim sNewFull As String = System.IO.Path.Combine(sTargetFolder, sNewBase & sExt)
+
+    If String.Compare(sFullPath, sNewFull, True) <> 0 Then
+        If Not oRenameMap.ContainsKey(sFullPath) Then
+            oRenameMap(sFullPath) = sNewFull
+            Try
+                System.IO.File.AppendAllText(sLogPath, _
+                    "MAP: " & sBase & sExt & "  ->  " & sNewBase & sExt & vbCrLf)
+            Catch : End Try
+        End If
+    End If
 End Sub
