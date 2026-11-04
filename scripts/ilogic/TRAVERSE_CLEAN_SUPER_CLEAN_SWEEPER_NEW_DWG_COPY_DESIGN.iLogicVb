@@ -1,7 +1,7 @@
 ﻿'' =====================================================================
 '' SUPER_CLEAN_SWEEPER.iLogicVb
 '' Copy Design with full provenance architecture
-'' Version: 2.0.4 — 2026-11-05
+'' Version: 2.0.5 — 2026-11-05
 ''
 '' PURPOSE
 ''   Replicates Vault Copy Design outside of Vault.
@@ -38,6 +38,12 @@
 ''   rewrites their FileDescriptors to newly-copied non-std parts (Bolted
 ''   Connections, JC parts, library parts).  The provenance guard still
 ''   skips the SaveAs, but no longer skips the reference rewrite.
+''
+'' V2.0.5
+''   SilentOperation stays True for the whole of Phase 2/3 (per-file
+''   resets to False removed) so Vault does not pop the "Multiple files
+''   have been updated" dialog between files.  The outer Finally still
+''   restores the original SilentOperation at the end.
 ''
 '' KEY ARCHITECTURAL PRINCIPLES (preserved from v1)
 ''   - Sub Main is FIRST; all helpers are defined AFTER it.
@@ -78,7 +84,7 @@ Sub Main()
         System.Environment.SpecialFolder.Desktop)
     Dim sLogPath As String = System.IO.Path.Combine(sDesktop, _
         "SUPER_CLEAN_SWEEPER_" & Now.ToString("yyyyMMdd_HHmmss") & ".log")
-    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.0.4  —  " & Now.ToString() & vbCrLf & _
+    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.0.5  —  " & Now.ToString() & vbCrLf & _
                          "GA: " & sTopFull & vbCrLf
     Try : System.IO.File.WriteAllText(sLogPath, sLog) : Catch : End Try
 
@@ -366,8 +372,6 @@ Sub Main()
                 Catch exOpenNew2 As Exception
                     Try : System.IO.File.AppendAllText(sLogPath, _
                         "NEW-OPEN-FAIL: " & sNewName2 & " — " & exOpenNew2.Message & vbCrLf) : Catch : End Try
-                Finally
-                    ThisApplication.SilentOperation = False
                 End Try
 
                 If oNewDoc2 IsNot Nothing Then
@@ -487,8 +491,6 @@ Sub Main()
                     Try : System.IO.File.AppendAllText(sLogPath, _
                         "P3-OPEN-FAIL: " & sNewName3 & " — " & exOpen3.Message & vbCrLf) : Catch : End Try
                     Continue For
-                Finally
-                    ThisApplication.SilentOperation = False
                 End Try
             End If
 
@@ -559,7 +561,7 @@ Sub Main()
 
     ' ── 8. Final summary ──────────────────────────────────────────────────────
     Dim sSummary As String = _
-        "SUPER CLEAN SWEEPER v2.0.4 — COMPLETE" & vbCrLf & vbCrLf & _
+        "SUPER CLEAN SWEEPER v2.0.5 — COMPLETE" & vbCrLf & vbCrLf & _
         "Phase 1  Rename map built:   " & oRenameMap.Count & " file(s)" & vbCrLf & _
         "Phase 2  SaveAs + Provenance:" & vbCrLf & _
         "         Saved    : " & iSaved & vbCrLf & _
