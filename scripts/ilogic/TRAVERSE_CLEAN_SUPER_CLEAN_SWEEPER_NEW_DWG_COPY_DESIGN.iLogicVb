@@ -63,227 +63,6 @@
 
 
 ' ─────────────────────────────────────────────────────────────────────────────
-' HELPER: Write provenance iProperties to a document
-' Call AFTER the document has been SaveAs'd to its new path and is open.
-' aNames / aVals are parallel arrays; we try to set each property,
-' adding it if it does not already exist.
-' ─────────────────────────────────────────────────────────────────────────────
-Sub WriteProvenanceProps(oDoc As Document, sOldPath As String, _
-                          sNewProject As String, sOldGUID As String, _
-                          sLogPath As String)
-    Try
-        Dim oUDP As PropertySet = oDoc.PropertySets("Inventor User Defined Properties")
-        Dim aNames(4) As String
-        Dim aVals(4) As String
-        aNames(0) = "CS_SourcePath"    : aVals(0) = sOldPath
-        aNames(1) = "CS_SourceName"    : aVals(1) = System.IO.Path.GetFileName(sOldPath)
-        aNames(2) = "CS_CopyProject"   : aVals(2) = sNewProject
-        aNames(3) = "CS_CopyDate"      : aVals(3) = Now.ToString("yyyy-MM-dd")
-        aNames(4) = "CS_SourceGUID"    : aVals(4) = sOldGUID
-        Dim i As Integer
-        For i = 0 To 4
-            Dim sPropName As String = aNames(i)
-            Dim sPropVal  As String = aVals(i)
-            Try
-                oUDP.Item(sPropName).Value = sPropVal
-            Catch
-                Try
-                    oUDP.Add(sPropVal, sPropName)
-                Catch exAdd As Exception
-                    Try
-                        System.IO.File.AppendAllText(sLogPath, _
-                            "PROV-WARN: could not set " & sPropName & _
-                            " on " & oDoc.DisplayName & " — " & exAdd.Message & vbCrLf)
-                    Catch : End Try
-                End Try
-            End Try
-        Next i
-    Catch ex As Exception
-        Try
-            System.IO.File.AppendAllText(sLogPath, _
-                "PROV-FAIL: " & oDoc.DisplayName & " — " & ex.Message & vbCrLf)
-        Catch : End Try
-    End Try
-End Sub
-
-
-' ─────────────────────────────────────────────────────────────────────────────
-' HELPER: Write CS_ModelRefs to a drawing document
-' Writes pipe-delimited list of old model paths the drawing referenced.
-' This enables autonomous relink: scan _CLEAN for CS_SourcePath matches.
-' ─────────────────────────────────────────────────────────────────────────────
-Sub WriteDrawingModelRefs(oDwg As Document, _
-                           oModelPaths As System.Collections.Generic.List(Of String), _
-                           sLogPath As String)
-    If oModelPaths Is Nothing Then Return
-    If oModelPaths.Count = 0 Then Return
-    Dim sJoined As String = String.Join("|", oModelPaths.ToArray())
-    Try
-        Dim oUDP As PropertySet = oDwg.PropertySets("Inventor User Defined Properties")
-        Try
-            oUDP.Item("CS_ModelRefs").Value = sJoined
-        Catch
-            Try
-                oUDP.Add(sJoined, "CS_ModelRefs")
-            Catch exA As Exception
-                Try
-                    System.IO.File.AppendAllText(sLogPath, _
-                        "MODELREFS-WARN: " & oDwg.DisplayName & " — " & exA.Message & vbCrLf)
-                Catch : End Try
-            End Try
-        End Try
-    Catch ex As Exception
-        Try
-            System.IO.File.AppendAllText(sLogPath, _
-                "MODELREFS-FAIL: " & oDwg.DisplayName & " — " & ex.Message & vbCrLf)
-        Catch : End Try
-    End Try
-End Sub
-
-
-' ─────────────────────────────────────────────────────────────────────────────
-' HELPER: Check if destination file was already processed in a prior run
-' Returns True only when the destination exists AND carries
-' CS_CopyProject = sProject (checked via already-open doc if possible,
-' so no extra open/close is needed on a first run).
-' ─────────────────────────────────────────────────────────────────────────────
-Function IsAlreadyProcessed(sNewFull As String, sProject As String) As Boolean
-    If Not System.IO.File.Exists(sNewFull) Then Return False
-    Dim sExisting As String = ""
-    Try
-        ' Use already-open instance if available (zero overhead)
-        Dim oDoc As Document = Nothing
-        Try : oDoc = ThisApplication.Documents.ItemByName(sNewFull) : Catch : End Try
-        If oDoc IsNot Nothing Then
-            Try
-                sExisting = oDoc.PropertySets( _
-                    "Inventor User Defined Properties").Item("CS_CopyProject").Value
-            Catch : End Try
-        Else
-            ' File exists on disk but is not open — open it briefly
-            Dim bPrevSilent As Boolean = ThisApplication.SilentOperation
-            ThisApplication.SilentOperation = True
-            Try
-                Dim oTmp As Document = ThisApplication.Documents.Open(sNewFull, False)
-                Try
-                    sExisting = oTmp.PropertySets( _
-                        "Inventor User Defined Properties").Item("CS_CopyProject").Value
-                Catch : End Try
-                Try : oTmp.Close(True) : Catch : End Try
-            Catch
-            Finally
-                ThisApplication.SilentOperation = bPrevSilent
-            End Try
-        End If
-    Catch : End Try
-    Return (String.Compare(sExisting, sProject, True) = 0)
-End Function
-
-
-' ─────────────────────────────────────────────────────────────────────────────
-' HELPER: Walk assembly tree and build old->new rename map
-' Visits every referenced .iam and .ipt, deepest children first.
-' Files with no old-prefix match are excluded from the map.
-' ─────────────────────────────────────────────────────────────────────────────
-Sub WalkTree(oDoc As Document, _
-             sOldPrefix As String, sNewPrefix As String, _
-             sTargetFolder As String, _
-             oRenameMap As System.Collections.Generic.Dictionary(Of String, String), _
-             oSeen As System.Collections.Generic.HashSet(Of String), _
-             sLogPath As String)
-
-    Dim sFullPath As String = ""
-    Try : sFullPath = oDoc.FullFileName : Catch : Return : End Try
-
-    Dim sFullUpper As String = sFullPath.ToUpper()
-    If oSeen.Contains(sFullUpper) Then Return
-    oSeen.Add(sFullUpper)
-
-    ' ── Recurse into referenced children first (deepest-first) ───────────────
-    Try
-        For Each oDesc As Object In oDoc.ReferencedDocumentDescriptors
-            Dim sRefPath As String = ""
-            Try : sRefPath = oDesc.FullDocumentName : Catch : Continue For : End Try
-
-            ' Strip DART SHUT state tag e.g. "C:\path\file.iam<DART SHUT>"
-            Dim iAngle As Integer = sRefPath.IndexOf("<"c)
-            If iAngle > 0 Then sRefPath = sRefPath.Substring(0, iAngle)
-            sRefPath = sRefPath.Trim()
-            If sRefPath = "" Then Continue For
-
-            Dim sRefExt As String = System.IO.Path.GetExtension(sRefPath).ToUpper()
-            If sRefExt <> ".IAM" AndAlso sRefExt <> ".IPT" Then Continue For
-            If Not System.IO.File.Exists(sRefPath) Then Continue For
-
-            ' F3: Skip Content Centre parts — SaveAs on a CC part detaches
-            ' it from the Content Centre and corrupts its metadata bindings.
-            ' Check both the document sub-type and a path heuristic for
-            ' environments where CC files may not be open yet.
-            If sRefPath.ToUpper().Contains("CONTENT CENTER") Then Continue For
-
-            If oSeen.Contains(sRefPath.ToUpper()) Then Continue For
-
-            ' Open child (or reuse already-open instance)
-            Dim oChild As Document = Nothing
-            Try : oChild = ThisApplication.Documents.ItemByName(sRefPath) : Catch : End Try
-            If oChild Is Nothing Then
-                Try
-                    oChild = ThisApplication.Documents.Open(sRefPath, False)
-                Catch exOpen As Exception
-                    Try
-                        System.IO.File.AppendAllText(sLogPath, _
-                            "WALK-OPEN-FAIL: " & System.IO.Path.GetFileName(sRefPath) & _
-                            " — " & exOpen.Message & vbCrLf)
-                    Catch : End Try
-                    Continue For
-                End Try
-            End If
-
-            ' F3: Sub-type check on the open document (most reliable CC guard)
-            Try
-                If oChild.DocumentSubType = kCCPartDocumentSubType Then
-                    Try
-                        System.IO.File.AppendAllText(sLogPath, _
-                            "WALK-CC-SKIP: " & System.IO.Path.GetFileName(sRefPath) & vbCrLf)
-                    Catch : End Try
-                    Continue For
-                End If
-            Catch : End Try  ' DocumentSubType may not be supported on all types
-
-            WalkTree(oChild, sOldPrefix, sNewPrefix, sTargetFolder, _
-                     oRenameMap, oSeen, sLogPath)
-        Next
-    Catch exWalk As Exception
-        Try
-            System.IO.File.AppendAllText(sLogPath, _
-                "WALK-DESC-FAIL: " & System.IO.Path.GetFileName(sFullPath) & _
-                " — " & exWalk.Message & vbCrLf)
-        Catch : End Try
-    End Try
-
-    ' ── Compute new name for THIS document ───────────────────────────────────
-    Dim sBase As String = System.IO.Path.GetFileNameWithoutExtension(sFullPath)
-    Dim sExt  As String = System.IO.Path.GetExtension(sFullPath)
-
-    ' Only rename files whose basename starts with the old prefix
-    If Not sBase.ToUpper().StartsWith(sOldPrefix.ToUpper()) Then Return
-
-    Dim sNewBase As String = sNewPrefix & sBase.Substring(sOldPrefix.Length)
-    Dim sNewFull As String = System.IO.Path.Combine(sTargetFolder, sNewBase & sExt)
-
-    If String.Compare(sFullPath, sNewFull, True) <> 0 Then
-        If Not oRenameMap.ContainsKey(sFullPath) Then
-            oRenameMap(sFullPath) = sNewFull
-            Try
-                System.IO.File.AppendAllText(sLogPath, _
-                    "MAP: " & sBase & sExt & "  ->  " & sNewBase & sExt & vbCrLf)
-            Catch : End Try
-        End If
-    End If
-End Sub
-
-
-' ─────────────────────────────────────────────────────────────────────────────
 ' SUB MAIN
 ' ─────────────────────────────────────────────────────────────────────────────
 Sub Main()
@@ -741,4 +520,225 @@ Sub Main()
     MessageBox.Show(sSummary, "Super Clean Sweeper — Complete", _
         MessageBoxButtons.OK, MessageBoxIcon.Information)
 
+End Sub
+
+
+' ─────────────────────────────────────────────────────────────────────────────
+' HELPER: Write provenance iProperties to a document
+' Call AFTER the document has been SaveAs'd to its new path and is open.
+' aNames / aVals are parallel arrays; we try to set each property,
+' adding it if it does not already exist.
+' ─────────────────────────────────────────────────────────────────────────────
+Sub WriteProvenanceProps(oDoc As Document, sOldPath As String, _
+                          sNewProject As String, sOldGUID As String, _
+                          sLogPath As String)
+    Try
+        Dim oUDP As PropertySet = oDoc.PropertySets("Inventor User Defined Properties")
+        Dim aNames(4) As String
+        Dim aVals(4) As String
+        aNames(0) = "CS_SourcePath"    : aVals(0) = sOldPath
+        aNames(1) = "CS_SourceName"    : aVals(1) = System.IO.Path.GetFileName(sOldPath)
+        aNames(2) = "CS_CopyProject"   : aVals(2) = sNewProject
+        aNames(3) = "CS_CopyDate"      : aVals(3) = Now.ToString("yyyy-MM-dd")
+        aNames(4) = "CS_SourceGUID"    : aVals(4) = sOldGUID
+        Dim i As Integer
+        For i = 0 To 4
+            Dim sPropName As String = aNames(i)
+            Dim sPropVal  As String = aVals(i)
+            Try
+                oUDP.Item(sPropName).Value = sPropVal
+            Catch
+                Try
+                    oUDP.Add(sPropVal, sPropName)
+                Catch exAdd As Exception
+                    Try
+                        System.IO.File.AppendAllText(sLogPath, _
+                            "PROV-WARN: could not set " & sPropName & _
+                            " on " & oDoc.DisplayName & " — " & exAdd.Message & vbCrLf)
+                    Catch : End Try
+                End Try
+            End Try
+        Next i
+    Catch ex As Exception
+        Try
+            System.IO.File.AppendAllText(sLogPath, _
+                "PROV-FAIL: " & oDoc.DisplayName & " — " & ex.Message & vbCrLf)
+        Catch : End Try
+    End Try
+End Sub
+
+
+' ─────────────────────────────────────────────────────────────────────────────
+' HELPER: Write CS_ModelRefs to a drawing document
+' Writes pipe-delimited list of old model paths the drawing referenced.
+' This enables autonomous relink: scan _CLEAN for CS_SourcePath matches.
+' ─────────────────────────────────────────────────────────────────────────────
+Sub WriteDrawingModelRefs(oDwg As Document, _
+                           oModelPaths As System.Collections.Generic.List(Of String), _
+                           sLogPath As String)
+    If oModelPaths Is Nothing Then Return
+    If oModelPaths.Count = 0 Then Return
+    Dim sJoined As String = String.Join("|", oModelPaths.ToArray())
+    Try
+        Dim oUDP As PropertySet = oDwg.PropertySets("Inventor User Defined Properties")
+        Try
+            oUDP.Item("CS_ModelRefs").Value = sJoined
+        Catch
+            Try
+                oUDP.Add(sJoined, "CS_ModelRefs")
+            Catch exA As Exception
+                Try
+                    System.IO.File.AppendAllText(sLogPath, _
+                        "MODELREFS-WARN: " & oDwg.DisplayName & " — " & exA.Message & vbCrLf)
+                Catch : End Try
+            End Try
+        End Try
+    Catch ex As Exception
+        Try
+            System.IO.File.AppendAllText(sLogPath, _
+                "MODELREFS-FAIL: " & oDwg.DisplayName & " — " & ex.Message & vbCrLf)
+        Catch : End Try
+    End Try
+End Sub
+
+
+' ─────────────────────────────────────────────────────────────────────────────
+' HELPER: Check if destination file was already processed in a prior run
+' Returns True only when the destination exists AND carries
+' CS_CopyProject = sProject (checked via already-open doc if possible,
+' so no extra open/close is needed on a first run).
+' ─────────────────────────────────────────────────────────────────────────────
+Function IsAlreadyProcessed(sNewFull As String, sProject As String) As Boolean
+    If Not System.IO.File.Exists(sNewFull) Then Return False
+    Dim sExisting As String = ""
+    Try
+        ' Use already-open instance if available (zero overhead)
+        Dim oDoc As Document = Nothing
+        Try : oDoc = ThisApplication.Documents.ItemByName(sNewFull) : Catch : End Try
+        If oDoc IsNot Nothing Then
+            Try
+                sExisting = oDoc.PropertySets( _
+                    "Inventor User Defined Properties").Item("CS_CopyProject").Value
+            Catch : End Try
+        Else
+            ' File exists on disk but is not open — open it briefly
+            Dim bPrevSilent As Boolean = ThisApplication.SilentOperation
+            ThisApplication.SilentOperation = True
+            Try
+                Dim oTmp As Document = ThisApplication.Documents.Open(sNewFull, False)
+                Try
+                    sExisting = oTmp.PropertySets( _
+                        "Inventor User Defined Properties").Item("CS_CopyProject").Value
+                Catch : End Try
+                Try : oTmp.Close(True) : Catch : End Try
+            Catch
+            Finally
+                ThisApplication.SilentOperation = bPrevSilent
+            End Try
+        End If
+    Catch : End Try
+    Return (String.Compare(sExisting, sProject, True) = 0)
+End Function
+
+
+' ─────────────────────────────────────────────────────────────────────────────
+' HELPER: Walk assembly tree and build old->new rename map
+' Visits every referenced .iam and .ipt, deepest children first.
+' Files with no old-prefix match are excluded from the map.
+' ─────────────────────────────────────────────────────────────────────────────
+Sub WalkTree(oDoc As Document, _
+             sOldPrefix As String, sNewPrefix As String, _
+             sTargetFolder As String, _
+             oRenameMap As System.Collections.Generic.Dictionary(Of String, String), _
+             oSeen As System.Collections.Generic.HashSet(Of String), _
+             sLogPath As String)
+
+    Dim sFullPath As String = ""
+    Try : sFullPath = oDoc.FullFileName : Catch : Return : End Try
+
+    Dim sFullUpper As String = sFullPath.ToUpper()
+    If oSeen.Contains(sFullUpper) Then Return
+    oSeen.Add(sFullUpper)
+
+    ' ── Recurse into referenced children first (deepest-first) ───────────────
+    Try
+        For Each oDesc As Object In oDoc.ReferencedDocumentDescriptors
+            Dim sRefPath As String = ""
+            Try : sRefPath = oDesc.FullDocumentName : Catch : Continue For : End Try
+
+            ' Strip DART SHUT state tag e.g. "C:\path\file.iam<DART SHUT>"
+            Dim iAngle As Integer = sRefPath.IndexOf("<"c)
+            If iAngle > 0 Then sRefPath = sRefPath.Substring(0, iAngle)
+            sRefPath = sRefPath.Trim()
+            If sRefPath = "" Then Continue For
+
+            Dim sRefExt As String = System.IO.Path.GetExtension(sRefPath).ToUpper()
+            If sRefExt <> ".IAM" AndAlso sRefExt <> ".IPT" Then Continue For
+            If Not System.IO.File.Exists(sRefPath) Then Continue For
+
+            ' F3: Skip Content Centre parts — SaveAs on a CC part detaches
+            ' it from the Content Centre and corrupts its metadata bindings.
+            ' Check both the document sub-type and a path heuristic for
+            ' environments where CC files may not be open yet.
+            If sRefPath.ToUpper().Contains("CONTENT CENTER") Then Continue For
+
+            If oSeen.Contains(sRefPath.ToUpper()) Then Continue For
+
+            ' Open child (or reuse already-open instance)
+            Dim oChild As Document = Nothing
+            Try : oChild = ThisApplication.Documents.ItemByName(sRefPath) : Catch : End Try
+            If oChild Is Nothing Then
+                Try
+                    oChild = ThisApplication.Documents.Open(sRefPath, False)
+                Catch exOpen As Exception
+                    Try
+                        System.IO.File.AppendAllText(sLogPath, _
+                            "WALK-OPEN-FAIL: " & System.IO.Path.GetFileName(sRefPath) & _
+                            " — " & exOpen.Message & vbCrLf)
+                    Catch : End Try
+                    Continue For
+                End Try
+            End If
+
+            ' F3: Sub-type check on the open document (most reliable CC guard)
+            Try
+                If oChild.DocumentType = DocumentTypeEnum.kPartDocumentObject AndAlso oChild.ComponentDefinition.IsContentMember Then
+                    Try
+                        System.IO.File.AppendAllText(sLogPath, _
+                            "WALK-CC-SKIP: " & System.IO.Path.GetFileName(sRefPath) & vbCrLf)
+                    Catch : End Try
+                    Continue For
+                End If
+            Catch : End Try  ' DocumentSubType may not be supported on all types
+
+            WalkTree(oChild, sOldPrefix, sNewPrefix, sTargetFolder, _
+                     oRenameMap, oSeen, sLogPath)
+        Next
+    Catch exWalk As Exception
+        Try
+            System.IO.File.AppendAllText(sLogPath, _
+                "WALK-DESC-FAIL: " & System.IO.Path.GetFileName(sFullPath) & _
+                " — " & exWalk.Message & vbCrLf)
+        Catch : End Try
+    End Try
+
+    ' ── Compute new name for THIS document ───────────────────────────────────
+    Dim sBase As String = System.IO.Path.GetFileNameWithoutExtension(sFullPath)
+    Dim sExt  As String = System.IO.Path.GetExtension(sFullPath)
+
+    ' Only rename files whose basename starts with the old prefix
+    If Not sBase.ToUpper().StartsWith(sOldPrefix.ToUpper()) Then Return
+
+    Dim sNewBase As String = sNewPrefix & sBase.Substring(sOldPrefix.Length)
+    Dim sNewFull As String = System.IO.Path.Combine(sTargetFolder, sNewBase & sExt)
+
+    If String.Compare(sFullPath, sNewFull, True) <> 0 Then
+        If Not oRenameMap.ContainsKey(sFullPath) Then
+            oRenameMap(sFullPath) = sNewFull
+            Try
+                System.IO.File.AppendAllText(sLogPath, _
+                    "MAP: " & sBase & sExt & "  ->  " & sNewBase & sExt & vbCrLf)
+            Catch : End Try
+        End If
+    End If
 End Sub
