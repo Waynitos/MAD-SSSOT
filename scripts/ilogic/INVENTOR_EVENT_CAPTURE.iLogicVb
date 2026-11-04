@@ -25,42 +25,49 @@
 ''   ACTIVE       — which document is now the active window.
 ''   NEW          — a brand-new document was created.
 ''
-'' Last updated: 2026-11-04 (fix: remove duplicate Imports, correct
-''   Inventor delegate signatures, remove non-existent OnChangeDocument)
+'' iLogic COMPILER CONSTRAINTS (learned from compile errors):
+''   - Do NOT add Imports System.IO or Imports System.Windows.Forms —
+''     iLogic pre-imports both; duplicates cause ambiguity with Inventor.
+''   - Do NOT declare Dim variables at module level (outside Sub Main /
+''     outside any Sub). iLogic only allows Sub/Function at the outer
+''     scope; a bare Dim causes "Statement is not valid in a namespace"
+''     and breaks every Sub below it in the file.
+''   - Use System.IO.File / System.IO.Path fully qualified throughout.
+''   - Event handlers share state via the sentinel FILE on disk
+''     (not via module-level variables).
+''
+'' Last updated: 2026-11-04 fix3 — removed module-level Dim g_sLog;
+''   WriteLog now reads log path from sentinel file on each call.
 '' =====================================================================
 
-' NOTE: Do NOT add Imports System.IO or Imports System.Windows.Forms —
-' iLogic pre-imports both namespaces. Adding them again causes
-' "already imported" errors AND makes File/Path ambiguous with Inventor.
-' Use the full System.IO.File / System.IO.Path prefix throughout.
+' ══════════════════════════════════════════════════════════════════
+' Helper: returns the Desktop path of the sentinel file.
+' ══════════════════════════════════════════════════════════════════
+Function SentinelPath() As String
+    Return System.IO.Path.Combine(
+        System.Environment.GetFolderPath(System.Environment.SpecialFolder.Desktop),
+        "INVENTOR_CAPTURE_ACTIVE.flag")
+End Function
 
-' Module-level: event handlers write here after Sub Main() has exited.
-Dim g_sLog As String = ""
-
+' ══════════════════════════════════════════════════════════════════
+' WriteLog — reads log path from sentinel; appends one timestamped line.
+' Self-contained: no shared variables needed.
 ' ══════════════════════════════════════════════════════════════════
 Sub WriteLog(sEvent As String, sTiming As String, sDetail As String)
-' ══════════════════════════════════════════════════════════════════
     Try
-        If g_sLog = "" Then Return
+        Dim sSentinel As String = SentinelPath()
+        If Not System.IO.File.Exists(sSentinel) Then Return
+        Dim sLog As String = System.IO.File.ReadAllText(sSentinel).Trim()
+        If sLog = "" Then Return
         Dim sLine As String =
             DateTime.Now.ToString("HH:mm:ss.fff") & "  " &
             sEvent.PadRight(7) & "  " & sTiming.PadRight(7) & "  " & sDetail
-        System.IO.File.AppendAllText(g_sLog, sLine & vbCrLf)
+        System.IO.File.AppendAllText(sLog, sLine & vbCrLf)
     Catch
     End Try
 End Sub
 
-' ── Event handlers (must be module-level, NOT inside Sub Main) ──────
-' Correct Inventor delegate signatures from the error messages:
-'   OnOpenDocument  : (DocumentObject As _Document, FullDocumentName As String,
-'                      BeforeOrAfter As EventTimingEnum, Context As NameValueMap,
-'                      ByRef HandlingCode As HandlingCodeEnum)
-'   OnSaveDocument  : same pattern
-'   OnCloseDocument : same pattern
-'   OnActivateDocument : (DocumentObject As _Document, BeforeOrAfter As ...,
-'                         Context As ..., ByRef HandlingCode As ...)
-'                        — no FullDocumentName parameter
-'   OnNewDocument   : same as OnOpen pattern
+' ── Event handlers (Subs at outer scope — no Dim declarations here) ──
 
 Sub OnOpen(oDocObj As Object, sFullName As String,
            Timing As EventTimingEnum, Context As NameValueMap,
@@ -86,7 +93,7 @@ End Sub
 Sub OnActivate(oDocObj As Object,
                Timing As EventTimingEnum, Context As NameValueMap,
                ByRef HandlingCode As HandlingCodeEnum)
-    ' OnActivateDocument has no FullDocumentName — read from document object
+    ' OnActivateDocument has no FullDocumentName — read from document object.
     If Timing <> EventTimingEnum.kAfter Then
         HandlingCode = HandlingCodeEnum.kEventNotHandled : Return
     End If
@@ -110,10 +117,7 @@ End Sub
 Sub Main()
 ' ══════════════════════════════════════════════════════════════════
 
-    Dim sDesktop As String = System.Environment.GetFolderPath(
-        System.Environment.SpecialFolder.Desktop)
-    Dim sSentinel As String = System.IO.Path.Combine(sDesktop,
-        "INVENTOR_CAPTURE_ACTIVE.flag")
+    Dim sSentinel As String = SentinelPath()
 
     ' ── STOP if already running ────────────────────────────────────
     If System.IO.File.Exists(sSentinel) Then
@@ -125,7 +129,6 @@ Sub Main()
                     DateTime.Now.ToString("HH:mm:ss.fff") & " ===" & vbCrLf)
             Catch : End Try
             System.IO.File.Delete(sSentinel)
-            g_sLog = ""
 
             Dim oRes As DialogResult = MessageBox.Show(
                 "Event capture stopped." & vbCrLf & vbCrLf &
@@ -145,7 +148,8 @@ Sub Main()
 
     ' ── START capture ──────────────────────────────────────────────
     Dim sTimestamp As String = DateTime.Now.ToString("yyyy-MM-dd_HHmmss")
-    g_sLog = System.IO.Path.Combine(sDesktop,
+    Dim sLog As String = System.IO.Path.Combine(
+        System.Environment.GetFolderPath(System.Environment.SpecialFolder.Desktop),
         "INVENTOR_EVENT_CAPTURE_" & sTimestamp & ".log")
 
     Dim oHdr As New System.Text.StringBuilder()
@@ -155,8 +159,9 @@ Sub Main()
     oHdr.AppendLine("ACTIVE = window focus changed  |  NEW = new document created")
     oHdr.AppendLine(New String("="c, 80))
     oHdr.AppendLine()
-    System.IO.File.WriteAllText(g_sLog, oHdr.ToString())
-    System.IO.File.WriteAllText(sSentinel, g_sLog)
+    System.IO.File.WriteAllText(sLog, oHdr.ToString())
+    ' Sentinel stores the log path so event handlers can find it.
+    System.IO.File.WriteAllText(sSentinel, sLog)
 
     ' ── Hook events ───────────────────────────────────────────────
     Try
@@ -167,9 +172,8 @@ Sub Main()
         AddHandler ThisApplication.ApplicationEvents.OnNewDocument,      AddressOf OnNew
         WriteLog("---", "---", "Hooks registered")
     Catch exHook As Exception
-        System.IO.File.AppendAllText(g_sLog, "HOOK ERROR: " & exHook.Message & vbCrLf)
+        System.IO.File.AppendAllText(sLog, "HOOK ERROR: " & exHook.Message & vbCrLf)
         System.IO.File.Delete(sSentinel)
-        g_sLog = ""
         MessageBox.Show("Failed to hook events: " & exHook.Message,
             "Capture", MessageBoxButtons.OK, MessageBoxIcon.Error)
         Return
@@ -178,7 +182,7 @@ Sub Main()
     MessageBox.Show(
         "Event capture is ACTIVE." & vbCrLf & vbCrLf &
         "Do your manual operations in Inventor now." & vbCrLf & vbCrLf &
-        "Log file (open in Notepad, hit F5 to refresh):" & vbCrLf & g_sLog & vbCrLf & vbCrLf &
+        "Log file (open in Notepad, hit F5 to refresh):" & vbCrLf & sLog & vbCrLf & vbCrLf &
         "Run this rule AGAIN to stop.",
         "CAPTURE ACTIVE", MessageBoxButtons.OK, MessageBoxIcon.Information)
 
