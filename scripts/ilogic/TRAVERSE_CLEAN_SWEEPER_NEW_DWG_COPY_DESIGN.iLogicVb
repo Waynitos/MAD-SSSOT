@@ -5314,7 +5314,7 @@ Function ShowDrawingModelRenameForm( _
     ' ---- Report Only - Drawing/Model Grab: write report to Desktop and exit ----
     If oChkReportOnly.Checked Then
         Dim sRptStamp As String = DateTime.Now.ToString("yyyy-MM-dd_HHmmss")
-        Dim sRptFolder As String = Environment.GetFolderPath(Environment.SpecialFolder.Desktop)
+        Dim sRptFolder As String = System.Environment.GetFolderPath(System.Environment.SpecialFolder.Desktop)
         Dim sRptPath As String = System.IO.Path.Combine(sRptFolder, "DrawingModelGrab_" & sRptStamp & ".txt")
         Dim oRptSb As New System.Text.StringBuilder()
         Dim oRptEntry As Object()
