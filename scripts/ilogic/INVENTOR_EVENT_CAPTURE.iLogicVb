@@ -1,60 +1,136 @@
 '' =====================================================================
 '' INVENTOR_EVENT_CAPTURE.iLogicVb
 ''
-'' Live event interceptor — hooks Inventor's application events and
-'' writes a timestamped line to a log file on your Desktop EVERY TIME
-'' Inventor fires an internal event (open, save, close, activate,
-'' document change).  Run it once to START, again to STOP.
-''
-'' PURPOSE: see exactly what Inventor calls internally when you
-'' manually use Replace Component, Update Drawing Reference, Save As,
-'' etc. — so you can confirm iLogic's ReplaceReference / Replace API
-'' calls mirror what Inventor does natively.
+'' Live event interceptor — hooks Inventor ApplicationEvents and writes
+'' a timestamped line to a Desktop log file for every event that fires.
+'' Run once to START, run again to STOP.
 ''
 '' HOW TO USE:
-''   1. Run this rule — it hooks events and shows "CAPTURING".
-''      A live log file appears on your Desktop:
-''        INVENTOR_EVENT_CAPTURE_<timestamp>.log
+''   1. Run this rule — click OK on the "ACTIVE" dialog.
 ''   2. Do your manual operations in Inventor:
 ''        - Replace Component (browser right-click)
 ''        - Update Drawing Model Reference
-''        - Save As
+''        - Save / Save As
 ''        - Open / Close documents
-''   3. Run the rule AGAIN — it stops capture and opens the log.
+''   3. Run the rule AGAIN — it stops and opens the log in Notepad.
 ''
-'' Last updated: 2026-11-04 (fix: Sub Main() entry point required)
+'' WHAT TO LOOK FOR:
+''   OPEN BEFORE  — Inventor is about to load a file.
+''                  When you Replace Component, the NEW target file
+''                  appears here — this is the load that underpins
+''                  ReplaceReference / Occurrence.Replace in iLogic.
+''   OPEN AFTER   — file fully loaded.
+''   SAVE BEFORE/AFTER — which document is being saved and when.
+''   CLOSE        — old file released (fires when Replace removes last ref).
+''   ACTIVE       — which document is now the active window.
+''   NEW          — a brand-new document was created.
+''
+'' Last updated: 2026-11-04 (fix: remove duplicate Imports, correct
+''   Inventor delegate signatures, remove non-existent OnChangeDocument)
 '' =====================================================================
 
-Imports System.IO
-Imports System.Windows.Forms
+' NOTE: Do NOT add Imports System.IO or Imports System.Windows.Forms —
+' iLogic pre-imports both namespaces. Adding them again causes
+' "already imported" errors AND makes File/Path ambiguous with Inventor.
+' Use the full System.IO.File / System.IO.Path prefix throughout.
 
-' Module-level variable so event handlers can write to the same log file
-' even after Sub Main() has exited.
+' Module-level: event handlers write here after Sub Main() has exited.
 Dim g_sLog As String = ""
+
+' ══════════════════════════════════════════════════════════════════
+Sub WriteLog(sEvent As String, sTiming As String, sDetail As String)
+' ══════════════════════════════════════════════════════════════════
+    Try
+        If g_sLog = "" Then Return
+        Dim sLine As String =
+            DateTime.Now.ToString("HH:mm:ss.fff") & "  " &
+            sEvent.PadRight(7) & "  " & sTiming.PadRight(7) & "  " & sDetail
+        System.IO.File.AppendAllText(g_sLog, sLine & vbCrLf)
+    Catch
+    End Try
+End Sub
+
+' ── Event handlers (must be module-level, NOT inside Sub Main) ──────
+' Correct Inventor delegate signatures from the error messages:
+'   OnOpenDocument  : (DocumentObject As _Document, FullDocumentName As String,
+'                      BeforeOrAfter As EventTimingEnum, Context As NameValueMap,
+'                      ByRef HandlingCode As HandlingCodeEnum)
+'   OnSaveDocument  : same pattern
+'   OnCloseDocument : same pattern
+'   OnActivateDocument : (DocumentObject As _Document, BeforeOrAfter As ...,
+'                         Context As ..., ByRef HandlingCode As ...)
+'                        — no FullDocumentName parameter
+'   OnNewDocument   : same as OnOpen pattern
+
+Sub OnOpen(oDocObj As Object, sFullName As String,
+           Timing As EventTimingEnum, Context As NameValueMap,
+           ByRef HandlingCode As HandlingCodeEnum)
+    WriteLog("OPEN", If(Timing = EventTimingEnum.kBefore, "BEFORE", "AFTER"), sFullName)
+    HandlingCode = HandlingCodeEnum.kEventNotHandled
+End Sub
+
+Sub OnSave(oDocObj As Object, sFullName As String,
+           Timing As EventTimingEnum, Context As NameValueMap,
+           ByRef HandlingCode As HandlingCodeEnum)
+    WriteLog("SAVE", If(Timing = EventTimingEnum.kBefore, "BEFORE", "AFTER"), sFullName)
+    HandlingCode = HandlingCodeEnum.kEventNotHandled
+End Sub
+
+Sub OnClose(oDocObj As Object, sFullName As String,
+            Timing As EventTimingEnum, Context As NameValueMap,
+            ByRef HandlingCode As HandlingCodeEnum)
+    WriteLog("CLOSE", If(Timing = EventTimingEnum.kBefore, "BEFORE", "AFTER"), sFullName)
+    HandlingCode = HandlingCodeEnum.kEventNotHandled
+End Sub
+
+Sub OnActivate(oDocObj As Object,
+               Timing As EventTimingEnum, Context As NameValueMap,
+               ByRef HandlingCode As HandlingCodeEnum)
+    ' OnActivateDocument has no FullDocumentName — read from document object
+    If Timing <> EventTimingEnum.kAfter Then
+        HandlingCode = HandlingCodeEnum.kEventNotHandled : Return
+    End If
+    Dim sFn As String = ""
+    Try : sFn = CType(oDocObj, Document).FullFileName : Catch : sFn = "[unknown]" : End Try
+    WriteLog("ACTIVE", "AFTER", sFn)
+    HandlingCode = HandlingCodeEnum.kEventNotHandled
+End Sub
+
+Sub OnNew(oDocObj As Object, sFullName As String,
+          Timing As EventTimingEnum, Context As NameValueMap,
+          ByRef HandlingCode As HandlingCodeEnum)
+    If Timing <> EventTimingEnum.kAfter Then
+        HandlingCode = HandlingCodeEnum.kEventNotHandled : Return
+    End If
+    WriteLog("NEW", "AFTER", sFullName)
+    HandlingCode = HandlingCodeEnum.kEventNotHandled
+End Sub
 
 ' ══════════════════════════════════════════════════════════════════
 Sub Main()
 ' ══════════════════════════════════════════════════════════════════
 
-    Dim sDesktop As String = Environment.GetFolderPath(Environment.SpecialFolder.Desktop)
-    Dim sSentinel As String = Path.Combine(sDesktop, "INVENTOR_CAPTURE_ACTIVE.flag")
+    Dim sDesktop As String = System.Environment.GetFolderPath(
+        System.Environment.SpecialFolder.Desktop)
+    Dim sSentinel As String = System.IO.Path.Combine(sDesktop,
+        "INVENTOR_CAPTURE_ACTIVE.flag")
 
     ' ── STOP if already running ────────────────────────────────────
-    If File.Exists(sSentinel) Then
+    If System.IO.File.Exists(sSentinel) Then
         Try
-            Dim sLogPath As String = File.ReadAllText(sSentinel).Trim()
+            Dim sLogPath As String = System.IO.File.ReadAllText(sSentinel).Trim()
             Try
-                File.AppendAllText(sLogPath,
+                System.IO.File.AppendAllText(sLogPath,
                     vbCrLf & "=== CAPTURE STOPPED " &
                     DateTime.Now.ToString("HH:mm:ss.fff") & " ===" & vbCrLf)
             Catch : End Try
-            File.Delete(sSentinel)
-            g_sLog = ""   ' clear module-level reference
+            System.IO.File.Delete(sSentinel)
+            g_sLog = ""
 
             Dim oRes As DialogResult = MessageBox.Show(
                 "Event capture stopped." & vbCrLf & vbCrLf &
-                "Log file:" & vbCrLf & sLogPath & vbCrLf & vbCrLf &
-                "Open log in Notepad now?",
+                "Log:" & vbCrLf & sLogPath & vbCrLf & vbCrLf &
+                "Open in Notepad now?",
                 "CAPTURE STOPPED", MessageBoxButtons.YesNo, MessageBoxIcon.Information)
             If oRes = DialogResult.Yes Then
                 Try : System.Diagnostics.Process.Start("notepad.exe", sLogPath) : Catch : End Try
@@ -62,49 +138,37 @@ Sub Main()
         Catch ex As Exception
             MessageBox.Show("Stop error: " & ex.Message, "Capture",
                 MessageBoxButtons.OK, MessageBoxIcon.Warning)
-            Try : File.Delete(sSentinel) : Catch : End Try
+            Try : System.IO.File.Delete(sSentinel) : Catch : End Try
         End Try
         Return
     End If
 
     ' ── START capture ──────────────────────────────────────────────
     Dim sTimestamp As String = DateTime.Now.ToString("yyyy-MM-dd_HHmmss")
-    g_sLog = Path.Combine(sDesktop, "INVENTOR_EVENT_CAPTURE_" & sTimestamp & ".log")
+    g_sLog = System.IO.Path.Combine(sDesktop,
+        "INVENTOR_EVENT_CAPTURE_" & sTimestamp & ".log")
 
-    ' Write header
-    Dim oHeader As New System.Text.StringBuilder()
-    oHeader.AppendLine("INVENTOR EVENT CAPTURE")
-    oHeader.AppendLine("Started : " & DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"))
-    oHeader.AppendLine("")
-    oHeader.AppendLine("EVENT KEY:")
-    oHeader.AppendLine("  OPEN    = Inventor opened/loaded a document")
-    oHeader.AppendLine("  SAVE    = Inventor saved a document")
-    oHeader.AppendLine("  CLOSE   = Inventor closed/unloaded a document")
-    oHeader.AppendLine("  ACTIVE  = Active document switched")
-    oHeader.AppendLine("  CHANGE  = Document internal state changed")
-    oHeader.AppendLine("            (fires when a reference is repointed — the key one)")
-    oHeader.AppendLine("  NEW     = New document created")
-    oHeader.AppendLine("")
-    oHeader.AppendLine("FORMAT:  HH:mm:ss.fff  EVENT   TIMING   filename")
-    oHeader.AppendLine(New String("="c, 80))
-    oHeader.AppendLine("")
-    File.WriteAllText(g_sLog, oHeader.ToString())
+    Dim oHdr As New System.Text.StringBuilder()
+    oHdr.AppendLine("INVENTOR EVENT CAPTURE — " & DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"))
+    oHdr.AppendLine("FORMAT:  HH:mm:ss.fff  EVENT   TIMING   detail")
+    oHdr.AppendLine("OPEN  = file load  |  SAVE = file save  |  CLOSE = file release")
+    oHdr.AppendLine("ACTIVE = window focus changed  |  NEW = new document created")
+    oHdr.AppendLine(New String("="c, 80))
+    oHdr.AppendLine()
+    System.IO.File.WriteAllText(g_sLog, oHdr.ToString())
+    System.IO.File.WriteAllText(sSentinel, g_sLog)
 
-    ' Save log path in sentinel so the STOP run can find it
-    File.WriteAllText(sSentinel, g_sLog)
-
-    ' ── Hook all application events ───────────────────────────────
+    ' ── Hook events ───────────────────────────────────────────────
     Try
         AddHandler ThisApplication.ApplicationEvents.OnOpenDocument,     AddressOf OnOpen
         AddHandler ThisApplication.ApplicationEvents.OnSaveDocument,     AddressOf OnSave
         AddHandler ThisApplication.ApplicationEvents.OnCloseDocument,    AddressOf OnClose
         AddHandler ThisApplication.ApplicationEvents.OnActivateDocument, AddressOf OnActivate
-        AddHandler ThisApplication.ApplicationEvents.OnChangeDocument,   AddressOf OnChange
         AddHandler ThisApplication.ApplicationEvents.OnNewDocument,      AddressOf OnNew
-        WriteLog("---", "---", "Event hooks registered — waiting for Inventor activity")
+        WriteLog("---", "---", "Hooks registered")
     Catch exHook As Exception
-        File.AppendAllText(g_sLog, "HOOK ERROR: " & exHook.Message & vbCrLf)
-        File.Delete(sSentinel)
+        System.IO.File.AppendAllText(g_sLog, "HOOK ERROR: " & exHook.Message & vbCrLf)
+        System.IO.File.Delete(sSentinel)
         g_sLog = ""
         MessageBox.Show("Failed to hook events: " & exHook.Message,
             "Capture", MessageBoxButtons.OK, MessageBoxIcon.Error)
@@ -113,99 +177,9 @@ Sub Main()
 
     MessageBox.Show(
         "Event capture is ACTIVE." & vbCrLf & vbCrLf &
-        "Now do your manual operations in Inventor:" & vbCrLf &
-        "  - Replace Component (browser right-click)" & vbCrLf &
-        "  - Update Drawing Model Reference" & vbCrLf &
-        "  - Save / Save As" & vbCrLf &
-        "  - Open or close documents" & vbCrLf & vbCrLf &
-        "Events are written live to:" & vbCrLf & g_sLog & vbCrLf & vbCrLf &
+        "Do your manual operations in Inventor now." & vbCrLf & vbCrLf &
+        "Log file (open in Notepad, hit F5 to refresh):" & vbCrLf & g_sLog & vbCrLf & vbCrLf &
         "Run this rule AGAIN to stop.",
         "CAPTURE ACTIVE", MessageBoxButtons.OK, MessageBoxIcon.Information)
 
-End Sub
-
-' ══════════════════════════════════════════════════════════════════
-' Helper — write one line to the log file
-' ══════════════════════════════════════════════════════════════════
-Sub WriteLog(sEvent As String, sTiming As String, sDetail As String)
-    Try
-        If g_sLog = "" Then Return
-        Dim sLine As String =
-            DateTime.Now.ToString("HH:mm:ss.fff") & "  " &
-            sEvent.PadRight(7) & "  " & sTiming.PadRight(7) & "  " & sDetail
-        File.AppendAllText(g_sLog, sLine & vbCrLf)
-    Catch
-    End Try
-End Sub
-
-' ══════════════════════════════════════════════════════════════════
-' Event handlers — must be module-level subs (not inside Sub Main)
-' ══════════════════════════════════════════════════════════════════
-
-Sub OnOpen(oDoc As Inventor.Document,
-           Timing As Inventor.EventTimingEnum,
-           Context As Inventor.NameValueMap,
-           ByRef HandlingCode As Inventor.HandlingCodeEnum)
-    Dim sFn As String = ""
-    Try : sFn = oDoc.FullFileName : Catch : sFn = "[unknown]" : End Try
-    WriteLog("OPEN", If(Timing = Inventor.EventTimingEnum.kBefore, "BEFORE", "AFTER"), sFn)
-    HandlingCode = Inventor.HandlingCodeEnum.kEventNotHandled
-End Sub
-
-Sub OnSave(oDoc As Inventor.Document,
-           Timing As Inventor.EventTimingEnum,
-           Context As Inventor.NameValueMap,
-           ByRef HandlingCode As Inventor.HandlingCodeEnum)
-    Dim sFn As String = ""
-    Try : sFn = oDoc.FullFileName : Catch : sFn = "[unknown]" : End Try
-    WriteLog("SAVE", If(Timing = Inventor.EventTimingEnum.kBefore, "BEFORE", "AFTER"), sFn)
-    HandlingCode = Inventor.HandlingCodeEnum.kEventNotHandled
-End Sub
-
-Sub OnClose(sFullName As String,
-            Timing As Inventor.EventTimingEnum,
-            Context As Inventor.NameValueMap,
-            ByRef HandlingCode As Inventor.HandlingCodeEnum)
-    WriteLog("CLOSE", If(Timing = Inventor.EventTimingEnum.kBefore, "BEFORE", "AFTER"), sFullName)
-    HandlingCode = Inventor.HandlingCodeEnum.kEventNotHandled
-End Sub
-
-Sub OnActivate(oDoc As Inventor.Document,
-               Timing As Inventor.EventTimingEnum,
-               Context As Inventor.NameValueMap,
-               ByRef HandlingCode As Inventor.HandlingCodeEnum)
-    If Timing <> Inventor.EventTimingEnum.kAfter Then
-        HandlingCode = Inventor.HandlingCodeEnum.kEventNotHandled : Return
-    End If
-    Dim sFn As String = ""
-    Try : sFn = oDoc.FullFileName : Catch : sFn = "[unknown]" : End Try
-    WriteLog("ACTIVE", "AFTER", sFn)
-    HandlingCode = Inventor.HandlingCodeEnum.kEventNotHandled
-End Sub
-
-Sub OnChange(oDoc As Inventor.Document,
-             Timing As Inventor.EventTimingEnum,
-             Context As Inventor.NameValueMap,
-             ByRef HandlingCode As Inventor.HandlingCodeEnum)
-    ' Log BEFORE only — AFTER would double every entry
-    If Timing <> Inventor.EventTimingEnum.kBefore Then
-        HandlingCode = Inventor.HandlingCodeEnum.kEventNotHandled : Return
-    End If
-    Dim sFn As String = ""
-    Try : sFn = oDoc.FullFileName : Catch : sFn = "[unknown]" : End Try
-    WriteLog("CHANGE", "BEFORE", sFn)
-    HandlingCode = Inventor.HandlingCodeEnum.kEventNotHandled
-End Sub
-
-Sub OnNew(oDoc As Inventor.Document,
-          Timing As Inventor.EventTimingEnum,
-          Context As Inventor.NameValueMap,
-          ByRef HandlingCode As Inventor.HandlingCodeEnum)
-    If Timing <> Inventor.EventTimingEnum.kAfter Then
-        HandlingCode = Inventor.HandlingCodeEnum.kEventNotHandled : Return
-    End If
-    Dim sFn As String = ""
-    Try : sFn = oDoc.FullFileName : Catch : sFn = "[unknown]" : End Try
-    WriteLog("NEW", "AFTER", sFn)
-    HandlingCode = Inventor.HandlingCodeEnum.kEventNotHandled
 End Sub
