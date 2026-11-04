@@ -3520,6 +3520,130 @@ Sub RunDrawingCopyMode(oDwgDoc As DrawingDocument, Optional oPresetModelRenameMa
         System.IO.File.AppendAllText(sRunLogPath, sbRenameMap.ToString())
     Catch : End Try
 
+    ' ══════════════════════════════════════════════════════════════════════
+    ' GA VALIDATION — Open GA physically; walk its full tree; cross-check
+    ' every drawing-mapped model against actual GA members.  Any file the
+    ' drawings reference that does NOT appear anywhere in the GA tree is an
+    ' "orphan" — copying it would create a file the GA never loads, so the
+    ' user is warned before a single byte is copied.
+    '
+    ' Runs before the copy phase so it is cheap to cancel.  The GA is left
+    ' open so the user can inspect it.  SilentOperation stays OFF during
+    ' the validation so the Inventor window is visible.
+    ' ══════════════════════════════════════════════════════════════════════
+    Dim oGaValidDoc As AssemblyDocument = Nothing
+    Dim bGaValidWasOpen As Boolean = False
+    Dim oGaAllBasenames As New System.Collections.Generic.HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+
+    If System.IO.File.Exists(sSelectedGaPath) Then
+        Try
+            ' Check if already open
+            For Each oOpenChk As Document In ThisApplication.Documents
+                If String.Compare(oOpenChk.FullFileName, sSelectedGaPath, True) = 0 Then
+                    oGaValidDoc = TryCast(oOpenChk, AssemblyDocument)
+                    bGaValidWasOpen = True
+                    Exit For
+                End If
+            Next
+            If oGaValidDoc Is Nothing Then
+                ' Open GA visibly so user can see it
+                ThisApplication.SilentOperation = False
+                oGaValidDoc = TryCast(ThisApplication.Documents.Open(sSelectedGaPath, True), AssemblyDocument)
+            End If
+            Try : System.IO.File.AppendAllText(sLogFilePath, "GA-VALIDATE: opened " & System.IO.Path.GetFileName(sSelectedGaPath) & vbCrLf) : Catch : End Try
+
+            ' Walk AllReferencedDocuments (every level) — collect basenames
+            If oGaValidDoc IsNot Nothing Then
+                Dim oGaRefDoc As Document
+                For Each oGaRefDoc In oGaValidDoc.AllReferencedDocuments
+                    Try
+                        Dim sGaMem As String = System.IO.Path.GetFileNameWithoutExtension(oGaRefDoc.FullFileName)
+                        If sGaMem <> "" Then oGaAllBasenames.Add(sGaMem)
+                    Catch : End Try
+                Next
+                ' Also add GA itself
+                oGaAllBasenames.Add(System.IO.Path.GetFileNameWithoutExtension(sSelectedGaPath))
+            End If
+            Try : System.IO.File.AppendAllText(sLogFilePath, "GA-VALIDATE: " & oGaAllBasenames.Count & " unique members in GA tree" & vbCrLf) : Catch : End Try
+        Catch exGaVal As Exception
+            Try : System.IO.File.AppendAllText(sLogFilePath, "GA-VALIDATE-WARN: could not open GA for validation — " & exGaVal.Message & vbCrLf) : Catch : End Try
+        End Try
+    Else
+        Try : System.IO.File.AppendAllText(sLogFilePath, "GA-VALIDATE-SKIP: GA path not found on disk — " & sSelectedGaPath & vbCrLf) : Catch : End Try
+    End If
+
+    ' Cross-check rename map against GA tree
+    Dim oOrphans As New System.Collections.Generic.List(Of String)
+    Dim oGaFound As New System.Collections.Generic.List(Of String)
+    If oGaAllBasenames.Count > 0 Then
+        For Each kvpChk As System.Collections.Generic.KeyValuePair(Of String, String) In oRenameMap
+            Dim sChkBase As String = System.IO.Path.GetFileNameWithoutExtension(kvpChk.Key)
+            If oGaAllBasenames.Contains(sChkBase) Then
+                oGaFound.Add(sChkBase)
+                Try : System.IO.File.AppendAllText(sLogFilePath, "GA-VALIDATE-OK: " & sChkBase & " found in GA tree" & vbCrLf) : Catch : End Try
+            Else
+                oOrphans.Add(sChkBase)
+                Try : System.IO.File.AppendAllText(sLogFilePath, "GA-VALIDATE-ORPHAN: " & sChkBase & " NOT found in GA tree — drawing references file not in GA!" & vbCrLf) : Catch : End Try
+            End If
+        Next
+    End If
+
+    ' Build and show validation summary popup (always — gives user confidence)
+    Dim sbValMsg As New System.Text.StringBuilder()
+    sbValMsg.AppendLine("═══ DRAWING COPY MODE — GA VALIDATION ═══")
+    sbValMsg.AppendLine("GA:  " & System.IO.Path.GetFileName(sSelectedGaPath))
+    sbValMsg.AppendLine("GA tree members: " & oGaAllBasenames.Count)
+    sbValMsg.AppendLine()
+    If oGaFound.Count > 0 Then
+        sbValMsg.AppendLine("✔ CONFIRMED in GA tree (" & oGaFound.Count & "):")
+        For Each sOk As String In oGaFound
+            sbValMsg.AppendLine("   " & sOk)
+        Next
+    End If
+    If oOrphans.Count > 0 Then
+        sbValMsg.AppendLine()
+        sbValMsg.AppendLine("⚠ WARNING — NOT FOUND in GA tree (" & oOrphans.Count & "):")
+        sbValMsg.AppendLine("  These files are referenced by drawings but do NOT")
+        sbValMsg.AppendLine("  exist anywhere in the GA.  Copying them will create")
+        sbValMsg.AppendLine("  files the GA never loads (orphans).")
+        sbValMsg.AppendLine()
+        For Each sOrph As String In oOrphans
+            sbValMsg.AppendLine("   ⚠ " & sOrph)
+        Next
+        sbValMsg.AppendLine()
+        sbValMsg.AppendLine("Likely cause: GA uses a WIP-renamed version of this")
+        sbValMsg.AppendLine("file while drawings still reference the old PJ##### original.")
+        sbValMsg.AppendLine("Recommendation: Run the rule from the GA assembly instead")
+        sbValMsg.AppendLine("so the GA tree drives what gets renamed and copied.")
+        sbValMsg.AppendLine()
+        sbValMsg.AppendLine("Continue anyway (orphans will be copied but won't appear")
+        sbValMsg.AppendLine("in the GA), or Cancel to run from the GA instead?")
+    Else
+        If oGaAllBasenames.Count > 0 Then
+            sbValMsg.AppendLine("All drawing-mapped models confirmed in GA tree.  Safe to proceed.")
+        Else
+            sbValMsg.AppendLine("(GA validation skipped — GA could not be read)")
+        End If
+    End If
+
+    Dim oValResult As System.Windows.Forms.DialogResult
+    If oOrphans.Count > 0 Then
+        oValResult = MessageBox.Show(sbValMsg.ToString(), "GA Validation — Orphan Warning", _
+            System.Windows.Forms.MessageBoxButtons.OKCancel, System.Windows.Forms.MessageBoxIcon.Warning)
+        If oValResult = System.Windows.Forms.DialogResult.Cancel Then
+            MessageBox.Show("Cancelled — no files copied.  Open the GA assembly and run the rule from it to use the GA-driven rename path.", "Drawing Copy Mode")
+            If Not bGaValidWasOpen AndAlso oGaValidDoc IsNot Nothing Then
+                Try : oGaValidDoc.Close(False) : Catch : End Try
+            End If
+            Try : ThisApplication.iLogicVb.EventRuleManager.DisableEventRules = bOrigEventRules : Catch : End Try
+            ThisApplication.SilentOperation = bOrigSilent
+            Return
+        End If
+    Else
+        MessageBox.Show(sbValMsg.ToString(), "GA Validation — OK to Proceed", _
+            System.Windows.Forms.MessageBoxButtons.OK, System.Windows.Forms.MessageBoxIcon.Information)
+    End If
+
     ' ── 4. File.Copy each model; open copy in session ───────────────────
     ThisApplication.SilentOperation = True
     Dim oCopiedPairs As New System.Collections.Generic.List(Of Object())  ' {oldPath, newPath}
