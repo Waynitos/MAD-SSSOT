@@ -1,7 +1,7 @@
 ﻿'' =====================================================================
 '' SUPER_CLEAN_SWEEPER.iLogicVb
 '' Copy Design with full provenance architecture
-'' Version: 2.0.3 — 2026-11-05
+'' Version: 2.0.4 — 2026-11-05
 ''
 '' PURPOSE
 ''   Replicates Vault Copy Design outside of Vault.
@@ -31,6 +31,13 @@
 ''         CS_RunCount      = increments each rerun (1 on first run)
 ''   4. OLD PROJECT ROOT auto-detected from GA path: walk up path
 ''      segments to find the folder whose name starts with the old prefix.
+''
+'' V2.0.4
+''   Phase 3 also walks the active GA and queues every already-processed
+''   .iam/.ipt that lives under the target folder, so a later cleanup run
+''   rewrites their FileDescriptors to newly-copied non-std parts (Bolted
+''   Connections, JC parts, library parts).  The provenance guard still
+''   skips the SaveAs, but no longer skips the reference rewrite.
 ''
 '' KEY ARCHITECTURAL PRINCIPLES (preserved from v1)
 ''   - Sub Main is FIRST; all helpers are defined AFTER it.
@@ -71,7 +78,7 @@ Sub Main()
         System.Environment.SpecialFolder.Desktop)
     Dim sLogPath As String = System.IO.Path.Combine(sDesktop, _
         "SUPER_CLEAN_SWEEPER_" & Now.ToString("yyyyMMdd_HHmmss") & ".log")
-    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.0.3  —  " & Now.ToString() & vbCrLf & _
+    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.0.4  —  " & Now.ToString() & vbCrLf & _
                          "GA: " & sTopFull & vbCrLf
     Try : System.IO.File.WriteAllText(sLogPath, sLog) : Catch : End Try
 
@@ -420,6 +427,42 @@ Sub Main()
     For Each sActualVal In oActualMap.Values
         oNewSet.Add(sActualVal)
     Next
+
+    ' v2.0.4: also queue every already-processed .iam/.ipt in the active GA
+    ' that lives under the target folder (these are excluded from the rename
+    ' map), so their FileDescriptors are rewritten to newly-copied parts.
+    Dim sTgtPrefix3 As String = sTargetFolder.TrimEnd("\"c) & "\"
+    Dim iQueued3 As Integer = 0
+    Dim oGaRef3 As Object = Nothing
+    Dim sGaPath3 As String = ""
+    Dim sGaExt3 As String = ""
+    If sTopFull.StartsWith(sTgtPrefix3, StringComparison.OrdinalIgnoreCase) Then
+        If oNewSet.Add(sTopFull) Then
+            iQueued3 += 1
+            Try : System.IO.File.AppendAllText(sLogPath, _
+                "P3-QUEUE (GA, in target): " & System.IO.Path.GetFileName(sTopFull) & vbCrLf) : Catch : End Try
+        End If
+    End If
+    Try
+        For Each oGaRef3 In oAsmDoc.AllReferencedDocuments
+            sGaPath3 = ""
+            Try : sGaPath3 = oGaRef3.FullFileName : Catch : End Try
+            If sGaPath3 = "" Then Continue For
+            sGaExt3 = System.IO.Path.GetExtension(sGaPath3).ToUpper()
+            If sGaExt3 <> ".IAM" AndAlso sGaExt3 <> ".IPT" Then Continue For
+            If Not sGaPath3.StartsWith(sTgtPrefix3, StringComparison.OrdinalIgnoreCase) Then Continue For
+            If oNewSet.Add(sGaPath3) Then
+                iQueued3 += 1
+                Try : System.IO.File.AppendAllText(sLogPath, _
+                    "P3-QUEUE (already processed): " & System.IO.Path.GetFileName(sGaPath3) & vbCrLf) : Catch : End Try
+            End If
+        Next
+    Catch exQueue3 As Exception
+        Try : System.IO.File.AppendAllText(sLogPath, _
+            "P3-QUEUE-FAIL: " & exQueue3.Message & vbCrLf) : Catch : End Try
+    End Try
+    Try : System.IO.File.AppendAllText(sLogPath, _
+        "P3-QUEUE: " & iQueued3 & " already-processed file(s) under target added." & vbCrLf) : Catch : End Try
     Dim oNewSorted As New System.Collections.Generic.List(Of String)(oNewSet)
     oNewSorted.Sort(Function(a2, b2) b2.Length.CompareTo(a2.Length))
 
@@ -516,7 +559,7 @@ Sub Main()
 
     ' ── 8. Final summary ──────────────────────────────────────────────────────
     Dim sSummary As String = _
-        "SUPER CLEAN SWEEPER v2.0.3 — COMPLETE" & vbCrLf & vbCrLf & _
+        "SUPER CLEAN SWEEPER v2.0.4 — COMPLETE" & vbCrLf & vbCrLf & _
         "Phase 1  Rename map built:   " & oRenameMap.Count & " file(s)" & vbCrLf & _
         "Phase 2  SaveAs + Provenance:" & vbCrLf & _
         "         Saved    : " & iSaved & vbCrLf & _
