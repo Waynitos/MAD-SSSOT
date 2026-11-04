@@ -148,6 +148,10 @@ User opens GA drawing → runs rule from GA drawing
   `oPhase0Data` MUST be declared at Sub Main top level (before any `If` block).
 - VB.NET `If`/`Else` same scope: cannot declare same variable name in both branches.
   Declare once before the `If`.
+- Sub Main must be the first executable. Helpers come AFTER Sub Main, not before.
+  Nesting a Sub inside another Sub is not valid VB.
+- Content Centre check: do not use `DocumentSubType = kCCPartDocumentSubType`.
+  Use `ComponentDefinition.IsContentMember` (on part documents) or a path heuristic.
 
 ---
 
