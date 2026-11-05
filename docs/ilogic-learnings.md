@@ -46,3 +46,28 @@ Sources (research 2026-11-05):
 - https://forums.autodesk.com/t5/inventor-programming-forum/looking-for-a-filesaveas-object-primer/td-p/3091750
 - https://forums.autodesk.com/t5/inventor-programming-forum/apprentice-server-with-powershell-working-prefix-copy-design/td-p/13750480
 - https://forums.autodesk.com/t5/inventor-programming-forum/access-parent-to-set-reference/td-p/12425676
+
+## Phase 2 SaveAs — one write; SaveCopyAs keeps InternalName
+
+Phase 2’s main cost is not `SaveAs` itself. It is open → `SaveAs(path, True)` → reopen the copy → write CS_* / activate design view → `Save2` → close (often 2–3 opens and 2 disk writes per file), plus any `IsAlreadyProcessed` open of the target.
+
+SaveCopyAs identity:
+- Autodesk’s `FileDescriptor.ReplaceReference` docs state documents copied with Save Copy As (or Explorer copy) keep the same InternalName.
+- Do not treat `SaveAs(…, True)` output as a “new GUID”. That shared InternalName is why `ReplaceReference` works on the copy.
+- The only documented API to assign a new internal name is `PutInternalNameAndRevisionId`, and only on a New or SaveCopyAs document that has not yet been saved (needs a live Inventor test before relying on it). Forcing new InternalNames could break Phase 3 relink.
+
+Faster in-process pattern:
+- Write CS_* props and activate the design view on the in-memory source *before* `SaveAs(new, True)`, then close the source without saving so the copy gets one write.
+- Prefer documents already loaded under the open top assembly (`AllReferencedDocuments`) over `Documents.Open` per file when safe for your DART SHUT / unloaded-ref rules.
+- Prefer `FileDescriptor.ReplaceReference` with an old→new map over per-occurrence relink when possible.
+- Keep `File.Copy` / `FileManager.CopyFile` as fallback only: file-system copies do not reset Part Number the way SaveAs does. `ReplaceReference` clears adaptivity — use `Replace2` + `LocalAdaptive=True` when needed.
+
+Apprentice `FileSaveAs.ExecuteSaveCopyAs` remains the fastest batch copy but stays out of process and does not replace drawing relink.
+
+Sources (research 2026-11-05):
+- https://help.autodesk.com/cloudhelp/2025/ENU/Inventor-API/files/FileDescriptor_ReplaceReference.htm
+- https://help.autodesk.com/cloudhelp/2025/ENU/Inventor-API/files/AssemblyDocument_PutInternalNameAndRevisionId.htm
+- https://forums.autodesk.com/t5/inventor-programming-forum/trying-to-save-and-replace-parts-in-an-assembly/td-p/11088412
+- https://forums.autodesk.com/t5/inventor-programming-forum/assembly-and-some-of-its-parts-renamed-and-saved-as-new-copy/td-p/11984657
+- https://forums.autodesk.com/t5/inventor-programming-forum/vba-filedescriptor-replacereference-clears-adaptivity/td-p/11142067
+- https://forums.autodesk.com/t5/inventor-programming-forum/ilogic-design-copy-programatically/td-p/5796804
