@@ -1,7 +1,7 @@
-'' =====================================================================
+﻿'' =====================================================================
 '' SUPER_CLEAN_SWEEPER.iLogicVb
 '' Copy Design with full provenance architecture
-'' Version: 2.2.23 — 2026-11-05
+'' Version: 2.2.24 — 2026-11-06
 ''
 '' PURPOSE
 ''   Replicates Vault Copy Design outside of Vault.
@@ -441,7 +441,7 @@ Sub Main()
         System.Environment.SpecialFolder.Desktop)
     Dim sLogPath As String = System.IO.Path.Combine(sDesktop, _
         "SUPER_CLEAN_SWEEPER_" & Now.ToString("yyyyMMdd_HHmmss") & ".log")
-    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.23  —  " & Now.ToString() & vbCrLf & _
+    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.24  —  " & Now.ToString() & vbCrLf & _
                          "GA: " & sTopFull & vbCrLf
     Try : System.IO.File.WriteAllText(sLogPath, sLog) : Catch : End Try
     If sEntryLog <> "" Then
@@ -467,6 +467,52 @@ Sub Main()
     End If
     Dim sTargetFolder As String = oFbd.SelectedPath
     ThisApplication.SilentOperation = True
+
+    ' ── 3b. Run mode: Full sweep or Relink only (v2.2.24) ────────────────────
+    Dim bRelinkOnly As Boolean = False
+    ThisApplication.SilentOperation = bOrigSilent
+    Dim oModeForm As New Form()
+    oModeForm.Text = "Super Clean Sweeper — Run Mode"
+    oModeForm.Width = 480
+    oModeForm.Height = 220
+    oModeForm.StartPosition = FormStartPosition.CenterScreen
+    oModeForm.FormBorderStyle = FormBorderStyle.FixedDialog
+    oModeForm.MaximizeBox = False
+    oModeForm.MinimizeBox = False
+    Dim oRadFull As New RadioButton()
+    oRadFull.Text = "Full sweep (Phases 1–4 + relink)"
+    oRadFull.Left = 20 : oRadFull.Top = 30 : oRadFull.Width = 420
+    oRadFull.Checked = True
+    oModeForm.Controls.Add(oRadFull)
+    Dim oRadRelink As New RadioButton()
+    oRadRelink.Text = "Relink only (clean GA already exists)"
+    oRadRelink.Left = 20 : oRadRelink.Top = 60 : oRadRelink.Width = 420
+    oModeForm.Controls.Add(oRadRelink)
+    Dim oModeOk As New Button()
+    oModeOk.Text = "OK" : oModeOk.DialogResult = DialogResult.OK
+    oModeOk.Left = 280 : oModeOk.Top = 120 : oModeOk.Width = 80
+    oModeForm.Controls.Add(oModeOk)
+    oModeForm.AcceptButton = oModeOk
+    Dim oModeCancel As New Button()
+    oModeCancel.Text = "Cancel" : oModeCancel.DialogResult = DialogResult.Cancel
+    oModeCancel.Left = 370 : oModeCancel.Top = 120 : oModeCancel.Width = 80
+    oModeForm.Controls.Add(oModeCancel)
+    oModeForm.CancelButton = oModeCancel
+    If oModeForm.ShowDialog() <> DialogResult.OK Then
+        If bEntryDocOpenedHere AndAlso oEntryDoc IsNot Nothing Then
+            Try : oEntryDoc.Close(True) : Catch : End Try
+        End If
+        MessageBox.Show("Cancelled — no changes made.", "Super Clean Sweeper")
+        Exit Sub
+    End If
+    bRelinkOnly = oRadRelink.Checked
+    ThisApplication.SilentOperation = True
+    If bRelinkOnly Then
+        Try : System.IO.File.AppendAllText(sLogPath, "MODE: Relink only — map built from CS_SourcePath in target folder" & vbCrLf) : Catch : End Try
+    Else
+        Try : System.IO.File.AppendAllText(sLogPath, "MODE: Full sweep" & vbCrLf) : Catch : End Try
+    End If
+
 
     ' ── 4. Detect old prefix; ask for new prefix ─────────────────────────────
     Dim sOldPrefix As String = ""
@@ -673,10 +719,10 @@ Sub Main()
     Dim oDwgList As New System.Collections.Generic.List(Of String)()
     Dim oNameOverrides As New System.Collections.Generic.Dictionary(Of String, String)( _
         StringComparer.OrdinalIgnoreCase)
+    Dim oDwgModels As New System.Collections.Generic.Dictionary(Of String, System.Collections.Generic.List(Of String))( _
+        StringComparer.OrdinalIgnoreCase)
     If bFromDwg AndAlso sDwgEntryPath <> "" Then
         Try : System.IO.File.AppendAllText(sLogPath, vbCrLf & "=== DRAWING LIST ===" & vbCrLf) : Catch : End Try
-        Dim oDwgModels As New System.Collections.Generic.Dictionary(Of String, System.Collections.Generic.List(Of String))( _
-            StringComparer.OrdinalIgnoreCase)
         Dim sDwgFolder As String = System.IO.Path.GetDirectoryName(sDwgEntryPath)
         Dim oDwgFiles As New System.Collections.Generic.List(Of String)()
         Dim sDLFile As String
@@ -1088,11 +1134,24 @@ Sub Main()
         ThisApplication.SilentOperation = True
     End If
 
-    ' ── 5. PHASE 1 — Build rename map ────────────────────────────────────────
-    Try : System.IO.File.AppendAllText(sLogPath, vbCrLf & "=== PHASE 1: RENAME MAP ===" & vbCrLf) : Catch : End Try
-
+    ' ── Shared result variables — visible in both bRelinkOnly and full paths ─
     Dim oRenameMap As New System.Collections.Generic.Dictionary(Of String, String)( _
         StringComparer.OrdinalIgnoreCase)
+    Dim oActualMap As New System.Collections.Generic.Dictionary(Of String, String)( _
+        StringComparer.OrdinalIgnoreCase)
+    Dim iSaved      As Integer = 0
+    Dim iSkipped    As Integer = 0
+    Dim iSaveFailed As Integer = 0
+    Dim iRefFixed   As Integer = 0
+    Dim iRefFailed  As Integer = 0
+    Dim iNoProvenance As Integer = 0
+    Dim oProvRebuildOpened As New System.Collections.Generic.List(Of Document)()
+    Dim sKeepOpenGA As String = ""
+
+    ' ── 5. PHASE 1 — Build rename map ────────────────────────────────────────
+    If Not bRelinkOnly Then
+    Try : System.IO.File.AppendAllText(sLogPath, vbCrLf & "=== PHASE 1: RENAME MAP ===" & vbCrLf) : Catch : End Try
+
     Dim oSeen As New System.Collections.Generic.HashSet(Of String)( _
         StringComparer.OrdinalIgnoreCase)
 
@@ -1252,19 +1311,7 @@ Sub Main()
 
     ' ── 6. PHASE 2 — SaveAs + Provenance ─────────────────────────────────────
     ' Process in deepest-first order: sort by OLD path length descending.
-    ' Counters declared BEFORE the outer Try/Finally so they are visible in
-    ' the Finally and after it, and do not shadow any name in an inner block.
-    Dim iSaved      As Integer = 0
-    Dim iSkipped    As Integer = 0
-    Dim iSaveFailed As Integer = 0
-    Dim iRefFixed   As Integer = 0
-    Dim iRefFailed  As Integer = 0
-    Dim iNoProvenance As Integer = 0   ' FIX 9: files saved but provenance not written
-
-    ' FIX 1: Track documents opened in PRE-PHASE 2 for explicit close in Finally.
-    Dim oProvRebuildOpened As New System.Collections.Generic.List(Of Document)()
-    ' v2.2.12: full path of the new GA that Phase 4 leaves open (Finally skips its close).
-    Dim sKeepOpenGA As String = ""
+    ' (iSaved, iSkipped etc., oProvRebuildOpened, sKeepOpenGA declared above If Not bRelinkOnly)
 
     Try : System.IO.File.AppendAllText(sLogPath, vbCrLf & "=== PHASE 2: SAVEAS + PROVENANCE ===" & vbCrLf) : Catch : End Try
     Try  ' ← F1: outer Try/Finally — Finally restores SilentOperation
@@ -1279,7 +1326,8 @@ Sub Main()
     End If
 
     ' Track files actually placed on disk (Phase 3 uses this map)
-    Dim oActualMap As New System.Collections.Generic.Dictionary(Of String, String)( _
+    ' oActualMap declared before If Not bRelinkOnly block — re-init for a clean state
+    oActualMap = New System.Collections.Generic.Dictionary(Of String, String)( _
         StringComparer.OrdinalIgnoreCase)
     ' v2.2.17: target files actually created (SaveAs / File.Copy) by THIS run.
     ' Phase 3 only opens and saves files in this set.
@@ -2057,6 +2105,107 @@ Sub Main()
         Try : System.IO.File.AppendAllText(sLogPath, "FINAL-DV-FAIL: " & exFinalDV.Message & vbCrLf) : Catch : End Try
     End Try
 
+    ' F1: Finally block — SilentOperation restored even if Phase 2/3 throws
+    Finally
+        ThisApplication.SilentOperation = bOrigSilent
+        ' FIX 1: Close all documents opened in PRE-PHASE 2 for provenance rebuild.
+        ' These were not tracked by Phase 2's bOpenedHere2 flag and were left open
+        ' intentionally until this point to allow Phase 3 to use them if needed.
+        ' v2.2.12: skip the close for the new GA that Phase 4 left open.
+        Dim sPRDFull As String
+        For Each oPRD As Document In oProvRebuildOpened
+            sPRDFull = ""
+            Try
+                sPRDFull = oPRD.FullFileName
+            Catch
+            End Try
+            If sKeepOpenGA <> "" AndAlso String.Equals(sPRDFull, sKeepOpenGA, StringComparison.OrdinalIgnoreCase) Then Continue For
+            Try : oPRD.Close(True) : Catch : End Try
+        Next
+    End Try  ' ← F1: outer Try/Finally ends here
+
+    End If  ' Not bRelinkOnly
+
+    If bRelinkOnly Then
+        Try : System.IO.File.AppendAllText(sLogPath, vbCrLf & "=== RELINK-ONLY MAP ===" & vbCrLf) : Catch : End Try
+        Dim sROFile As String
+        Dim sROSource As String
+        Dim oROCache As New System.Collections.Generic.Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase)
+        For Each sROFile In System.IO.Directory.GetFiles(sTargetFolder, "*.iam", System.IO.SearchOption.TopDirectoryOnly)
+            sROSource = ReadCSSourcePath(sROFile, oROCache)
+            If sROSource <> "" AndAlso Not oActualMap.ContainsKey(sROSource) Then
+                oActualMap(sROSource) = sROFile
+            End If
+        Next
+        For Each sROFile In System.IO.Directory.GetFiles(sTargetFolder, "*.ipt", System.IO.SearchOption.TopDirectoryOnly)
+            sROSource = ReadCSSourcePath(sROFile, oROCache)
+            If sROSource <> "" AndAlso Not oActualMap.ContainsKey(sROSource) Then
+                oActualMap(sROSource) = sROFile
+            End If
+        Next
+        Try : System.IO.File.AppendAllText(sLogPath, "RELINK-ONLY: map entries from CS_SourcePath = " & oActualMap.Count.ToString() & vbCrLf) : Catch : End Try
+    End If
+
+
+    ' ── Type B orphan copy (v2.2.24) ─────────────────────────────────────────
+    ' Models referenced by a drawing but not in the GA map are copied
+    ' independently with the new prefix and added to oActualMap.
+    Try : System.IO.File.AppendAllText(sLogPath, vbCrLf & "=== TYPE B ORPHANS ===" & vbCrLf) : Catch : End Try
+    Dim oOrphanSeen As New System.Collections.Generic.HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+    Dim sOrphDwg As String
+    Dim sOrphModel As String
+    Dim sOrphNew As String
+    Dim oOrphDoc As Document
+    Dim iOrphCount As Integer = 0
+    For Each sOrphDwg In oDwgModels.Keys
+        For Each sOrphModel In oDwgModels(sOrphDwg)
+            If sOrphModel = "" Then Continue For
+            If oOrphanSeen.Contains(sOrphModel) Then Continue For
+            oOrphanSeen.Add(sOrphModel)
+            If oActualMap.ContainsKey(sOrphModel) Then Continue For
+            ' Skip Content Centre / library
+            If sOrphModel.ToUpper().Contains("CONTENT CENTER") OrElse sOrphModel.ToUpper().Contains("\LIBRARY\") Then
+                Try : System.IO.File.AppendAllText(sLogPath, "ORPHAN-SKIP-CC: " & System.IO.Path.GetFileName(sOrphModel) & vbCrLf) : Catch : End Try
+                Continue For
+            End If
+            sOrphNew = ComputeNewName(sOrphModel, sOldProjectRoot, sNewPrefix, sTargetFolder)
+            If sOrphNew = "" Then Continue For
+            If System.IO.File.Exists(sOrphNew) Then
+                oActualMap(sOrphModel) = sOrphNew
+                Try : System.IO.File.AppendAllText(sLogPath, "ORPHAN-REUSE: " & System.IO.Path.GetFileName(sOrphModel) & " -> " & System.IO.Path.GetFileName(sOrphNew) & vbCrLf) : Catch : End Try
+                Continue For
+            End If
+            Try : System.IO.File.AppendAllText(sLogPath, "ORPHAN: " & System.IO.Path.GetFileName(sOrphModel) & " (drawing-only, not in GA)" & vbCrLf) : Catch : End Try
+            oOrphDoc = Nothing
+            Try
+                oOrphDoc = ThisApplication.Documents.Open(sOrphModel, False)
+                oOrphDoc.SaveAs(sOrphNew, True)
+                Try
+                    oOrphDoc.PropertySets.Item("Inventor User Defined Properties").Add(sOrphModel, "CS_SourcePath")
+                Catch
+                End Try
+                Try
+                    oOrphDoc.PropertySets.Item("Inventor User Defined Properties").Add(sNewPrefix, "CS_CopyProject")
+                Catch
+                End Try
+                Try
+                    oOrphDoc.PropertySets.Item("Inventor User Defined Properties").Add(Now.ToString(), "CS_CopyDate")
+                Catch
+                End Try
+                oOrphDoc.Save2(False)
+                oActualMap(sOrphModel) = sOrphNew
+                iOrphCount = iOrphCount + 1
+                Try : System.IO.File.AppendAllText(sLogPath, "ORPHAN-COPY: " & System.IO.Path.GetFileName(sOrphModel) & " -> " & System.IO.Path.GetFileName(sOrphNew) & vbCrLf) : Catch : End Try
+            Catch exOrph As Exception
+                Try : System.IO.File.AppendAllText(sLogPath, "ORPHAN-FAIL: " & System.IO.Path.GetFileName(sOrphModel) & " — " & exOrph.Message & vbCrLf) : Catch : End Try
+            End Try
+            If oOrphDoc IsNot Nothing Then
+                Try : oOrphDoc.Close(True) : Catch : End Try
+            End If
+        Next
+    Next
+    Try : System.IO.File.AppendAllText(sLogPath, "ORPHAN: " & iOrphCount.ToString() & " copied" & vbCrLf) : Catch : End Try
+
     ' ── DRAWING RELINK (v2.2.23: ReferencedDocumentDescriptors) ──
     ' Repoints each listed drawing's model references to the new paths using
     ' oActualMap, saves with Save2(False) when a ref was replaced, closes only
@@ -2102,6 +2251,7 @@ Sub Main()
                 If oDwgR Is Nothing Then
                     Try
                         oDwgR = ThisApplication.Documents.Open(sRelinkDwg, False)
+            Try : oDwgR.iLogicVb.EventRuleManager.DisableEventRules = True : Catch : End Try
                         bDwgOpenedHere = True
                         If oDwgR IsNot Nothing Then oProvRebuildOpened.Add(oDwgR)  ' FIX E: F1 Finally closes on failure
                     Catch exDwgOpen As Exception
@@ -2164,28 +2314,9 @@ Sub Main()
         Try : System.IO.File.AppendAllText(sLogPath, "Drawing relink complete: " & oRelinkDwgs.Count & " drawing(s), " & iDwgTotal & " ref(s) replaced." & vbCrLf) : Catch : End Try
     End If
 
-    ' F1: Finally block — SilentOperation restored even if Phase 2/3 throws
-    Finally
-        ThisApplication.SilentOperation = bOrigSilent
-        ' FIX 1: Close all documents opened in PRE-PHASE 2 for provenance rebuild.
-        ' These were not tracked by Phase 2's bOpenedHere2 flag and were left open
-        ' intentionally until this point to allow Phase 3 to use them if needed.
-        ' v2.2.12: skip the close for the new GA that Phase 4 left open.
-        Dim sPRDFull As String
-        For Each oPRD As Document In oProvRebuildOpened
-            sPRDFull = ""
-            Try
-                sPRDFull = oPRD.FullFileName
-            Catch
-            End Try
-            If sKeepOpenGA <> "" AndAlso String.Equals(sPRDFull, sKeepOpenGA, StringComparison.OrdinalIgnoreCase) Then Continue For
-            Try : oPRD.Close(True) : Catch : End Try
-        Next
-    End Try  ' ← F1: outer Try/Finally ends here
-
     ' ── 8. Final summary ──────────────────────────────────────────────────────
     Dim sSummary As String = _
-        "SUPER CLEAN SWEEPER v2.2.23 — COMPLETE" & vbCrLf & vbCrLf & _
+        "SUPER CLEAN SWEEPER v2.2.24 — COMPLETE" & vbCrLf & vbCrLf & _
         "Phase 1  Rename map built:   " & oRenameMap.Count & " file(s)" & vbCrLf & _
         "Phase 2  SaveAs + Provenance:" & vbCrLf & _
         "         Saved    : " & iSaved & vbCrLf & _
@@ -2233,7 +2364,7 @@ End Sub
 ' ─────────────────────────────────────────────────────────────────────────────
 Sub WireDMTextSync(oMasterBox As System.Windows.Forms.TextBox, _
                    oFollowerBox As System.Windows.Forms.TextBox)
-    AddHandler oMasterBox.TextChanged, Sub(sender As Object, e As System.EventArgs) oFollowerBox.Text = oMasterBox.Text
+    AddHandler oMasterBox.TextChanged, Sub(sender As Object, E As System.EventArgs) oFollowerBox.Text = oMasterBox.Text
 End Sub
 
 
