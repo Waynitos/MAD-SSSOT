@@ -1,7 +1,7 @@
 '' =====================================================================
 '' SUPER_CLEAN_SWEEPER.iLogicVb
 '' Copy Design with full provenance architecture
-'' Version: 2.2.6 — 2026-11-05
+'' Version: 2.2.7 — 2026-11-05
 ''
 '' PURPOSE
 ''   Replicates Vault Copy Design outside of Vault.
@@ -39,6 +39,11 @@
 ''   outer Finally still restores the original SilentOperation at the end.
 ''   Phase 3 saves with Save2(False) (fallback Save) so the save does not
 ''   cascade to dirty CC/library dependents.
+''
+'' V2.2.7
+''   ELAPSED TIME: dtStart is captured right after the log file is created.
+''   Just before the COMPLETE dialog the run time is written to the log as
+''   "Elapsed: HH:MM:SS" and shown in the dialog as "Elapsed : HH:MM:SS".
 ''
 '' V2.2.6
 ''   VAULT BROWSER REFRESH: just before the final COMPLETE dialog the rule
@@ -133,9 +138,10 @@ Sub Main()
         System.Environment.SpecialFolder.Desktop)
     Dim sLogPath As String = System.IO.Path.Combine(sDesktop, _
         "SUPER_CLEAN_SWEEPER_" & Now.ToString("yyyyMMdd_HHmmss") & ".log")
-    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.6  —  " & Now.ToString() & vbCrLf & _
+    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.7  —  " & Now.ToString() & vbCrLf & _
                          "GA: " & sTopFull & vbCrLf
     Try : System.IO.File.WriteAllText(sLogPath, sLog) : Catch : End Try
+    Dim dtStart As DateTime = Now
 
     ' ── 2. Suppress Inventor confirmation dialogs ─────────────────────────────
     Dim bOrigSilent As Boolean = ThisApplication.SilentOperation
@@ -1020,7 +1026,7 @@ Sub Main()
 
     ' ── 8. Final summary ──────────────────────────────────────────────────────
     Dim sSummary As String = _
-        "SUPER CLEAN SWEEPER v2.2.6 — COMPLETE" & vbCrLf & vbCrLf & _
+        "SUPER CLEAN SWEEPER v2.2.7 — COMPLETE" & vbCrLf & vbCrLf & _
         "Phase 1  Rename map built:   " & oRenameMap.Count & " file(s)" & vbCrLf & _
         "Phase 2  SaveAs + Provenance:" & vbCrLf & _
         "         Saved    : " & iSaved & vbCrLf & _
@@ -1051,7 +1057,12 @@ Sub Main()
         Catch : End Try
     End Try
 
-    MessageBox.Show(sSummary, "Super Clean Sweeper — Complete", _
+    ' ── Elapsed time ──
+    Dim tsElapsed As TimeSpan = Now - dtStart
+    Dim sElapsed As String = String.Format("{0:D2}:{1:D2}:{2:D2}", tsElapsed.Hours, tsElapsed.Minutes, tsElapsed.Seconds)
+    Try : System.IO.File.AppendAllText(sLogPath, "Elapsed: " & sElapsed & vbCrLf) : Catch : End Try
+
+    MessageBox.Show(sSummary & vbCrLf & vbCrLf & "Elapsed : " & sElapsed, "Super Clean Sweeper — Complete", _
         MessageBoxButtons.OK, MessageBoxIcon.Information)
 
 End Sub
