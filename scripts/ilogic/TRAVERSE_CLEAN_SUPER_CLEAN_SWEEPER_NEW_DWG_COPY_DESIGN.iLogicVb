@@ -1,7 +1,7 @@
 '' =====================================================================
 '' SUPER_CLEAN_SWEEPER.iLogicVb
 '' Copy Design with full provenance architecture
-'' Version: 2.2.17 — 2026-11-05
+'' Version: 2.2.18 — 2026-11-05
 ''
 '' PURPOSE
 ''   Replicates Vault Copy Design outside of Vault.
@@ -39,6 +39,13 @@
 ''   outer Finally still restores the original SilentOperation at the end.
 ''   Phase 3 saves with Save2(False) (fallback Save) so the save does not
 ''   cascade to dirty CC/library dependents.
+''
+'' V2.2.18
+''   FINAL DEFAULT DESIGN VIEW: after the browser-rename pass and before the
+''   drawing relink / COMPLETE dialog, the "Default" design view is activated
+''   on the open top GA (the active document if it is an assembly, else the
+''   kept-open GA) so the user sees Default when the rule finishes.  Logged
+''   as "FINAL-DV: Default activated on <file>" or "FINAL-DV-FAIL: <error>".
 ''
 '' V2.2.17  (Code-Assassin fixes — 2026-11-05)
 ''   FIX 1 (HIGH): ResolveTarget no longer reuses an existing file on a
@@ -301,7 +308,7 @@ Sub Main()
         System.Environment.SpecialFolder.Desktop)
     Dim sLogPath As String = System.IO.Path.Combine(sDesktop, _
         "SUPER_CLEAN_SWEEPER_" & Now.ToString("yyyyMMdd_HHmmss") & ".log")
-    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.17  —  " & Now.ToString() & vbCrLf & _
+    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.18  —  " & Now.ToString() & vbCrLf & _
                          "GA: " & sTopFull & vbCrLf
     Try : System.IO.File.WriteAllText(sLogPath, sLog) : Catch : End Try
     If sEntryLog <> "" Then
@@ -1416,6 +1423,21 @@ Sub Main()
         Try : System.IO.File.AppendAllText(sLogPath, "BROWSER-RENAME-ERROR: " & exBR.Message & vbCrLf) : Catch : End Try
     End Try
 
+    ' ── FINAL DEFAULT DESIGN VIEW (v2.2.18): show "Default" on the open top GA ──
+    Try
+        Dim oFinalGA As AssemblyDocument = TryCast(ThisApplication.ActiveDocument, AssemblyDocument)
+        If oFinalGA Is Nothing Then
+            ' try the kept-open GA
+            oFinalGA = TryCast(ThisApplication.Documents.ItemByName(sKeepOpenGA), AssemblyDocument)
+        End If
+        If oFinalGA IsNot Nothing Then
+            oFinalGA.ComponentDefinition.RepresentationsManager.DesignViewRepresentations("Default").Activate()
+            Try : System.IO.File.AppendAllText(sLogPath, "FINAL-DV: Default activated on " & System.IO.Path.GetFileName(oFinalGA.FullFileName) & vbCrLf) : Catch : End Try
+        End If
+    Catch exFinalDV As Exception
+        Try : System.IO.File.AppendAllText(sLogPath, "FINAL-DV-FAIL: " & exFinalDV.Message & vbCrLf) : Catch : End Try
+    End Try
+
     ' ── DRAWING RELINK (v2.2.8): only when the rule was started from a drawing ──
     ' Repoints the original drawing's model references to the new paths using
     ' oActualMap, saves with Save2(False), closes only if opened here.
@@ -1507,7 +1529,7 @@ Sub Main()
 
     ' ── 8. Final summary ──────────────────────────────────────────────────────
     Dim sSummary As String = _
-        "SUPER CLEAN SWEEPER v2.2.17 — COMPLETE" & vbCrLf & vbCrLf & _
+        "SUPER CLEAN SWEEPER v2.2.18 — COMPLETE" & vbCrLf & vbCrLf & _
         "Phase 1  Rename map built:   " & oRenameMap.Count & " file(s)" & vbCrLf & _
         "Phase 2  SaveAs + Provenance:" & vbCrLf & _
         "         Saved    : " & iSaved & vbCrLf & _
