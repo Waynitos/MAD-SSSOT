@@ -108,3 +108,18 @@ Sources (research 2026-11-05):
 - https://forums.autodesk.com/t5/community-blog-d-m-english/save-and-replace-automation-in-inventor/ba-p/14034558
 - https://forums.autodesk.com/t5/inventor-programming-ilogic/replace-reference-in-vb-net/td-p/7152903
 - https://help.autodesk.com/cloudhelp/2025/ENU/Inventor-API/files/FileSaveAs.htm
+
+## Browser rename — prefer Name = "" over suffix clash loops
+
+`ComponentOccurrence.Name = ""` restores Inventor’s default unique `FileName:N` name. Prefer that to setting a bare base name and catching clash errors with `Base:1`…`Base:999` retries (one COM call vs many thrown errors).
+
+A browser name set in code is fixed and will not follow later `Replace` / `ReplaceReference`. Default names do. Do not set `Occ.Name` during Phase 3 reference replacement; do it once afterwards (or rely on defaults).
+
+Walk each assembly definition’s own `Occurrences` (with a visited set), not `AllLeafOccurrences` proxies, when names must stick in sub-assembly files. Prefer path checks via `ReferencedDocumentDescriptor.FullDocumentName` over forcing `Definition.Document` loads when possible. Open the GA invisible unless it must stay visible. Skip `VirtualComponentDefinition` when filtering by file path. Activate `[Primary]` / watch model-state edit scope before renaming if member edits matter.
+
+Sources (research 2026-11-05):
+- https://forums.autodesk.com/t5/inventor-programming-forum/ilogic-to-rename-browser-nodes-to-quot-default-quot-setting/td-p/12448415
+- https://magazine.thingimajigs.com/autodesk-inventor-batch-renaming-components-in-the-browser-with-ilogic/
+- https://forums.autodesk.com/t5/inventor-programming-forum/rename-browser-nodes-from-an-assembly-and-all-parts-to-default/td-p/7166033
+- https://magazine.thingimajigs.com/wp-content/uploads/2023/10/Auto-Browser-Renamer.txt
+- https://forums.autodesk.com/t5/inventor-programming-forum/rename-parts-without-link-with-the-parameter-using-ilogic/td-p/10429393
