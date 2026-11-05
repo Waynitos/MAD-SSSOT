@@ -1,7 +1,7 @@
 '' =====================================================================
 '' SUPER_CLEAN_SWEEPER.iLogicVb
 '' Copy Design with full provenance architecture
-'' Version: 2.2.20 — 2026-11-05
+'' Version: 2.2.21 — 2026-11-05
 ''
 '' PURPOSE
 ''   Replicates Vault Copy Design outside of Vault.
@@ -39,6 +39,18 @@
 ''   outer Finally still restores the original SilentOperation at the end.
 ''   Phase 3 saves with Save2(False) (fallback Save) so the save does not
 ''   cascade to dirty CC/library dependents.
+''
+'' V2.2.21
+''   DRAWING LIST DESCRIPTOR SCAN: the Drawing List folder scan reads each
+''   drawing's refs through ReferencedDocumentDescriptors (FullDocumentName,
+''   late-bound, no FileDescriptor cast) instead of ReferencedFileDescriptors,
+''   fixing "Unable to cast COM object ... to interface type
+''   Inventor.FileDescriptor" and including DART SHUT refs.  Any "<...>" tag
+''   is stripped.  If the descriptor loop throws, the scan falls back to
+''   ReferencedDocuments (logged DWGLIST-REF-FALLBACK); DWGLIST-REF-FAIL is
+''   logged only when the fallback also throws.  The Drawing List form is
+''   always shown when started from a drawing: drawings that scanned are
+''   listed, and if none did the form says no model refs were found.
 ''
 '' V2.2.20
 ''   DRAWING ENTRY SCAN: when started from a drawing, the GA model is found
@@ -397,7 +409,7 @@ Sub Main()
         System.Environment.SpecialFolder.Desktop)
     Dim sLogPath As String = System.IO.Path.Combine(sDesktop, _
         "SUPER_CLEAN_SWEEPER_" & Now.ToString("yyyyMMdd_HHmmss") & ".log")
-    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.20  —  " & Now.ToString() & vbCrLf & _
+    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.21  —  " & Now.ToString() & vbCrLf & _
                          "GA: " & sTopFull & vbCrLf
     Try : System.IO.File.WriteAllText(sLogPath, sLog) : Catch : End Try
     If sEntryLog <> "" Then
@@ -619,7 +631,11 @@ Sub Main()
         ' Scan each drawing for its referenced models
         Dim oDLDoc As Document
         Dim bDLOpenedHere As Boolean
-        Dim oDLFD As FileDescriptor
+        ' v2.2.21: late-bound descriptor/doc objects (no FileDescriptor cast)
+        Dim oDLDD As Object
+        Dim oDLRefDoc As Object
+        Dim iDLLt As Integer
+        Dim bDLScanOK As Boolean
         Dim sDLRef As String
         Dim sDLExt As String
         Dim oDLRefs As System.Collections.Generic.List(Of String)
@@ -643,23 +659,68 @@ Sub Main()
             If oDLDoc Is Nothing Then Continue For
             oDLRefs = New System.Collections.Generic.List(Of String)()
             oDLRefSeen = New System.Collections.Generic.HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+            ' v2.2.21: ReferencedDocumentDescriptors (includes DART SHUT refs);
+            ' strip any <...> tag; fall back to ReferencedDocuments on exception.
+            bDLScanOK = False
             Try
-                For Each oDLFD In oDLDoc.ReferencedFileDescriptors
+                For Each oDLDD In oDLDoc.ReferencedDocumentDescriptors
                     sDLRef = ""
+                    sDLExt = ""
                     Try
-                        sDLRef = oDLFD.FullFileName
+                        sDLRef = CStr(oDLDD.FullDocumentName)
                     Catch
                     End Try
+                    If sDLRef Is Nothing Then
+                        sDLRef = ""
+                    End If
+                    iDLLt = sDLRef.IndexOf("<")
+                    If iDLLt >= 0 Then
+                        sDLRef = sDLRef.Substring(0, iDLLt).Trim()
+                    End If
                     If sDLRef = "" Then Continue For
-                    sDLExt = System.IO.Path.GetExtension(sDLRef).ToUpper()
+                    Try
+                        sDLExt = System.IO.Path.GetExtension(sDLRef).ToUpper()
+                    Catch
+                    End Try
                     If (sDLExt = ".IAM" OrElse sDLExt = ".IPT") AndAlso Not oDLRefSeen.Contains(sDLRef) Then
                         oDLRefSeen.Add(sDLRef)
                         oDLRefs.Add(sDLRef)
                     End If
                 Next
-            Catch exDLRef As Exception
-                Try : System.IO.File.AppendAllText(sLogPath, "DWGLIST-REF-FAIL: " & System.IO.Path.GetFileName(sDLFile) & " — " & exDLRef.Message & vbCrLf) : Catch : End Try
+                bDLScanOK = True
+            Catch exDLDesc As Exception
+                Try : System.IO.File.AppendAllText(sLogPath, "DWGLIST-REF-FALLBACK: " & System.IO.Path.GetFileName(sDLFile) & " — descriptors failed (" & exDLDesc.Message & "), using ReferencedDocuments" & vbCrLf) : Catch : End Try
             End Try
+            If Not bDLScanOK Then
+                Try
+                    For Each oDLRefDoc In oDLDoc.ReferencedDocuments
+                        sDLRef = ""
+                        sDLExt = ""
+                        Try
+                            sDLRef = CStr(oDLRefDoc.FullDocumentName)
+                        Catch
+                        End Try
+                        If sDLRef Is Nothing Then
+                            sDLRef = ""
+                        End If
+                        iDLLt = sDLRef.IndexOf("<")
+                        If iDLLt >= 0 Then
+                            sDLRef = sDLRef.Substring(0, iDLLt).Trim()
+                        End If
+                        If sDLRef = "" Then Continue For
+                        Try
+                            sDLExt = System.IO.Path.GetExtension(sDLRef).ToUpper()
+                        Catch
+                        End Try
+                        If (sDLExt = ".IAM" OrElse sDLExt = ".IPT") AndAlso Not oDLRefSeen.Contains(sDLRef) Then
+                            oDLRefSeen.Add(sDLRef)
+                            oDLRefs.Add(sDLRef)
+                        End If
+                    Next
+                Catch exDLRef As Exception
+                    Try : System.IO.File.AppendAllText(sLogPath, "DWGLIST-REF-FAIL: " & System.IO.Path.GetFileName(sDLFile) & " — " & exDLRef.Message & vbCrLf) : Catch : End Try
+                End Try
+            End If
             If bDLOpenedHere Then
                 Try : oDLDoc.Close(True) : Catch : End Try
             End If
@@ -670,7 +731,9 @@ Sub Main()
             End If
         Next
 
-        If oDwgList.Count > 0 Then
+        ' v2.2.21: the form is always shown when started from a drawing, even if
+        ' some or all drawings failed to scan.
+        If True Then
             ThisApplication.SilentOperation = bOrigSilent
             Dim oDLForm As New System.Windows.Forms.Form()
             oDLForm.Text = "Drawing List — Models and New Names"
@@ -713,6 +776,17 @@ Sub Main()
             Dim oDLPrefill As New System.Collections.Generic.Dictionary(Of String, String)( _
                 StringComparer.OrdinalIgnoreCase)
             Dim iDLY As Integer = 6
+            If oDwgList.Count = 0 Then
+                Dim oDLNone As New System.Windows.Forms.Label()
+                oDLNone.Text = "No model refs were found in the drawings in this folder.  OK continues with the automatic names; Cancel exits."
+                oDLNone.Left = 4
+                oDLNone.Top = iDLY
+                oDLNone.Width = 700
+                oDLNone.Height = 40
+                oDLPanel.Controls.Add(oDLNone)
+                iDLY += 44
+                Try : System.IO.File.AppendAllText(sLogPath, "DWGLIST: no model refs found in any drawing" & vbCrLf) : Catch : End Try
+            End If
             Dim sDLDwg As String
             Dim sDLModel As String
             Dim sDLNewFull As String
@@ -1904,7 +1978,7 @@ Sub Main()
 
     ' ── 8. Final summary ──────────────────────────────────────────────────────
     Dim sSummary As String = _
-        "SUPER CLEAN SWEEPER v2.2.20 — COMPLETE" & vbCrLf & vbCrLf & _
+        "SUPER CLEAN SWEEPER v2.2.21 — COMPLETE" & vbCrLf & vbCrLf & _
         "Phase 1  Rename map built:   " & oRenameMap.Count & " file(s)" & vbCrLf & _
         "Phase 2  SaveAs + Provenance:" & vbCrLf & _
         "         Saved    : " & iSaved & vbCrLf & _
