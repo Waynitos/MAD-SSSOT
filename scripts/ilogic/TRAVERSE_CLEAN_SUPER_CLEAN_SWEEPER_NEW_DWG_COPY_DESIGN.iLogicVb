@@ -1,7 +1,7 @@
 '' =====================================================================
 '' SUPER_CLEAN_SWEEPER.iLogicVb
 '' Copy Design with full provenance architecture
-'' Version: 2.2.2 — 2026-11-05
+'' Version: 2.2.3 — 2026-11-05
 ''
 '' PURPOSE
 ''   Replicates Vault Copy Design outside of Vault.
@@ -40,14 +40,40 @@
 ''   Phase 3 saves with Save2(False) (fallback Save) so the save does not
 ''   cascade to dirty CC/library dependents.
 ''
+'' V2.2.3  (Code-Assassin fixes — 2026-11-05)
+''   FIX 1: PRE-PHASE 2 document lifecycle — opened files tracked in
+''           oProvRebuildOpened and closed in the outer Finally block.
+''           Prevents unbounded open-document accumulation on large projects.
+''   FIX 2: PRE-PHASE 2 file scan restricted to .IAM/.IPT only.
+''           Drawings (.IDW/.DWG) can't carry CS_SourcePath and risk Vault
+''           dialogs on partially-relinked open.
+''   FIX 3: PRE-PHASE 2 scan now limited to files whose basename matches an
+''           expected new filename (from oRenameMap.Values), avoiding opening
+''           hundreds of prior-run files unnecessarily.
+''   FIX 4: WalkTree accepts oWalkOpened + oMappedTargets params.
+''           Sub Main closes all Walk-opened docs before Phase 2 starts so
+''           Phase 2 controls each document's lifecycle with bOpenedHere2.
+''   FIX 5: Collision guard uses oMappedTargets HashSet (O(1)) instead of
+''           Dictionary.ContainsValue (O(n)) — avoids O(n²) on large trees.
+''   FIX 6: Phase 3 P3Targets scan filters oTargetByBase (already built)
+''           instead of a redundant second GetFiles("*.iam") disk call.
+''   FIX 7: TryCast(oDoc3, AssemblyDocument) null-chaining fixed with an
+''           explicit null guard before accessing .ComponentDefinition.
+''   FIX 8: Silent SaveAs success (no exception, file not found on disk)
+''           now logged as SAVEAS-SILENT-FAIL for diagnosis.
+''   FIX 9: Files saved without provenance (new-file open fails after
+''           SaveAs) logged as SAVED-NO-PROV; iNoProvenance counter added
+''           to the final summary.
+''
 '' KEY ARCHITECTURAL PRINCIPLES (preserved from v1)
 ''   - Sub Main is FIRST; all helpers are defined AFTER it.
 ''   - No module-level Dim declarations outside Sub/Function bodies.
 ''   - No Imports statements (System.IO etc. are pre-imported in iLogic).
 ''   - For Each loop variables declared As Object for non-primitive types.
 ''   - ThisApplication only accessed inside Sub/Function bodies.
-''   - CC guard: skip only when IsContentMember=True AND path contains "Content Center".
-''     Non-std CC parts saved into a project folder are treated as project files.
+''   - CC guard: skip only when IsContentMember=True AND path contains
+''     "Content Center".  Non-std CC parts saved into a project folder
+''     are treated as project files.
 ''   - Counters declared before outer Try block to avoid variable hiding.
 ''
 '' PHASES
@@ -80,7 +106,7 @@ Sub Main()
         System.Environment.SpecialFolder.Desktop)
     Dim sLogPath As String = System.IO.Path.Combine(sDesktop, _
         "SUPER_CLEAN_SWEEPER_" & Now.ToString("yyyyMMdd_HHmmss") & ".log")
-    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.2  —  " & Now.ToString() & vbCrLf & _
+    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.3  —  " & Now.ToString() & vbCrLf & _
                          "GA: " & sTopFull & vbCrLf
     Try : System.IO.File.WriteAllText(sLogPath, sLog) : Catch : End Try
 
@@ -173,9 +199,15 @@ Sub Main()
     Dim oSeen As New System.Collections.Generic.HashSet(Of String)( _
         StringComparer.OrdinalIgnoreCase)
 
+    ' FIX 4/5: oMappedTargets = O(1) HashSet mirror of oRenameMap.Values
+    '          oWalkOpened    = documents opened by WalkTree, closed before Phase 2
+    Dim oMappedTargets As New System.Collections.Generic.HashSet(Of String)( _
+        StringComparer.OrdinalIgnoreCase)
+    Dim oWalkOpened As New System.Collections.Generic.List(Of Document)()
+
     Try
         WalkTree(oAsmDoc, sOldProjectRoot, sNewPrefix, sTargetFolder, _
-                 oRenameMap, oSeen, sLogPath)
+                 oRenameMap, oSeen, sLogPath, oMappedTargets, oWalkOpened)
     Catch exWalk As Exception
         ThisApplication.SilentOperation = bOrigSilent
         MessageBox.Show("Phase 1 walk failed: " & exWalk.Message, "Super Clean Sweeper")
@@ -188,17 +220,18 @@ Sub Main()
     Dim sTopNewFull2 As String = ComputeNewName(sTopFull, sOldProjectRoot, sNewPrefix, sTargetFolder)
     If sTopNewFull2 <> "" Then
         If Not oRenameMap.ContainsKey(sTopFull) Then
-            ' Collision guard for top asm (normally unique, but guard anyway)
+            ' FIX 5: oMappedTargets.Contains replaces O(n) oRenameMap.ContainsValue
             Dim sTopTest As String = sTopNewFull2
             Dim sTopTestBase As String = System.IO.Path.GetFileNameWithoutExtension(sTopNewFull2)
             Dim sTopTestExt  As String = System.IO.Path.GetExtension(sTopNewFull2)
             Dim sTopTestDir  As String = System.IO.Path.GetDirectoryName(sTopNewFull2)
             Dim iTopSuffix As Integer = 2
-            Do While oRenameMap.ContainsValue(sTopTest) OrElse System.IO.File.Exists(sTopTest)
+            Do While oMappedTargets.Contains(sTopTest) OrElse System.IO.File.Exists(sTopTest)
                 sTopTest = System.IO.Path.Combine(sTopTestDir, sTopTestBase & "_" & iTopSuffix & sTopTestExt)
                 iTopSuffix += 1
             Loop
             oRenameMap(sTopFull) = sTopTest
+            oMappedTargets.Add(sTopTest)
             Try : System.IO.File.AppendAllText(sLogPath, _
                 "MAP (TOP): " & System.IO.Path.GetFileName(sTopFull) & _
                 "  ->  " & System.IO.Path.GetFileName(sTopTest) & vbCrLf) : Catch : End Try
@@ -207,6 +240,13 @@ Sub Main()
 
     Try : System.IO.File.AppendAllText(sLogPath, _
         "Phase 1 complete: " & oRenameMap.Count & " file(s) in map." & vbCrLf) : Catch : End Try
+
+    ' FIX 4: Close all documents opened by WalkTree before Phase 2 starts.
+    ' Phase 2 re-opens what it needs with bOpenedHere2 = True for proper lifecycle.
+    For Each oWD As Document In oWalkOpened
+        Try : oWD.Close(True) : Catch : End Try
+    Next
+    oWalkOpened.Clear()
 
     If oRenameMap.Count = 0 Then
         ThisApplication.SilentOperation = bOrigSilent
@@ -242,6 +282,10 @@ Sub Main()
     Dim iSaveFailed As Integer = 0
     Dim iRefFixed   As Integer = 0
     Dim iRefFailed  As Integer = 0
+    Dim iNoProvenance As Integer = 0   ' FIX 9: files saved but provenance not written
+
+    ' FIX 1: Track documents opened in PRE-PHASE 2 for explicit close in Finally.
+    Dim oProvRebuildOpened As New System.Collections.Generic.List(Of Document)()
 
     Try : System.IO.File.AppendAllText(sLogPath, vbCrLf & "=== PHASE 2: SAVEAS + PROVENANCE ===" & vbCrLf) : Catch : End Try
     Try  ' ← F1: outer Try/Finally — Finally restores SilentOperation
@@ -256,16 +300,33 @@ Sub Main()
     ' ── PRE-POPULATE oActualMap from provenance of files already in target ────
     ' Files SaveAs'd in a PRIOR run are not in oRenameMap (ComputeNewName returns ""
     ' for them because they are already in sTargetFolder).  Read CS_SourcePath from
-    ' every file in the target folder to reconstruct the full old→new map so Phase 3
-    ' can repoint ALL stray references, not just the 26 from this run.
+    ' matching files in the target folder to reconstruct the full old→new map so
+    ' Phase 3 can repoint ALL stray references, not just the ones from this run.
+    '
+    ' FIX 2: .IAM and .IPT only — drawings (.IDW/.DWG) can't carry CS_SourcePath
+    '        and opening partially-relinked drawings risks unresolved-ref dialogs.
+    ' FIX 3: Only scan files whose basename matches an expected new filename,
+    '        avoiding opening hundreds of prior-run files for nothing.
     Try : System.IO.File.AppendAllText(sLogPath, vbCrLf & "=== PRE-PHASE 2: REBUILD ACTUAL MAP FROM PROVENANCE ===" & vbCrLf) : Catch : End Try
     Dim iProvRebuild As Integer = 0
+
+    ' FIX 3: Pre-compute set of expected new basenames from this run's rename map.
+    Dim oExpectedNewBases As New System.Collections.Generic.HashSet(Of String)( _
+        StringComparer.OrdinalIgnoreCase)
+    For Each sExpVal As String In oRenameMap.Values
+        oExpectedNewBases.Add(System.IO.Path.GetFileName(sExpVal))
+    Next
+
     Try
         For Each sPRFile As String In System.IO.Directory.GetFiles(sTargetFolder, "*.*", _
                 System.IO.SearchOption.TopDirectoryOnly)
+            ' FIX 2: .IAM and .IPT only — drawings excluded
             Dim sPRExt As String = System.IO.Path.GetExtension(sPRFile).ToUpper()
-            If sPRExt <> ".IAM" AndAlso sPRExt <> ".IPT" AndAlso _
-               sPRExt <> ".IDW" AndAlso sPRExt <> ".DWG" Then Continue For
+            If sPRExt <> ".IAM" AndAlso sPRExt <> ".IPT" Then Continue For
+            ' FIX 3: Skip files whose basename is not an expected new filename
+            Dim sPRBase As String = System.IO.Path.GetFileName(sPRFile)
+            If Not oExpectedNewBases.Contains(sPRBase) Then Continue For
+
             Dim sCSSource As String = ""
             Try
                 Dim oPRDoc As Document = Nothing
@@ -274,6 +335,8 @@ Sub Main()
                     Try
                         ThisApplication.SilentOperation = True
                         oPRDoc = ThisApplication.Documents.Open(sPRFile, False)
+                        ' FIX 1: Track for explicit close in Finally
+                        If oPRDoc IsNot Nothing Then oProvRebuildOpened.Add(oPRDoc)
                     Catch
                     End Try
                 End If
@@ -282,7 +345,7 @@ Sub Main()
                         sCSSource = oPRDoc.PropertySets( _
                             "Inventor User Defined Properties").Item("CS_SourcePath").Value
                     Catch : End Try
-                    ' Don't close — may already have been open; Phase 2 will handle lifecycle
+                    ' FIX 1: Don't close here — oProvRebuildOpened handles cleanup in Finally
                 End If
             Catch : End Try
             If sCSSource <> "" AndAlso Not oActualMap.ContainsKey(sCSSource) Then
@@ -413,6 +476,12 @@ Sub Main()
                 ThisApplication.SilentOperation = True
                 oDoc2.SaveAs(sNewFull2, True)
                 bSaveAsOk2 = System.IO.File.Exists(sNewFull2)
+                ' FIX 8: Log if SaveAs returned no exception but output file not created
+                If Not bSaveAsOk2 Then
+                    Try : System.IO.File.AppendAllText(sLogPath, _
+                        "SAVEAS-SILENT-FAIL: " & sOldName2 & _
+                        " — SaveAs returned no exception but file not found on disk" & vbCrLf) : Catch : End Try
+                End If
             Catch exSA2 As Exception
                 ' Check for E_INVALIDARG (session-lock / Vault read-only)
                 Dim bIsLock2 As Boolean = False
@@ -507,6 +576,12 @@ Sub Main()
                     Try : System.IO.File.AppendAllText(sLogPath, _
                         sSaveMethod2 & ": " & sOldName2 & "  ->  " & sNewName2 & _
                         "  [OldGUID:" & sOldGUID2 & "  Run:" & iRunCount2 & "]" & vbCrLf) : Catch : End Try
+                Else
+                    ' FIX 9: File saved but provenance not written — log distinctly
+                    iNoProvenance += 1
+                    Try : System.IO.File.AppendAllText(sLogPath, _
+                        "SAVED-NO-PROV: " & sNewName2 & _
+                        " — saved but provenance not written (new-file open failed)" & vbCrLf) : Catch : End Try
                 End If
 
                 oActualMap(sOldFull2) = sNewFull2
@@ -529,7 +604,8 @@ Sub Main()
 
     Try : System.IO.File.AppendAllText(sLogPath, _
         "Phase 2 complete: " & iSaved & " saved, " & _
-        iSkipped & " prov-skipped, " & iSaveFailed & " failed." & vbCrLf) : Catch : End Try
+        iSkipped & " prov-skipped, " & iSaveFailed & " failed, " & _
+        iNoProvenance & " saved-no-prov." & vbCrLf) : Catch : End Try
 
     ' ── 7. PHASE 3 — Fix internal references ─────────────────────────────────
     ' APPROACH (from old Traverse rule code-assassin analysis):
@@ -560,7 +636,7 @@ Sub Main()
         Next
     Catch : End Try
 
-    ' Build full list of new .iam files to process — from oActualMap values
+    ' Build full list of new .iam/.ipt files to process — from oActualMap values
     ' PLUS any .iam already in target folder not in this run (PROV-SKIPs).
     Dim oP3Targets As New System.Collections.Generic.List(Of String)()
     Dim oP3Seen As New System.Collections.Generic.HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
@@ -572,16 +648,14 @@ Sub Main()
             oP3Targets.Add(sV3)
         End If
     Next
-    ' Also scan target folder on disk for any .iam not already in list
-    Try
-        For Each sTF3 As String In System.IO.Directory.GetFiles(sTargetFolder, "*.iam", _
-                System.IO.SearchOption.TopDirectoryOnly)
-            If Not oP3Seen.Contains(sTF3) Then
-                oP3Seen.Add(sTF3)
-                oP3Targets.Add(sTF3)
-            End If
-        Next
-    Catch : End Try
+    ' FIX 6: Use oTargetByBase (already built above) instead of a redundant
+    '        second GetFiles("*.iam") disk call.
+    For Each sKV3 As String In oTargetByBase.Values
+        If System.IO.Path.GetExtension(sKV3).ToUpper() = ".IAM" AndAlso Not oP3Seen.Contains(sKV3) Then
+            oP3Seen.Add(sKV3)
+            oP3Targets.Add(sKV3)
+        End If
+    Next
     ' Process deepest-first (longest path = deepest)
     oP3Targets.Sort(Function(a2, b2) b2.Length.CompareTo(a2.Length))
 
@@ -665,8 +739,11 @@ Sub Main()
             ' Handles DA-managed parts, library parts, anything FD can't fix.
             If sExtU3 = ".IAM" Then
                 Try
-                    Dim oAsmDef3 As AssemblyComponentDefinition = _
-                        TryCast(oDoc3, AssemblyDocument).ComponentDefinition
+                    ' FIX 7: Guard TryCast result before accessing .ComponentDefinition
+                    '        to prevent NullReferenceException on corrupt .IAM files.
+                    Dim oAsmDoc3 As AssemblyDocument = TryCast(oDoc3, AssemblyDocument)
+                    If oAsmDoc3 Is Nothing Then Continue For
+                    Dim oAsmDef3 As AssemblyComponentDefinition = oAsmDoc3.ComponentDefinition
                     If oAsmDef3 IsNot Nothing Then
                         ' Snapshot occurrences first to avoid collection-modified errors
                         Dim oOccSnap3 As New System.Collections.Generic.List(Of ComponentOccurrence)()
@@ -770,15 +847,22 @@ Sub Main()
     ' F1: Finally block — SilentOperation restored even if Phase 2/3 throws
     Finally
         ThisApplication.SilentOperation = bOrigSilent
+        ' FIX 1: Close all documents opened in PRE-PHASE 2 for provenance rebuild.
+        ' These were not tracked by Phase 2's bOpenedHere2 flag and were left open
+        ' intentionally until this point to allow Phase 3 to use them if needed.
+        For Each oPRD As Document In oProvRebuildOpened
+            Try : oPRD.Close(True) : Catch : End Try
+        Next
     End Try  ' ← F1: outer Try/Finally ends here
 
     ' ── 8. Final summary ──────────────────────────────────────────────────────
     Dim sSummary As String = _
-        "SUPER CLEAN SWEEPER v2.2.2 — COMPLETE" & vbCrLf & vbCrLf & _
+        "SUPER CLEAN SWEEPER v2.2.3 — COMPLETE" & vbCrLf & vbCrLf & _
         "Phase 1  Rename map built:   " & oRenameMap.Count & " file(s)" & vbCrLf & _
         "Phase 2  SaveAs + Provenance:" & vbCrLf & _
         "         Saved    : " & iSaved & vbCrLf & _
         "         Skipped  : " & iSkipped & "  (provenance guard — already processed)" & vbCrLf & _
+        "         No-Prov  : " & iNoProvenance & "  (saved but provenance not written — check log)" & vbCrLf & _
         "         Failed   : " & iSaveFailed & vbCrLf & _
         "Phase 3  Ref fix  :" & vbCrLf & _
         "         Fixed    : " & iRefFixed & vbCrLf & _
@@ -789,7 +873,7 @@ Sub Main()
         "1. Open the new GA from the target folder to verify the assembly tree." & vbCrLf & _
         "2. Run the Drawing Relink pass to update drawings to new model paths" & vbCrLf & _
         "   (uses CS_ModelRefs + CS_SourcePath matching — no preset map needed)." & vbCrLf & _
-        "3. Check the log for any SAVEAS-FAIL or P3-FD-FAIL entries."
+        "3. Check the log for SAVEAS-FAIL, SAVED-NO-PROV, or P3-FD-FAIL entries."
 
     Try : System.IO.File.AppendAllText(sLogPath, vbCrLf & sSummary) : Catch : End Try
 
@@ -995,6 +1079,12 @@ End Function
 ' Visits every referenced .iam and .ipt under the old project root.
 ' ALL files under sOldProjectRoot are included (not just PJ-prefixed ones).
 ' Content Centre parts are excluded.
+'
+' FIX 4: oWalkOpened receives every Document opened here (not already in
+'   session) so Sub Main can close them before Phase 2 starts, ensuring
+'   Phase 2 controls each document's lifecycle with bOpenedHere2.
+' FIX 5: oMappedTargets is a HashSet mirror of oRenameMap.Values for O(1)
+'   collision lookup (replaces O(n) Dictionary.ContainsValue).
 ' ─────────────────────────────────────────────────────────────────────────────
 Sub WalkTree(oDoc As Document, _
              sOldProjectRoot As String, _
@@ -1002,7 +1092,9 @@ Sub WalkTree(oDoc As Document, _
              sTargetFolder As String, _
              oRenameMap As System.Collections.Generic.Dictionary(Of String, String), _
              oSeen As System.Collections.Generic.HashSet(Of String), _
-             sLogPath As String)
+             sLogPath As String, _
+             oMappedTargets As System.Collections.Generic.HashSet(Of String), _
+             oWalkOpened As System.Collections.Generic.List(Of Document))
 
     Dim sFullPath As String = ""
     Try : sFullPath = oDoc.FullFileName : Catch : Return : End Try
@@ -1030,10 +1122,14 @@ Sub WalkTree(oDoc As Document, _
             If oSeen.Contains(sRefPath.ToUpper()) Then Continue For
 
             Dim oChild As Document = Nothing
+            Dim bWalkOpenedChild As Boolean = False
             Try : oChild = ThisApplication.Documents.ItemByName(sRefPath) : Catch : End Try
             If oChild Is Nothing Then
                 Try
                     oChild = ThisApplication.Documents.Open(sRefPath, False)
+                    bWalkOpenedChild = True
+                    ' FIX 4: Track immediately — before CC guard can Continue For past this line
+                    If oChild IsNot Nothing Then oWalkOpened.Add(oChild)
                 Catch exOpen As Exception
                     Try
                         System.IO.File.AppendAllText(sLogPath, _
@@ -1061,7 +1157,7 @@ Sub WalkTree(oDoc As Document, _
             Catch : End Try
 
             WalkTree(oChild, sOldProjectRoot, sNewPrefix, sTargetFolder, _
-                     oRenameMap, oSeen, sLogPath)
+                     oRenameMap, oSeen, sLogPath, oMappedTargets, oWalkOpened)
         Next
     Catch exWalk As Exception
         Try
@@ -1076,24 +1172,25 @@ Sub WalkTree(oDoc As Document, _
     Dim sNewFull As String = ComputeNewName(sFullPath, sOldProjectRoot, sNewPrefix, sTargetFolder)
     If sNewFull = "" Then Return   ' already in target, or CC part
 
-    ' ── Collision guard: if another source already maps to this target name,
-    '    suffix this one with _2, _3 … to keep them unique.
-    '    E.g. multiple different "Bolted Connection1.iam" from different sub-assemblies
-    '    would otherwise all collapse onto "PJ00205-Bolted Connection1.iam".
+    ' ── Collision guard: use oMappedTargets HashSet for O(1) lookup ──────────
+    ' FIX 5: oMappedTargets.Contains replaces O(n) oRenameMap.ContainsValue.
+    '        E.g. multiple different "Bolted Connection1.iam" from different
+    '        sub-assemblies would otherwise all collapse onto the same target name.
     If Not oRenameMap.ContainsKey(sFullPath) Then
         Dim sTestFull As String = sNewFull
         Dim sTestBase As String = System.IO.Path.GetFileNameWithoutExtension(sNewFull)
         Dim sTestExt  As String = System.IO.Path.GetExtension(sNewFull)
         Dim sTestDir  As String = System.IO.Path.GetDirectoryName(sNewFull)
         Dim iSuffix As Integer = 2
-        ' Check both map values AND existing files on disk
-        Do While oRenameMap.ContainsValue(sTestFull) OrElse _
+        ' FIX 5: O(1) HashSet lookup instead of O(n) Dictionary.ContainsValue
+        Do While oMappedTargets.Contains(sTestFull) OrElse _
                  System.IO.File.Exists(sTestFull)
             sTestFull = System.IO.Path.Combine(sTestDir, sTestBase & "_" & iSuffix & sTestExt)
             iSuffix += 1
         Loop
         If String.Compare(sFullPath, sTestFull, True) <> 0 Then
             oRenameMap(sFullPath) = sTestFull
+            oMappedTargets.Add(sTestFull)
             Try
                 Dim sColNote As String = ""
                 If iSuffix > 2 Then sColNote = "  [collision-suffix]"
