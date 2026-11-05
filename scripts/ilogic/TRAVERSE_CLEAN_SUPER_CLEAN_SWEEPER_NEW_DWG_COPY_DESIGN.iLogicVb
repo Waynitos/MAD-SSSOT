@@ -1,7 +1,7 @@
 '' =====================================================================
 '' SUPER_CLEAN_SWEEPER.iLogicVb
 '' Copy Design with full provenance architecture
-'' Version: 2.2.13 — 2026-11-05
+'' Version: 2.2.14 — 2026-11-05
 ''
 '' PURPOSE
 ''   Replicates Vault Copy Design outside of Vault.
@@ -39,6 +39,18 @@
 ''   outer Finally still restores the original SilentOperation at the end.
 ''   Phase 3 saves with Save2(False) (fallback Save) so the save does not
 ''   cascade to dirty CC/library dependents.
+''
+'' V2.2.14
+''   BROWSER-RENAME PASS: after Phase 4 and before the drawing relink, the
+''   new top GA (reused if still open, else opened visibly and left open)
+''   is walked recursively.  Each occurrence whose file is in the target
+''   folder gets its browser Name set to that filename without extension,
+''   logged as "BROWSER-RENAME: <old> -> <new>".  Names already equal to
+''   the base name, or base name + ":n", are left alone.  If the base name
+''   is taken by a sibling, "<base>:n" is used.  Only sub-assemblies in the
+''   target folder are walked; each one with renames is saved with
+''   Save2(False), and the GA is saved with Save2(False) if anything changed.
+''   Runs with SilentOperation = True.
 ''
 '' V2.2.13
 ''   DEFAULT DESIGN VIEW ON TOP GA: in the Phase 2 DV-ACTIVATE block, when
@@ -245,7 +257,7 @@ Sub Main()
         System.Environment.SpecialFolder.Desktop)
     Dim sLogPath As String = System.IO.Path.Combine(sDesktop, _
         "SUPER_CLEAN_SWEEPER_" & Now.ToString("yyyyMMdd_HHmmss") & ".log")
-    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.13  —  " & Now.ToString() & vbCrLf & _
+    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.14  —  " & Now.ToString() & vbCrLf & _
                          "GA: " & sTopFull & vbCrLf
     Try : System.IO.File.WriteAllText(sLogPath, sLog) : Catch : End Try
     If sEntryLog <> "" Then
@@ -1197,6 +1209,57 @@ Sub Main()
         Try : System.IO.File.AppendAllText(sLogPath, "P4-ERROR: " & exP4.Message & vbCrLf) : Catch : End Try
     End Try
 
+    ' ── BROWSER RENAME (v2.2.14): occurrence names = new filenames ─────────────
+    ' Walks the new top GA (reusing the Phase 4 document if still open) and sets
+    ' each target-folder occurrence's browser Name to its filename without
+    ' extension.  SilentOperation stays True.  The GA is left open.
+    Try
+        Try : System.IO.File.AppendAllText(sLogPath, vbCrLf & "=== BROWSER RENAME ===" & vbCrLf) : Catch : End Try
+        ThisApplication.SilentOperation = True
+        Dim sBRPath As String = sKeepOpenGA
+        If sBRPath = "" Then
+            If oActualMap.ContainsKey(sTopFull) Then sBRPath = oActualMap(sTopFull)
+            If sBRPath = "" AndAlso sTopFull.ToUpper().StartsWith(sTargetFolder.ToUpper()) Then sBRPath = sTopFull
+        End If
+        If sBRPath <> "" AndAlso System.IO.File.Exists(sBRPath) Then
+            Dim oBRGA As AssemblyDocument = Nothing
+            Try
+                oBRGA = TryCast(ThisApplication.Documents.ItemByName(sBRPath), AssemblyDocument)
+            Catch
+            End Try
+            If oBRGA Is Nothing Then
+                Try
+                    oBRGA = TryCast(ThisApplication.Documents.Open(sBRPath, True), AssemblyDocument)
+                Catch exBROpen As Exception
+                    Try : System.IO.File.AppendAllText(sLogPath, "BROWSER-RENAME-OPEN-FAIL: " & exBROpen.Message & vbCrLf) : Catch : End Try
+                End Try
+            End If
+            If oBRGA IsNot Nothing Then
+                sKeepOpenGA = sBRPath
+                Dim iBRRenamed As Integer = 0
+                Dim oBRVisited As New System.Collections.Generic.HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+                BrowserRename_WalkOccs(oBRGA.ComponentDefinition, sBRPath, sTargetFolder, sLogPath, oBRVisited, iBRRenamed)
+                If iBRRenamed > 0 Then
+                    Try
+                        Dim oFABR As System.IO.FileAttributes = System.IO.File.GetAttributes(sBRPath)
+                        If (oFABR And System.IO.FileAttributes.ReadOnly) = System.IO.FileAttributes.ReadOnly Then
+                            System.IO.File.SetAttributes(sBRPath, oFABR And Not System.IO.FileAttributes.ReadOnly)
+                        End If
+                        oBRGA.Save2(False)
+                        Try : System.IO.File.AppendAllText(sLogPath, "BROWSER-RENAME-SAVED: " & System.IO.Path.GetFileName(sBRPath) & vbCrLf) : Catch : End Try
+                    Catch exBRSave As Exception
+                        Try : System.IO.File.AppendAllText(sLogPath, "BROWSER-RENAME-SAVE-FAIL: " & exBRSave.Message & vbCrLf) : Catch : End Try
+                    End Try
+                End If
+                Try : System.IO.File.AppendAllText(sLogPath, "Browser rename complete: " & iBRRenamed & " renamed." & vbCrLf) : Catch : End Try
+            End If
+        Else
+            Try : System.IO.File.AppendAllText(sLogPath, "BROWSER-RENAME-SKIP: new GA path not found." & vbCrLf) : Catch : End Try
+        End If
+    Catch exBR As Exception
+        Try : System.IO.File.AppendAllText(sLogPath, "BROWSER-RENAME-ERROR: " & exBR.Message & vbCrLf) : Catch : End Try
+    End Try
+
     ' ── DRAWING RELINK (v2.2.8): only when the rule was started from a drawing ──
     ' Repoints the original drawing's model references to the new paths using
     ' oActualMap, saves with Save2(False), closes only if opened here.
@@ -1288,7 +1351,7 @@ Sub Main()
 
     ' ── 8. Final summary ──────────────────────────────────────────────────────
     Dim sSummary As String = _
-        "SUPER CLEAN SWEEPER v2.2.13 — COMPLETE" & vbCrLf & vbCrLf & _
+        "SUPER CLEAN SWEEPER v2.2.14 — COMPLETE" & vbCrLf & vbCrLf & _
         "Phase 1  Rename map built:   " & oRenameMap.Count & " file(s)" & vbCrLf & _
         "Phase 2  SaveAs + Provenance:" & vbCrLf & _
         "         Saved    : " & iSaved & vbCrLf & _
@@ -1742,6 +1805,118 @@ Sub Phase4_WalkOccs(oCompDef As ComponentDefinition, _
             Try : System.IO.File.AppendAllText(sLogPath, "P4-SAVED: " & System.IO.Path.GetFileName(sThisFull) & vbCrLf) : Catch : End Try
         Catch exSave As Exception
             Try : System.IO.File.AppendAllText(sLogPath, "P4-SAVE-FAIL: " & System.IO.Path.GetFileName(sThisFull) & " — " & exSave.Message & vbCrLf) : Catch : End Try
+        End Try
+    End If
+End Sub
+
+
+' ─────────────────────────────────────────────────────────────────────────────
+' HELPER: browser rename walk (v2.2.14)
+' Sets each target-folder occurrence's Name to its filename without extension.
+' Recurses only into sub-assemblies in the target folder; saves each such
+' sub-assembly (not the top GA, which the caller saves) if it had renames.
+' ─────────────────────────────────────────────────────────────────────────────
+Sub BrowserRename_WalkOccs(oCompDef As ComponentDefinition, _
+                           sTopPath As String, _
+                           sTargetFolder As String, _
+                           sLogPath As String, _
+                           oVisited As System.Collections.Generic.HashSet(Of String), _
+                           ByRef iRenamed As Integer)
+    Dim sThisFull As String = ""
+    Try
+        sThisFull = oCompDef.Document.FullFileName
+    Catch
+        Return
+    End Try
+    If oVisited.Contains(sThisFull) Then Return
+    oVisited.Add(sThisFull)
+
+    Dim sTargetU As String = sTargetFolder.ToUpper()
+    Dim iRenamedHere As Integer = 0
+
+    ' Snapshot occurrences
+    Dim oOccList As New System.Collections.Generic.List(Of ComponentOccurrence)()
+    Dim oOccSnap As ComponentOccurrence
+    Try
+        For Each oOccSnap In oCompDef.Occurrences
+            oOccList.Add(oOccSnap)
+        Next
+    Catch
+    End Try
+
+    Dim oOcc As ComponentOccurrence
+    Dim sOccPath As String
+    Dim sBaseName As String
+    Dim sOldOccName As String
+    Dim sTryName As String
+    Dim bNamed As Boolean
+    Dim kSuffix As Integer
+    Dim oChildDef As ComponentDefinition
+    For Each oOcc In oOccList
+        sOccPath = ""
+        Try
+            sOccPath = oOcc.Definition.Document.FullFileName
+        Catch
+        End Try
+        If sOccPath = "" Then Continue For
+        If Not sOccPath.ToUpper().StartsWith(sTargetU) Then Continue For
+
+        ' Recurse into target-folder sub-assemblies first
+        Try
+            oChildDef = oOcc.Definition
+            If oChildDef IsNot Nothing AndAlso oChildDef.Document.DocumentType = DocumentTypeEnum.kAssemblyDocumentObject Then
+                BrowserRename_WalkOccs(oChildDef, sTopPath, sTargetFolder, sLogPath, oVisited, iRenamed)
+            End If
+        Catch
+        End Try
+
+        sBaseName = System.IO.Path.GetFileNameWithoutExtension(sOccPath)
+        sOldOccName = ""
+        Try
+            sOldOccName = oOcc.Name
+        Catch
+        End Try
+        If sOldOccName = sBaseName Then Continue For
+        If sOldOccName.StartsWith(sBaseName & ":") Then Continue For
+
+        bNamed = False
+        sTryName = sBaseName
+        Try
+            oOcc.Name = sTryName
+            bNamed = True
+        Catch
+        End Try
+        If Not bNamed Then
+            For kSuffix = 1 To 999
+                sTryName = sBaseName & ":" & kSuffix
+                Try
+                    oOcc.Name = sTryName
+                    bNamed = True
+                Catch
+                End Try
+                If bNamed Then Exit For
+            Next
+        End If
+        If bNamed Then
+            iRenamed += 1
+            iRenamedHere += 1
+            Try : System.IO.File.AppendAllText(sLogPath, "BROWSER-RENAME: " & sOldOccName & " -> " & sTryName & vbCrLf) : Catch : End Try
+        Else
+            Try : System.IO.File.AppendAllText(sLogPath, "BROWSER-RENAME-FAIL: " & sOldOccName & vbCrLf) : Catch : End Try
+        End If
+    Next
+
+    ' Save this sub-assembly if it had renames (the caller saves the top GA)
+    If iRenamedHere > 0 AndAlso Not String.Equals(sThisFull, sTopPath, StringComparison.OrdinalIgnoreCase) Then
+        Try
+            Dim oFASub As System.IO.FileAttributes = System.IO.File.GetAttributes(sThisFull)
+            If (oFASub And System.IO.FileAttributes.ReadOnly) = System.IO.FileAttributes.ReadOnly Then
+                System.IO.File.SetAttributes(sThisFull, oFASub And Not System.IO.FileAttributes.ReadOnly)
+            End If
+            oCompDef.Document.Save2(False)
+            Try : System.IO.File.AppendAllText(sLogPath, "BROWSER-RENAME-SAVED: " & System.IO.Path.GetFileName(sThisFull) & vbCrLf) : Catch : End Try
+        Catch exSubSave As Exception
+            Try : System.IO.File.AppendAllText(sLogPath, "BROWSER-RENAME-SAVE-FAIL: " & System.IO.Path.GetFileName(sThisFull) & " — " & exSubSave.Message & vbCrLf) : Catch : End Try
         End Try
     End If
 End Sub
