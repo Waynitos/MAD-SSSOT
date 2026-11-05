@@ -1,7 +1,7 @@
 ﻿'' =====================================================================
 '' SUPER_CLEAN_SWEEPER.iLogicVb
 '' Copy Design with full provenance architecture
-'' Version: 2.2.24 — 2026-11-06
+'' Version: 2.2.25 — 2026-11-06
 ''
 '' PURPOSE
 ''   Replicates Vault Copy Design outside of Vault.
@@ -1130,6 +1130,22 @@ Sub Main()
             Next
             Try : oDLForm.Dispose() : Catch : End Try
             Try : System.IO.File.AppendAllText(sLogPath, "DWGLIST: " & oDwgList.Count & " drawing(s), " & oNameOverrides.Count & " name override(s)." & vbCrLf) : Catch : End Try
+
+            ' v2.2.25: Restrict oDwgModels to included drawings + entry drawing only.
+            ' The initial scan populated it from ALL drawings; orphan processing must only
+            ' run against drawings the user chose to include, otherwise excluded drawings
+            ' flood the orphan loop with models the user didn't ask to process.
+            Dim oIncludedForOrphans As New System.Collections.Generic.HashSet(Of String)( _
+                oDwgList, StringComparer.OrdinalIgnoreCase)
+            If sDwgEntryPath <> "" Then oIncludedForOrphans.Add(sDwgEntryPath)
+            Dim oOrphanDwgRemove As New System.Collections.Generic.List(Of String)()
+            For Each sDMKey As String In oDwgModels.Keys
+                If Not oIncludedForOrphans.Contains(sDMKey) Then oOrphanDwgRemove.Add(sDMKey)
+            Next
+            For Each sDMKey As String In oOrphanDwgRemove
+                oDwgModels.Remove(sDMKey)
+            Next
+            Try : System.IO.File.AppendAllText(sLogPath, "DWGMODELS: orphan scan restricted to " & oDwgModels.Count & " drawing(s) after exclusions." & vbCrLf) : Catch : End Try
         End If
         ThisApplication.SilentOperation = True
     End If
@@ -2175,33 +2191,61 @@ Sub Main()
                 Try : System.IO.File.AppendAllText(sLogPath, "ORPHAN-REUSE: " & System.IO.Path.GetFileName(sOrphModel) & " -> " & System.IO.Path.GetFileName(sOrphNew) & vbCrLf) : Catch : End Try
                 Continue For
             End If
+            ' v2.2.25: resolve source path — stored path may be vault-relative or not on disk.
+            ' Try 1: path as-is.  Try 2: Vault FileManager lookup (Vault-aware, works when
+            ' the file is in the vault workspace even if not checked out locally).
+            Dim sOrphResolved As String = sOrphModel
+            If Not System.IO.File.Exists(sOrphResolved) Then
+                Try
+                    Dim sVaultFound As String = ThisApplication.FileManager.FindFile(System.IO.Path.GetFileName(sOrphModel))
+                    If sVaultFound <> "" AndAlso System.IO.File.Exists(sVaultFound) Then
+                        sOrphResolved = sVaultFound
+                        Try : System.IO.File.AppendAllText(sLogPath, "ORPHAN-RESOLVED: " & System.IO.Path.GetFileName(sOrphModel) & " -> " & sVaultFound & vbCrLf) : Catch : End Try
+                    End If
+                Catch
+                End Try
+            End If
+            If Not System.IO.File.Exists(sOrphResolved) Then
+                Try : System.IO.File.AppendAllText(sLogPath, "ORPHAN-NOT-ON-DISK: " & System.IO.Path.GetFileName(sOrphModel) & " — not found on disk; check out from Vault first." & vbCrLf) : Catch : End Try
+                Continue For
+            End If
             Try : System.IO.File.AppendAllText(sLogPath, "ORPHAN: " & System.IO.Path.GetFileName(sOrphModel) & " (drawing-only, not in GA)" & vbCrLf) : Catch : End Try
             oOrphDoc = Nothing
             Try
-                oOrphDoc = ThisApplication.Documents.Open(sOrphModel, False)
-                oOrphDoc.SaveAs(sOrphNew, True)
-                Try
-                    oOrphDoc.PropertySets.Item("Inventor User Defined Properties").Add(sOrphModel, "CS_SourcePath")
-                Catch
-                End Try
-                Try
-                    oOrphDoc.PropertySets.Item("Inventor User Defined Properties").Add(sNewPrefix, "CS_CopyProject")
-                Catch
-                End Try
-                Try
-                    oOrphDoc.PropertySets.Item("Inventor User Defined Properties").Add(Now.ToString(), "CS_CopyDate")
-                Catch
-                End Try
-                oOrphDoc.Save2(False)
-                oActualMap(sOrphModel) = sOrphNew
-                iOrphCount = iOrphCount + 1
-                Try : System.IO.File.AppendAllText(sLogPath, "ORPHAN-COPY: " & System.IO.Path.GetFileName(sOrphModel) & " -> " & System.IO.Path.GetFileName(sOrphNew) & vbCrLf) : Catch : End Try
+                ' v2.2.25: check if already open in session (Vault loads refs when drawing opens)
+                Try : oOrphDoc = ThisApplication.Documents.ItemByName(sOrphResolved) : Catch : End Try
+                If oOrphDoc Is Nothing Then
+                    oOrphDoc = ThisApplication.Documents.Open(sOrphResolved, False)
+                End If
+
+                ' v2.2.26: .iam orphans get a full WalkTree + Phase-2/3 sub-tree copy so all
+                ' child parts come across with the new prefix, refs are fixed inside the new
+                ' assembly, and the drawing relink can then point to the correct new copies.
+                ' .ipt orphans have no sub-tree so a single SaveAs is still correct.
+                Dim sOrphTopExt As String = System.IO.Path.GetExtension(sOrphResolved).ToUpper()
+                If sOrphTopExt = ".IAM" Then
+                    Dim oOrphEmptyOverrides As New System.Collections.Generic.Dictionary(Of String, String)( _
+                        StringComparer.OrdinalIgnoreCase)
+                    ProcessOrphanSubTree(oOrphDoc, sOrphModel, sOrphResolved, _
+                                         sOldProjectRoot, sNewPrefix, sTargetFolder, _
+                                         oActualMap, oStringRules, oOrphEmptyOverrides, sLogPath)
+                    If oActualMap.ContainsKey(sOrphModel) Then iOrphCount += 1
+                Else
+                    ' Single-file part — simple SaveAs + provenance
+                    oOrphDoc.SaveAs(sOrphNew, True)
+                    Try : oOrphDoc.PropertySets.Item("Inventor User Defined Properties").Add(sOrphModel, "CS_SourcePath") : Catch : End Try
+                    Try : oOrphDoc.PropertySets.Item("Inventor User Defined Properties").Add(sNewPrefix, "CS_CopyProject") : Catch : End Try
+                    Try : oOrphDoc.PropertySets.Item("Inventor User Defined Properties").Add(Now.ToString("yyyy-MM-dd"), "CS_CopyDate") : Catch : End Try
+                    oOrphDoc.Save2(False)
+                    oActualMap(sOrphModel) = sOrphNew
+                    iOrphCount += 1
+                    Try : System.IO.File.AppendAllText(sLogPath, "ORPHAN-COPY: " & System.IO.Path.GetFileName(sOrphModel) & " -> " & System.IO.Path.GetFileName(sOrphNew) & vbCrLf) : Catch : End Try
+                End If
             Catch exOrph As Exception
                 Try : System.IO.File.AppendAllText(sLogPath, "ORPHAN-FAIL: " & System.IO.Path.GetFileName(sOrphModel) & " — " & exOrph.Message & vbCrLf) : Catch : End Try
             End Try
-            If oOrphDoc IsNot Nothing Then
-                Try : oOrphDoc.Close(True) : Catch : End Try
-            End If
+            ' Note: do NOT close oOrphDoc here — it may be held open by the drawing in
+            ' Inventor's session.  oProvRebuildOpened / F1 Finally handles cleanup.
         Next
     Next
     Try : System.IO.File.AppendAllText(sLogPath, "ORPHAN: " & iOrphCount.ToString() & " copied" & vbCrLf) : Catch : End Try
@@ -3239,3 +3283,172 @@ Function ResolveTarget(sSource As String, _
     Try : System.IO.File.AppendAllText(sLogPath, "SUFFIX-EXHAUSTED: " & sBase & vbCrLf) : Catch : End Try
     Return ""
 End Function
+
+' ═══════════════════════════════════════════════════════════════════════════════
+' ProcessOrphanSubTree  (v2.2.26)
+' Performs a full WalkTree + Phase-2 SaveAs + Phase-3 ref-fix on an orphan
+' assembly that is referenced by a drawing but absent from the main GA tree.
+' Mirrors what the main rule does for the GA:
+'   Phase 1 lite : WalkTree discovers all descendants → oOrphMap
+'   Phase 2 lite : SaveAs each sub-file deepest-first, write 3 CS_ properties
+'   Phase 3 lite : open each new .iam copy, replace stale old refs via oActualMap
+' All old→new mappings are added to oActualMap so the calling drawing-relink
+' pass can point the drawing at the correct new top-level assembly.
+'
+' Parameters
+'   oOrphTopDoc      — already-open Document handle for the orphan top assembly
+'   sOrphOrigPath    — path as stored in the drawing (used as oActualMap key)
+'   sOrphResolvedPath— path actually on disk (may differ if Vault resolved it)
+'   sOldProjectRoot  — old project root folder (from main GA run)
+'   sNewPrefix       — new project prefix   (from main GA run)
+'   sTargetFolder    — target copy folder   (from main GA run)
+'   oActualMap       — shared old→new map; entries added here by this Sub
+'   oStringRules     — find/replace string rules (pass main oStringRules)
+'   oNameOverrides   — per-model name overrides (pass empty dict for orphans)
+'   sLogPath         — log file path
+' ═══════════════════════════════════════════════════════════════════════════════
+Sub ProcessOrphanSubTree(oOrphTopDoc As Document, _
+                          sOrphOrigPath As String, _
+                          sOrphResolvedPath As String, _
+                          sOldProjectRoot As String, _
+                          sNewPrefix As String, _
+                          sTargetFolder As String, _
+                          oActualMap As System.Collections.Generic.Dictionary(Of String, String), _
+                          oStringRules As System.Collections.Generic.List(Of String()), _
+                          oNameOverrides As System.Collections.Generic.Dictionary(Of String, String), _
+                          sLogPath As String)
+
+    ' ── Phase 1 lite: WalkTree ───────────────────────────────────────────────
+    Dim oOrphMap     As New System.Collections.Generic.Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase)
+    Dim oOrphSeen    As New System.Collections.Generic.HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+    Dim oOrphMapped  As New System.Collections.Generic.HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+    Dim oOrphOpened  As New System.Collections.Generic.List(Of Document)()
+    Dim oOrphCache   As New System.Collections.Generic.Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase)
+    Dim oOrphReuse   As New System.Collections.Generic.HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+
+    Try
+        WalkTree(oOrphTopDoc, sOldProjectRoot, sNewPrefix, sTargetFolder, _
+                 oOrphMap, oOrphSeen, sLogPath, oOrphMapped, oOrphOpened, _
+                 oStringRules, oOrphReuse, oOrphCache, oNameOverrides)
+    Catch exOrphWalk As Exception
+        Try : System.IO.File.AppendAllText(sLogPath, _
+            "ORPHAN-WALK-FAIL: " & System.IO.Path.GetFileName(sOrphOrigPath) & _
+            " — " & exOrphWalk.Message & vbCrLf) : Catch : End Try
+        Return
+    End Try
+
+    ' Ensure the top-level assembly itself is in the map (WalkTree includes the
+    ' root if it falls under sOldProjectRoot; guard in case it doesn't).
+    If Not oOrphMap.ContainsKey(sOrphResolvedPath) Then
+        Dim sOrphTopNew As String = ComputeNewName(sOrphResolvedPath, sOldProjectRoot, sNewPrefix, sTargetFolder)
+        If sOrphTopNew <> "" Then oOrphMap(sOrphResolvedPath) = sOrphTopNew
+    End If
+    ' If the drawing stored a different path (Vault-resolved), map that too.
+    If sOrphOrigPath <> sOrphResolvedPath AndAlso oOrphMap.ContainsKey(sOrphResolvedPath) Then
+        oOrphMap(sOrphOrigPath) = oOrphMap(sOrphResolvedPath)
+    End If
+
+    Try : System.IO.File.AppendAllText(sLogPath, _
+        "ORPHAN-WALK: " & System.IO.Path.GetFileName(sOrphOrigPath) & _
+        " — " & oOrphMap.Count & " file(s) in sub-tree" & vbCrLf) : Catch : End Try
+
+    ' Close WalkTree-opened docs before SaveAs pass
+    For Each oWD As Document In oOrphOpened
+        Try : oWD.Close(True) : Catch : End Try
+    Next
+    oOrphOpened.Clear()
+
+    ' ── Phase 2 lite: SaveAs deepest-first, write 3 CS_ provenance props ─────
+    Dim oOrphKeys As New System.Collections.Generic.List(Of String)(oOrphMap.Keys)
+    oOrphKeys.Sort(Function(a2, b2) b2.Length.CompareTo(a2.Length))
+
+    Dim sOrphOld2  As String
+    Dim sOrphNew2  As String
+    Dim oOrphDoc2  As Document
+    Dim bOrphO2    As Boolean   ' opened here flag
+    For Each sOrphOld2 In oOrphKeys
+        sOrphNew2 = oOrphMap(sOrphOld2)
+        If sOrphNew2 = "" Then Continue For
+        If System.IO.File.Exists(sOrphNew2) Then
+            oActualMap(sOrphOld2) = sOrphNew2
+            Try : System.IO.File.AppendAllText(sLogPath, _
+                "ORPHAN-SUB-REUSE: " & System.IO.Path.GetFileName(sOrphOld2) & _
+                " -> " & System.IO.Path.GetFileName(sOrphNew2) & vbCrLf) : Catch : End Try
+            Continue For
+        End If
+        oOrphDoc2 = Nothing : bOrphO2 = False
+        Try
+            Try : oOrphDoc2 = ThisApplication.Documents.ItemByName(sOrphOld2) : Catch : End Try
+            If oOrphDoc2 Is Nothing Then
+                oOrphDoc2 = ThisApplication.Documents.Open(sOrphOld2, False)
+                bOrphO2 = True
+            End If
+            oOrphDoc2.SaveAs(sOrphNew2, True)
+            Try : oOrphDoc2.PropertySets.Item("Inventor User Defined Properties").Add(sOrphOld2, "CS_SourcePath") : Catch : End Try
+            Try : oOrphDoc2.PropertySets.Item("Inventor User Defined Properties").Add(sNewPrefix, "CS_CopyProject") : Catch : End Try
+            Try : oOrphDoc2.PropertySets.Item("Inventor User Defined Properties").Add(Now.ToString("yyyy-MM-dd"), "CS_CopyDate") : Catch : End Try
+            oOrphDoc2.Save2(False)
+            oActualMap(sOrphOld2) = sOrphNew2
+            Try : System.IO.File.AppendAllText(sLogPath, _
+                "ORPHAN-SUB-COPY: " & System.IO.Path.GetFileName(sOrphOld2) & _
+                " -> " & System.IO.Path.GetFileName(sOrphNew2) & vbCrLf) : Catch : End Try
+        Catch exOrphSub As Exception
+            Try : System.IO.File.AppendAllText(sLogPath, _
+                "ORPHAN-SUB-FAIL: " & System.IO.Path.GetFileName(sOrphOld2) & _
+                " — " & exOrphSub.Message & vbCrLf) : Catch : End Try
+        End Try
+        If bOrphO2 AndAlso oOrphDoc2 IsNot Nothing Then
+            Try : oOrphDoc2.Close(True) : Catch : End Try
+        End If
+    Next
+
+    ' ── Phase 3 lite: fix refs inside each new .iam copy ─────────────────────
+    ' Each new assembly still points at the OLD sub-part paths post-SaveAs.
+    ' Walk shallowest-first (shortest path) so parent assemblies are fixed after
+    ' their children are already saved and correct on disk.
+    oOrphKeys.Sort(Function(a2, b2) a2.Length.CompareTo(b2.Length))
+    For Each sOrphOld2 In oOrphKeys
+        sOrphNew2 = oOrphMap(sOrphOld2)
+        If sOrphNew2 = "" OrElse Not System.IO.File.Exists(sOrphNew2) Then Continue For
+        If System.IO.Path.GetExtension(sOrphNew2).ToUpper() <> ".IAM" Then Continue For
+        oOrphDoc2 = Nothing : bOrphO2 = False
+        Try
+            Try : oOrphDoc2 = ThisApplication.Documents.ItemByName(sOrphNew2) : Catch : End Try
+            If oOrphDoc2 Is Nothing Then
+                oOrphDoc2 = ThisApplication.Documents.Open(sOrphNew2, True)
+                bOrphO2 = True
+            End If
+            Dim iOrphFixed As Integer = 0
+            For Each oOrphFD As FileDescriptor In oOrphDoc2.ReferencedFileDescriptors
+                Dim sOrphFDPath As String = ""
+                Try : sOrphFDPath = oOrphFD.FullFileName : Catch : Continue For : End Try
+                If Not oActualMap.ContainsKey(sOrphFDPath) Then Continue For
+                Dim sOrphFDNew As String = oActualMap(sOrphFDPath)
+                If Not System.IO.File.Exists(sOrphFDNew) Then Continue For
+                Try
+                    oOrphFD.ReplaceReference(sOrphFDNew)
+                    iOrphFixed += 1
+                Catch exOrphFD As Exception
+                    Try : System.IO.File.AppendAllText(sLogPath, _
+                        "ORPHAN-SUB-FD-FAIL: " & System.IO.Path.GetFileName(sOrphNew2) & _
+                        " ref " & System.IO.Path.GetFileName(sOrphFDPath) & _
+                        " — " & exOrphFD.Message & vbCrLf) : Catch : End Try
+                End Try
+            Next
+            If iOrphFixed > 0 Then
+                oOrphDoc2.Save2(False)
+                Try : System.IO.File.AppendAllText(sLogPath, _
+                    "ORPHAN-SUB-REFFIX: " & System.IO.Path.GetFileName(sOrphNew2) & _
+                    " — " & iOrphFixed & " ref(s) fixed" & vbCrLf) : Catch : End Try
+            End If
+        Catch exOrphRef As Exception
+            Try : System.IO.File.AppendAllText(sLogPath, _
+                "ORPHAN-SUB-REFFIX-FAIL: " & System.IO.Path.GetFileName(sOrphNew2) & _
+                " — " & exOrphRef.Message & vbCrLf) : Catch : End Try
+        End Try
+        If bOrphO2 AndAlso oOrphDoc2 IsNot Nothing Then
+            Try : oOrphDoc2.Close(True) : Catch : End Try
+        End If
+    Next
+
+End Sub
