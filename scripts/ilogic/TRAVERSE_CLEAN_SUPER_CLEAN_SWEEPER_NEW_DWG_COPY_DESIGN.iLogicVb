@@ -1,7 +1,7 @@
 '' =====================================================================
 '' SUPER_CLEAN_SWEEPER.iLogicVb
 '' Copy Design with full provenance architecture
-'' Version: 2.2.9 — 2026-11-05
+'' Version: 2.2.10 — 2026-11-05
 ''
 '' PURPOSE
 ''   Replicates Vault Copy Design outside of Vault.
@@ -39,6 +39,11 @@
 ''   outer Finally still restores the original SilentOperation at the end.
 ''   Phase 3 saves with Save2(False) (fallback Save) so the save does not
 ''   cascade to dirty CC/library dependents.
+''
+'' V2.2.10
+''   GA-FIRST ORDERING: Phase 2 processes the top GA first (moved to the
+''   front of oMapKeys after the length sort), so a hang on a later child
+''   still leaves the GA in the target folder.  Logged as PHASE 2 ORDER.
 ''
 '' V2.2.9  (Code-Assassin fixes — 2026-11-05)
 ''   FIX A: bEntryDocOpenedHere flag + cleanup guards for all early Exit Sub
@@ -215,7 +220,7 @@ Sub Main()
         System.Environment.SpecialFolder.Desktop)
     Dim sLogPath As String = System.IO.Path.Combine(sDesktop, _
         "SUPER_CLEAN_SWEEPER_" & Now.ToString("yyyyMMdd_HHmmss") & ".log")
-    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.9  —  " & Now.ToString() & vbCrLf & _
+    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.10  —  " & Now.ToString() & vbCrLf & _
                          "GA: " & sTopFull & vbCrLf
     Try : System.IO.File.WriteAllText(sLogPath, sLog) : Catch : End Try
     If sEntryLog <> "" Then
@@ -485,6 +490,12 @@ Sub Main()
 
     Dim oMapKeys As New System.Collections.Generic.List(Of String)(oRenameMap.Keys)
     oMapKeys.Sort(Function(a2, b2) b2.Length.CompareTo(a2.Length))
+    ' v2.2.10: process the top GA first so a hang on a later child still leaves the GA in the target folder.
+    If oRenameMap.ContainsKey(sTopFull) Then
+        oMapKeys.Remove(sTopFull)
+        oMapKeys.Insert(0, sTopFull)
+        Try : System.IO.File.AppendAllText(sLogPath, "PHASE 2 ORDER: top GA first — " & System.IO.Path.GetFileName(sTopFull) & vbCrLf) : Catch : End Try
+    End If
 
     ' Track files actually placed on disk (Phase 3 uses this map)
     Dim oActualMap As New System.Collections.Generic.Dictionary(Of String, String)( _
@@ -1202,7 +1213,7 @@ Sub Main()
 
     ' ── 8. Final summary ──────────────────────────────────────────────────────
     Dim sSummary As String = _
-        "SUPER CLEAN SWEEPER v2.2.9 — COMPLETE" & vbCrLf & vbCrLf & _
+        "SUPER CLEAN SWEEPER v2.2.10 — COMPLETE" & vbCrLf & vbCrLf & _
         "Phase 1  Rename map built:   " & oRenameMap.Count & " file(s)" & vbCrLf & _
         "Phase 2  SaveAs + Provenance:" & vbCrLf & _
         "         Saved    : " & iSaved & vbCrLf & _
