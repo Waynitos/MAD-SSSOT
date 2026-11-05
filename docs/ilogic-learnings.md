@@ -91,3 +91,20 @@ Sources (research 2026-11-05):
 - https://forums.autodesk.com/t5/inventor-programming-forum/assembly-and-some-of-its-parts-renamed-and-saved-as-new-copy/td-p/11984657
 - https://help.autodesk.com/cloudhelp/2025/ENU/Inventor-API/files/FileDescriptor_ReplaceReference.htm
 - https://forums.autodesk.com/t5/inventor-programming-forum/replacereference-on-quot-piping-runs-environment-quot-assembly/td-p/6392875
+
+## Drawing relink — open the new drawing; use ReferencedDocumentDescriptors
+
+The DRAWING RELINK pass must open the **new** drawing (`oActualMap(drawing)` when it exists), never the source-folder drawing. Saving a source drawing after `ReplaceReference` silently repoints the original design. Public Save-and-Replace patterns either SaveAs to the new path or copy the drawing first, then relink the copy.
+
+Collect drawing model references the same way as entry: snapshot `ReferencedDocumentDescriptors` → `.ReferencedFileDescriptor`. Fall back to `Document.ReferencedFileDescriptors` only if a descriptor loop throws. File-level descriptors alone can miss DART SHUT model refs.
+
+After any successful replace: call `Update()` (or `DrawingView.Update()` per view) before `Save2(False)`. Skip unresolved descriptors (`ReferenceMissing`) and never save when there are 0 replacements that matter, or when unresolved refs remain. After a one-write SaveAs, “0 replaced” on a new drawing can be expected — verify by scanning for references still under the source folder (DWG-STALE), not by replace count alone.
+
+`ReplaceReference` still requires shared InternalName (SaveCopyAs). Multi-model drawings need per-descriptor matching, not `Item(1)` only. AutoCAD-only `.dwg` files in the folder may fail open — catch/log and continue.
+
+Sources (research 2026-11-05):
+- https://help.autodesk.com/cloudhelp/2025/ENU/Inventor-API/files/FileDescriptor_ReplaceReference.htm
+- https://forums.autodesk.com/t5/inventor-programming-forum/save-and-replace-with-drawing/td-p/9944250
+- https://forums.autodesk.com/t5/community-blog-d-m-english/save-and-replace-automation-in-inventor/ba-p/14034558
+- https://forums.autodesk.com/t5/inventor-programming-ilogic/replace-reference-in-vb-net/td-p/7152903
+- https://help.autodesk.com/cloudhelp/2025/ENU/Inventor-API/files/FileSaveAs.htm
