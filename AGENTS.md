@@ -31,7 +31,16 @@ instructions. Every AI agent (Claude, Grok Bot, Cursor, others) follows these ru
   `ilogic: TRAVERSE Mode 6 skips Content Centre parts`.
 - Push to `main` unless the user asks for a branch or pull request.
 
-## 5. If you cannot push
+## 5. Push rejected? Pull, re-apply, push again
+- If `git push` is rejected (non-fast-forward), do NOT force-push.
+- Run `git pull --rebase origin main` to bring in the other agent's commit.
+- Re-apply your change to the updated file (re-read it first — it may have
+  changed), then commit and push again.
+- If the rebase produces a conflict on a full-file script, yours wins: write
+  your complete intended version, `git add` it, `git rebase --continue`, push.
+- Never use `--force` or `--force-with-lease`. History is append-only.
+
+## 6. If you cannot push
 - If you have no write access (e.g. a chat-only session), give the user the
   COMPLETE updated file, never a partial diff or snippet, and say which path
   it replaces. Do not invent a new filename.
