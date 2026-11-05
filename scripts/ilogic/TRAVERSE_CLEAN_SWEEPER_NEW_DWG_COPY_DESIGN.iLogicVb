@@ -5778,12 +5778,15 @@ Function WritePassManifest( _
         Next
         iPass = iMax + 1
     Catch
-        ' Fallback: probe individually
-        Do While System.IO.File.Exists( _
+        ' Fallback: probe individually (bounded - never loops past Pass999)
+        iPass = 1
+        Do While iPass < 999 AndAlso System.IO.File.Exists( _
             System.IO.Path.Combine(sTargetFolder, sGABasename & "_RenameMap_Pass" & iPass & ".txt"))
             iPass = iPass + 1
         Loop
     End Try
+    ' 999 guard: a stray huge _PassN (e.g. _Pass99999) must not run the numbering away
+    If iPass < 1 OrElse iPass > 999 Then iPass = 999
 
     Dim sPath As String = System.IO.Path.Combine(sTargetFolder, sGABasename & "_RenameMap_Pass" & iPass & ".txt")
 
