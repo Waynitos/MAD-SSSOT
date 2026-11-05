@@ -1,7 +1,7 @@
 '' =====================================================================
 '' SUPER_CLEAN_SWEEPER.iLogicVb
 '' Copy Design with full provenance architecture
-'' Version: 2.2.18 — 2026-11-05
+'' Version: 2.2.19 — 2026-11-05
 ''
 '' PURPOSE
 ''   Replicates Vault Copy Design outside of Vault.
@@ -39,6 +39,23 @@
 ''   outer Finally still restores the original SilentOperation at the end.
 ''   Phase 3 saves with Save2(False) (fallback Save) so the save does not
 ''   cascade to dirty CC/library dependents.
+''
+'' V2.2.19
+''   DRAWING LIST POPUP: when started from a drawing, every .idw/.dwg in the
+''   drawing's folder is opened invisibly (closed again if opened here) and
+''   its referenced .iam/.ipt paths are collected.  A form "Drawing List —
+''   Models and New Names" lists each drawing with one row per model: old
+''   name (read-only) and new base name (editable, prefilled with the
+''   automatic new name).  A model already listed under an earlier drawing
+''   is shown grey and locked.  Cancel exits with no changes.  On OK, every
+''   edited name goes into oNameOverrides (old model path -> new base name),
+''   which replaces the automatic prefix swap and string rules for that
+''   model in the rename map (WalkTree and the top GA).  Logged as
+''   DWGLIST, DWG-NAME and DWG-NAME-INVALID.
+''   DRAWING RELINK now runs on every drawing in the list (entry drawing
+''   always included), repointing refs found in oActualMap; logged as
+''   "DWG-RELINK: <drawing> n replaced".  A drawing is saved only when at
+''   least one ref was replaced.
 ''
 '' V2.2.18  (Code-Assassin fixes — 2026-11-05)
 ''   FINAL DEFAULT DESIGN VIEW: after the browser-rename pass and before the
@@ -238,7 +255,7 @@
 ''   Phase 2  SaveAs + Provenance        (creates new files, writes props)
 ''   Phase 3  Fix internal references    (open new .iam/.ipt, rewrite FDs)
 ''   Phase 4  Live occurrence resweep on the new GA
-''   Drawing relink (only when started from a GA drawing)
+''   Drawing relink (only when started from a GA drawing; every listed drawing)
 '' =====================================================================
 
 
@@ -315,7 +332,7 @@ Sub Main()
         System.Environment.SpecialFolder.Desktop)
     Dim sLogPath As String = System.IO.Path.Combine(sDesktop, _
         "SUPER_CLEAN_SWEEPER_" & Now.ToString("yyyyMMdd_HHmmss") & ".log")
-    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.18  —  " & Now.ToString() & vbCrLf & _
+    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.19  —  " & Now.ToString() & vbCrLf & _
                          "GA: " & sTopFull & vbCrLf
     Try : System.IO.File.WriteAllText(sLogPath, sLog) : Catch : End Try
     If sEntryLog <> "" Then
@@ -503,6 +520,240 @@ Sub Main()
     Try : oRuleForm.Dispose() : Catch : End Try
     ThisApplication.SilentOperation = True
 
+    ' ── 4d. Drawing List (v2.2.19): models per drawing + new names ───────────
+    ' Only when started from a drawing.  Scans the drawing's folder for .idw/.dwg,
+    ' lists each drawing's referenced models and lets the user set the new base
+    ' name of each model.  Edited names override the automatic new name.
+    Dim oDwgList As New System.Collections.Generic.List(Of String)()
+    Dim oNameOverrides As New System.Collections.Generic.Dictionary(Of String, String)( _
+        StringComparer.OrdinalIgnoreCase)
+    If bFromDwg AndAlso sDwgEntryPath <> "" Then
+        Try : System.IO.File.AppendAllText(sLogPath, vbCrLf & "=== DRAWING LIST ===" & vbCrLf) : Catch : End Try
+        Dim oDwgModels As New System.Collections.Generic.Dictionary(Of String, System.Collections.Generic.List(Of String))( _
+            StringComparer.OrdinalIgnoreCase)
+        Dim sDwgFolder As String = System.IO.Path.GetDirectoryName(sDwgEntryPath)
+        Dim oDwgFiles As New System.Collections.Generic.List(Of String)()
+        Dim sDLFile As String
+        Try
+            For Each sDLFile In System.IO.Directory.GetFiles(sDwgFolder, "*.idw", System.IO.SearchOption.TopDirectoryOnly)
+                oDwgFiles.Add(sDLFile)
+            Next
+            For Each sDLFile In System.IO.Directory.GetFiles(sDwgFolder, "*.dwg", System.IO.SearchOption.TopDirectoryOnly)
+                oDwgFiles.Add(sDLFile)
+            Next
+        Catch exDLDir As Exception
+            Try : System.IO.File.AppendAllText(sLogPath, "DWGLIST-DIR-FAIL: " & exDLDir.Message & vbCrLf) : Catch : End Try
+        End Try
+        Dim bDLEntryFound As Boolean = False
+        For Each sDLFile In oDwgFiles
+            If String.Equals(sDLFile, sDwgEntryPath, StringComparison.OrdinalIgnoreCase) Then bDLEntryFound = True
+        Next
+        If Not bDLEntryFound Then oDwgFiles.Add(sDwgEntryPath)
+        oDwgFiles.Sort(StringComparer.OrdinalIgnoreCase)
+
+        ' Scan each drawing for its referenced models
+        Dim oDLDoc As Document
+        Dim bDLOpenedHere As Boolean
+        Dim oDLFD As FileDescriptor
+        Dim sDLRef As String
+        Dim sDLExt As String
+        Dim oDLRefs As System.Collections.Generic.List(Of String)
+        Dim oDLRefSeen As System.Collections.Generic.HashSet(Of String)
+        ThisApplication.SilentOperation = True
+        For Each sDLFile In oDwgFiles
+            oDLDoc = Nothing
+            bDLOpenedHere = False
+            Try
+                oDLDoc = ThisApplication.Documents.ItemByName(sDLFile)
+            Catch
+            End Try
+            If oDLDoc Is Nothing Then
+                Try
+                    oDLDoc = ThisApplication.Documents.Open(sDLFile, False)
+                    bDLOpenedHere = True
+                Catch exDLOpen As Exception
+                    Try : System.IO.File.AppendAllText(sLogPath, "DWGLIST-OPEN-FAIL: " & System.IO.Path.GetFileName(sDLFile) & " — " & exDLOpen.Message & vbCrLf) : Catch : End Try
+                End Try
+            End If
+            If oDLDoc Is Nothing Then Continue For
+            oDLRefs = New System.Collections.Generic.List(Of String)()
+            oDLRefSeen = New System.Collections.Generic.HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+            Try
+                For Each oDLFD In oDLDoc.ReferencedFileDescriptors
+                    sDLRef = ""
+                    Try
+                        sDLRef = oDLFD.FullFileName
+                    Catch
+                    End Try
+                    If sDLRef = "" Then Continue For
+                    sDLExt = System.IO.Path.GetExtension(sDLRef).ToUpper()
+                    If (sDLExt = ".IAM" OrElse sDLExt = ".IPT") AndAlso Not oDLRefSeen.Contains(sDLRef) Then
+                        oDLRefSeen.Add(sDLRef)
+                        oDLRefs.Add(sDLRef)
+                    End If
+                Next
+            Catch exDLRef As Exception
+                Try : System.IO.File.AppendAllText(sLogPath, "DWGLIST-REF-FAIL: " & System.IO.Path.GetFileName(sDLFile) & " — " & exDLRef.Message & vbCrLf) : Catch : End Try
+            End Try
+            If bDLOpenedHere Then
+                Try : oDLDoc.Close(True) : Catch : End Try
+            End If
+            If oDLRefs.Count > 0 Then
+                oDwgList.Add(sDLFile)
+                oDwgModels(sDLFile) = oDLRefs
+                Try : System.IO.File.AppendAllText(sLogPath, "DWGLIST: " & System.IO.Path.GetFileName(sDLFile) & " (" & oDLRefs.Count & " model(s))" & vbCrLf) : Catch : End Try
+            End If
+        Next
+
+        If oDwgList.Count > 0 Then
+            ThisApplication.SilentOperation = bOrigSilent
+            Dim oDLForm As New System.Windows.Forms.Form()
+            oDLForm.Text = "Drawing List — Models and New Names"
+            oDLForm.FormBorderStyle = System.Windows.Forms.FormBorderStyle.FixedDialog
+            oDLForm.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen
+            oDLForm.MaximizeBox = False
+            oDLForm.MinimizeBox = False
+            oDLForm.Width = 780
+            oDLForm.Height = 640
+            Dim oDLHint As New System.Windows.Forms.Label()
+            oDLHint.Text = "Set the new base name (no extension) for any model. Grey rows repeat a model listed earlier, or a model that is not copied."
+            oDLHint.Left = 12
+            oDLHint.Top = 8
+            oDLHint.Width = 740
+            oDLHint.Height = 30
+            oDLForm.Controls.Add(oDLHint)
+            Dim oDLOldHdr As New System.Windows.Forms.Label()
+            oDLOldHdr.Text = "Old model"
+            oDLOldHdr.Left = 32
+            oDLOldHdr.Top = 42
+            oDLOldHdr.Width = 340
+            oDLForm.Controls.Add(oDLOldHdr)
+            Dim oDLNewHdr As New System.Windows.Forms.Label()
+            oDLNewHdr.Text = "New model name"
+            oDLNewHdr.Left = 378
+            oDLNewHdr.Top = 42
+            oDLNewHdr.Width = 340
+            oDLForm.Controls.Add(oDLNewHdr)
+            Dim oDLPanel As New System.Windows.Forms.Panel()
+            oDLPanel.Left = 12
+            oDLPanel.Top = 64
+            oDLPanel.Width = 740
+            oDLPanel.Height = 480
+            oDLPanel.AutoScroll = True
+            oDLPanel.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle
+            oDLForm.Controls.Add(oDLPanel)
+
+            Dim oDLBoxes As New System.Collections.Generic.Dictionary(Of String, System.Windows.Forms.TextBox)( _
+                StringComparer.OrdinalIgnoreCase)
+            Dim oDLPrefill As New System.Collections.Generic.Dictionary(Of String, String)( _
+                StringComparer.OrdinalIgnoreCase)
+            Dim iDLY As Integer = 6
+            Dim sDLDwg As String
+            Dim sDLModel As String
+            Dim sDLNewFull As String
+            Dim sDLPre As String
+            Dim oDLHdr As System.Windows.Forms.Label
+            Dim oDLOld As System.Windows.Forms.Label
+            Dim oDLBox As System.Windows.Forms.TextBox
+            For Each sDLDwg In oDwgList
+                oDLHdr = New System.Windows.Forms.Label()
+                oDLHdr.Text = "DRAWING:  " & System.IO.Path.GetFileName(sDLDwg)
+                oDLHdr.Left = 4
+                oDLHdr.Top = iDLY
+                oDLHdr.Width = 700
+                oDLHdr.Height = 20
+                oDLPanel.Controls.Add(oDLHdr)
+                iDLY += 24
+                For Each sDLModel In oDwgModels(sDLDwg)
+                    oDLOld = New System.Windows.Forms.Label()
+                    oDLOld.Text = System.IO.Path.GetFileName(sDLModel)
+                    oDLOld.Left = 20
+                    oDLOld.Top = iDLY + 3
+                    oDLOld.Width = 340
+                    oDLOld.Height = 20
+                    oDLPanel.Controls.Add(oDLOld)
+                    oDLBox = New System.Windows.Forms.TextBox()
+                    oDLBox.Left = 366
+                    oDLBox.Top = iDLY
+                    oDLBox.Width = 340
+                    If oDLPrefill.ContainsKey(sDLModel) Then
+                        ' later occurrence: same old name maps to one new name only
+                        oDLBox.Text = oDLPrefill(sDLModel)
+                        oDLBox.ReadOnly = True
+                        oDLBox.Enabled = False
+                    Else
+                        sDLNewFull = ComputeNewName(sDLModel, sOldProjectRoot, sNewPrefix, sTargetFolder)
+                        If sDLNewFull = "" Then
+                            ' not copied (Content Center or already in target) — locked
+                            sDLPre = System.IO.Path.GetFileNameWithoutExtension(sDLModel)
+                            oDLBox.Text = sDLPre
+                            oDLBox.ReadOnly = True
+                            oDLBox.Enabled = False
+                        Else
+                            sDLPre = System.IO.Path.GetFileNameWithoutExtension(ApplyStringRules(sDLNewFull, oStringRules))
+                            oDLBox.Text = sDLPre
+                            oDLBoxes(sDLModel) = oDLBox
+                        End If
+                        oDLPrefill(sDLModel) = sDLPre
+                    End If
+                    oDLPanel.Controls.Add(oDLBox)
+                    iDLY += 28
+                Next
+                iDLY += 8
+            Next
+
+            Dim oDLOk As New System.Windows.Forms.Button()
+            oDLOk.Text = "OK"
+            oDLOk.Left = 576
+            oDLOk.Top = 556
+            oDLOk.Width = 84
+            oDLOk.DialogResult = System.Windows.Forms.DialogResult.OK
+            oDLForm.Controls.Add(oDLOk)
+            Dim oDLCancel As New System.Windows.Forms.Button()
+            oDLCancel.Text = "Cancel"
+            oDLCancel.Left = 668
+            oDLCancel.Top = 556
+            oDLCancel.Width = 84
+            oDLCancel.DialogResult = System.Windows.Forms.DialogResult.Cancel
+            oDLForm.Controls.Add(oDLCancel)
+            oDLForm.AcceptButton = oDLOk
+            oDLForm.CancelButton = oDLCancel
+            Dim oDLRes As System.Windows.Forms.DialogResult = oDLForm.ShowDialog()
+            If oDLRes <> System.Windows.Forms.DialogResult.OK Then
+                Try : oDLForm.Dispose() : Catch : End Try
+                ThisApplication.SilentOperation = bOrigSilent
+                If bEntryDocOpenedHere AndAlso oEntryDoc IsNot Nothing Then  ' FIX A
+                    Try : oEntryDoc.Close(True) : Catch : End Try
+                End If
+                MessageBox.Show("Cancelled — no changes made.", "Super Clean Sweeper")
+                Exit Sub
+            End If
+
+            ' Collect edited names -> oNameOverrides
+            Dim oDLKV As System.Collections.Generic.KeyValuePair(Of String, System.Windows.Forms.TextBox)
+            Dim sDLTyped As String
+            Dim sDLModelExt As String
+            For Each oDLKV In oDLBoxes
+                sDLTyped = oDLKV.Value.Text.Trim()
+                sDLModelExt = System.IO.Path.GetExtension(oDLKV.Key)
+                If sDLTyped.ToUpper().EndsWith(sDLModelExt.ToUpper()) AndAlso sDLTyped.Length > sDLModelExt.Length Then
+                    sDLTyped = sDLTyped.Substring(0, sDLTyped.Length - sDLModelExt.Length)
+                End If
+                If sDLTyped = "" Then Continue For
+                If String.Equals(sDLTyped, oDLPrefill(oDLKV.Key), StringComparison.Ordinal) Then Continue For
+                If sDLTyped.IndexOfAny(System.IO.Path.GetInvalidFileNameChars()) >= 0 Then
+                    Try : System.IO.File.AppendAllText(sLogPath, "DWG-NAME-INVALID: " & System.IO.Path.GetFileName(oDLKV.Key) & " -> " & sDLTyped & " (ignored)" & vbCrLf) : Catch : End Try
+                    Continue For
+                End If
+                oNameOverrides(oDLKV.Key) = sDLTyped
+                Try : System.IO.File.AppendAllText(sLogPath, "DWG-NAME: " & System.IO.Path.GetFileName(oDLKV.Key) & " -> " & sDLTyped & sDLModelExt & vbCrLf) : Catch : End Try
+            Next
+            Try : oDLForm.Dispose() : Catch : End Try
+            Try : System.IO.File.AppendAllText(sLogPath, "DWGLIST: " & oDwgList.Count & " drawing(s), " & oNameOverrides.Count & " name override(s)." & vbCrLf) : Catch : End Try
+        End If
+        ThisApplication.SilentOperation = True
+    End If
+
     ' ── 5. PHASE 1 — Build rename map ────────────────────────────────────────
     Try : System.IO.File.AppendAllText(sLogPath, vbCrLf & "=== PHASE 1: RENAME MAP ===" & vbCrLf) : Catch : End Try
 
@@ -526,7 +777,7 @@ Sub Main()
     Try
         WalkTree(oAsmDoc, sOldProjectRoot, sNewPrefix, sTargetFolder, _
                  oRenameMap, oSeen, sLogPath, oMappedTargets, oWalkOpened, _
-                 oStringRules, oReuseKeys, oSourcePathCache)
+                 oStringRules, oReuseKeys, oSourcePathCache, oNameOverrides)
     Catch exWalk As Exception
         ThisApplication.SilentOperation = bOrigSilent
         If bEntryDocOpenedHere AndAlso oEntryDoc IsNot Nothing Then  ' FIX A
@@ -540,10 +791,18 @@ Sub Main()
     ' If it's already in the target folder (same-prefix rerun), skip it.
     ' Otherwise map it.
     Dim sTopNewFull2 As String = ComputeNewName(sTopFull, sOldProjectRoot, sNewPrefix, sTargetFolder)
+    ' v2.2.19: Drawing List name replaces the automatic new base name
+    Dim bTopOverride As Boolean = False
+    If sTopNewFull2 <> "" AndAlso oNameOverrides.ContainsKey(sTopFull) Then
+        sTopNewFull2 = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(sTopNewFull2), _
+            oNameOverrides(sTopFull) & System.IO.Path.GetExtension(sTopFull))
+        bTopOverride = True
+    End If
     If sTopNewFull2 <> "" Then
         If Not oRenameMap.ContainsKey(sTopFull) Then
             ' v2.2.15: apply string rules, then reuse / suffix per provenance
-            Dim sTopRuled As String = ApplyStringRules(sTopNewFull2, oStringRules)
+            Dim sTopRuled As String = sTopNewFull2
+            If Not bTopOverride Then sTopRuled = ApplyStringRules(sTopNewFull2, oStringRules)
             Dim bTopRuleChanged As Boolean = Not String.Equals(sTopRuled, sTopNewFull2, StringComparison.Ordinal)
             Dim bTopReused As Boolean = False
             Dim sTopTest As String = ResolveTarget(sTopFull, sTopRuled, bTopRuleChanged, oMappedTargets, sLogPath, bTopReused, oSourcePathCache)
@@ -1464,74 +1723,99 @@ Sub Main()
         Try : System.IO.File.AppendAllText(sLogPath, "FINAL-DV-FAIL: " & exFinalDV.Message & vbCrLf) : Catch : End Try
     End Try
 
-    ' ── DRAWING RELINK (v2.2.8): only when the rule was started from a drawing ──
-    ' Repoints the original drawing's model references to the new paths using
-    ' oActualMap, saves with Save2(False), closes only if opened here.
+    ' ── DRAWING RELINK (v2.2.8; v2.2.19: every drawing in the Drawing List) ──
+    ' Repoints each listed drawing's model references to the new paths using
+    ' oActualMap, saves with Save2(False) when a ref was replaced, closes only
+    ' if opened here.  The entry drawing is always included.
     If bFromDwg AndAlso sDwgEntryPath <> "" Then
-        Try
-            Try : System.IO.File.AppendAllText(sLogPath, vbCrLf & "=== DRAWING RELINK ===" & vbCrLf) : Catch : End Try
-            Dim oDwgR As Document = Nothing
-            Dim bDwgOpenedHere As Boolean = False
+        Try : System.IO.File.AppendAllText(sLogPath, vbCrLf & "=== DRAWING RELINK ===" & vbCrLf) : Catch : End Try
+        Dim oRelinkDwgs As New System.Collections.Generic.List(Of String)(oDwgList)
+        Dim bRelinkHasEntry As Boolean = False
+        Dim sRelinkDwg As String
+        For Each sRelinkDwg In oRelinkDwgs
+            If String.Equals(sRelinkDwg, sDwgEntryPath, StringComparison.OrdinalIgnoreCase) Then bRelinkHasEntry = True
+        Next
+        If Not bRelinkHasEntry Then oRelinkDwgs.Insert(0, sDwgEntryPath)
+        Dim oDwgR As Document
+        Dim bDwgOpenedHere As Boolean
+        Dim iDwgReplaced As Integer
+        Dim sDwgOld As String
+        Dim sDwgNew As String
+        Dim sRelinkName As String
+        ' FIX D: snapshot FDs before iterating — consistent with Phase 3/4; prevents
+        '        COM collection-modified fault if ReplaceReference perturbs the collection
+        Dim oDwgFDs As New System.Collections.Generic.List(Of FileDescriptor)()
+        Dim oDwgFDSnap As FileDescriptor
+        Dim oDwgFD As FileDescriptor
+        Dim bDwgSaved As Boolean
+        Dim iDwgTotal As Integer = 0
+        For Each sRelinkDwg In oRelinkDwgs
+            oDwgR = Nothing
+            bDwgOpenedHere = False
+            iDwgReplaced = 0
+            bDwgSaved = False
+            oDwgFDs.Clear()
+            sRelinkName = System.IO.Path.GetFileName(sRelinkDwg)
             Try
-                oDwgR = ThisApplication.Documents.ItemByName(sDwgEntryPath)
-            Catch
-            End Try
-            If oDwgR Is Nothing Then
                 Try
-                    oDwgR = ThisApplication.Documents.Open(sDwgEntryPath, False)
-                    bDwgOpenedHere = True
-                    If oDwgR IsNot Nothing Then oProvRebuildOpened.Add(oDwgR)  ' FIX E: F1 Finally closes on failure
-                Catch exDwgOpen As Exception
-                    Try : System.IO.File.AppendAllText(sLogPath, "DWG-OPEN-FAIL: " & exDwgOpen.Message & vbCrLf) : Catch : End Try
+                    oDwgR = ThisApplication.Documents.ItemByName(sRelinkDwg)
+                Catch
                 End Try
-            End If
-            If oDwgR IsNot Nothing Then
-                Dim iDwgReplaced As Integer = 0
-                Dim sDwgOld As String
-                Dim sDwgNew As String
-                ' FIX D: snapshot FDs before iterating — consistent with Phase 3/4; prevents
-                '        COM collection-modified fault if ReplaceReference perturbs the collection
-                Dim oDwgFDs As New System.Collections.Generic.List(Of FileDescriptor)()
-                Try
-                    Dim oDwgFDSnap As FileDescriptor
-                    For Each oDwgFDSnap In oDwgR.ReferencedFileDescriptors
-                        oDwgFDs.Add(oDwgFDSnap)
-                    Next
-                Catch : End Try
-                For Each oDwgFD As FileDescriptor In oDwgFDs
-                    sDwgOld = ""
+                If oDwgR Is Nothing Then
                     Try
-                        sDwgOld = oDwgFD.FullFileName
-                    Catch
+                        oDwgR = ThisApplication.Documents.Open(sRelinkDwg, False)
+                        bDwgOpenedHere = True
+                        If oDwgR IsNot Nothing Then oProvRebuildOpened.Add(oDwgR)  ' FIX E: F1 Finally closes on failure
+                    Catch exDwgOpen As Exception
+                        Try : System.IO.File.AppendAllText(sLogPath, "DWG-OPEN-FAIL: " & sRelinkName & " — " & exDwgOpen.Message & vbCrLf) : Catch : End Try
                     End Try
-                    If sDwgOld = "" Then Continue For
-                    If Not oActualMap.ContainsKey(sDwgOld) Then Continue For
-                    sDwgNew = oActualMap(sDwgOld)
-                    If Not System.IO.File.Exists(sDwgNew) Then Continue For
-                    Try
-                        oDwgFD.ReplaceReference(sDwgNew)
-                        iDwgReplaced += 1
-                        Try : System.IO.File.AppendAllText(sLogPath, "DWG-REPLACE: " & System.IO.Path.GetFileName(sDwgOld) & " -> " & System.IO.Path.GetFileName(sDwgNew) & vbCrLf) : Catch : End Try
-                    Catch exDwgRep As Exception
-                        Try : System.IO.File.AppendAllText(sLogPath, "DWG-REPLACE-FAIL: " & System.IO.Path.GetFileName(sDwgOld) & " — " & exDwgRep.Message & vbCrLf) : Catch : End Try
-                    End Try
-                Next
-                Dim bDwgSaved As Boolean = False
-                Try
-                    oDwgR.Save2(False)
-                    bDwgSaved = True
-                    Try : System.IO.File.AppendAllText(sLogPath, "DWG-SAVED: " & System.IO.Path.GetFileName(sDwgEntryPath) & vbCrLf) : Catch : End Try
-                Catch exDwgSave As Exception
-                    Try : System.IO.File.AppendAllText(sLogPath, "DWG-SAVE-FAIL: " & exDwgSave.Message & vbCrLf) : Catch : End Try
-                End Try
-                Try : System.IO.File.AppendAllText(sLogPath, "DWG-RELINK: " & iDwgReplaced & " replaced" & vbCrLf) : Catch : End Try
-                If bDwgOpenedHere AndAlso bDwgSaved Then
-                    Try : oDwgR.Close(True) : Catch : End Try
                 End If
-            End If
-        Catch exDwg As Exception
-            Try : System.IO.File.AppendAllText(sLogPath, "DWG-RELINK-ERROR: " & exDwg.Message & vbCrLf) : Catch : End Try
-        End Try
+                If oDwgR IsNot Nothing Then
+                    Try
+                        For Each oDwgFDSnap In oDwgR.ReferencedFileDescriptors
+                            oDwgFDs.Add(oDwgFDSnap)
+                        Next
+                    Catch : End Try
+                    For Each oDwgFD In oDwgFDs
+                        sDwgOld = ""
+                        Try
+                            sDwgOld = oDwgFD.FullFileName
+                        Catch
+                        End Try
+                        If sDwgOld = "" Then Continue For
+                        If Not oActualMap.ContainsKey(sDwgOld) Then Continue For
+                        sDwgNew = oActualMap(sDwgOld)
+                        If Not System.IO.File.Exists(sDwgNew) Then Continue For
+                        Try
+                            oDwgFD.ReplaceReference(sDwgNew)
+                            iDwgReplaced += 1
+                            Try : System.IO.File.AppendAllText(sLogPath, "DWG-REPLACE: [" & sRelinkName & "] " & System.IO.Path.GetFileName(sDwgOld) & " -> " & System.IO.Path.GetFileName(sDwgNew) & vbCrLf) : Catch : End Try
+                        Catch exDwgRep As Exception
+                            Try : System.IO.File.AppendAllText(sLogPath, "DWG-REPLACE-FAIL: [" & sRelinkName & "] " & System.IO.Path.GetFileName(sDwgOld) & " — " & exDwgRep.Message & vbCrLf) : Catch : End Try
+                        End Try
+                    Next
+                    If iDwgReplaced > 0 Then
+                        Try
+                            oDwgR.Save2(False)
+                            bDwgSaved = True
+                            Try : System.IO.File.AppendAllText(sLogPath, "DWG-SAVED: " & sRelinkName & vbCrLf) : Catch : End Try
+                        Catch exDwgSave As Exception
+                            Try : System.IO.File.AppendAllText(sLogPath, "DWG-SAVE-FAIL: " & sRelinkName & " — " & exDwgSave.Message & vbCrLf) : Catch : End Try
+                        End Try
+                    Else
+                        bDwgSaved = True
+                    End If
+                    iDwgTotal += iDwgReplaced
+                    Try : System.IO.File.AppendAllText(sLogPath, "DWG-RELINK: " & sRelinkName & " " & iDwgReplaced & " replaced" & vbCrLf) : Catch : End Try
+                    If bDwgOpenedHere AndAlso bDwgSaved Then
+                        Try : oDwgR.Close(True) : Catch : End Try
+                    End If
+                End If
+            Catch exDwg As Exception
+                Try : System.IO.File.AppendAllText(sLogPath, "DWG-RELINK-ERROR: " & sRelinkName & " — " & exDwg.Message & vbCrLf) : Catch : End Try
+            End Try
+        Next
+        Try : System.IO.File.AppendAllText(sLogPath, "Drawing relink complete: " & oRelinkDwgs.Count & " drawing(s), " & iDwgTotal & " ref(s) replaced." & vbCrLf) : Catch : End Try
     End If
 
     ' F1: Finally block — SilentOperation restored even if Phase 2/3 throws
@@ -1555,7 +1839,7 @@ Sub Main()
 
     ' ── 8. Final summary ──────────────────────────────────────────────────────
     Dim sSummary As String = _
-        "SUPER CLEAN SWEEPER v2.2.18 — COMPLETE" & vbCrLf & vbCrLf & _
+        "SUPER CLEAN SWEEPER v2.2.19 — COMPLETE" & vbCrLf & vbCrLf & _
         "Phase 1  Rename map built:   " & oRenameMap.Count & " file(s)" & vbCrLf & _
         "Phase 2  SaveAs + Provenance:" & vbCrLf & _
         "         Saved    : " & iSaved & vbCrLf & _
@@ -1811,7 +2095,8 @@ Sub WalkTree(oDoc As Document, _
              oWalkOpened As System.Collections.Generic.List(Of Document), _
              oStringRules As System.Collections.Generic.List(Of String()), _
              oReuseKeys As System.Collections.Generic.HashSet(Of String), _
-             oSourcePathCache As System.Collections.Generic.Dictionary(Of String, String))
+             oSourcePathCache As System.Collections.Generic.Dictionary(Of String, String), _
+             oNameOverrides As System.Collections.Generic.Dictionary(Of String, String))
 
     Dim sFullPath As String = ""
     Try : sFullPath = oDoc.FullFileName : Catch : Return : End Try
@@ -1875,7 +2160,7 @@ Sub WalkTree(oDoc As Document, _
 
             WalkTree(oChild, sOldProjectRoot, sNewPrefix, sTargetFolder, _
                      oRenameMap, oSeen, sLogPath, oMappedTargets, oWalkOpened, _
-                     oStringRules, oReuseKeys, oSourcePathCache)
+                     oStringRules, oReuseKeys, oSourcePathCache, oNameOverrides)
         Next
     Catch exWalk As Exception
         Try
@@ -1889,6 +2174,13 @@ Sub WalkTree(oDoc As Document, _
     ' v2: copy any file NOT already in sTargetFolder and NOT Content Centre
     Dim sNewFull As String = ComputeNewName(sFullPath, sOldProjectRoot, sNewPrefix, sTargetFolder)
     If sNewFull = "" Then Return   ' already in target, or CC part
+    ' v2.2.19: Drawing List name replaces the automatic new base name
+    Dim bNameOverride As Boolean = False
+    If oNameOverrides IsNot Nothing AndAlso oNameOverrides.ContainsKey(sFullPath) Then
+        sNewFull = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(sNewFull), _
+            oNameOverrides(sFullPath) & System.IO.Path.GetExtension(sFullPath))
+        bNameOverride = True
+    End If
 
     ' ── Collision guard: use oMappedTargets HashSet for O(1) lookup ──────────
     ' FIX 5: oMappedTargets.Contains replaces O(n) oRenameMap.ContainsValue.
@@ -1896,7 +2188,8 @@ Sub WalkTree(oDoc As Document, _
     '        sub-assemblies would otherwise all collapse onto the same target name.
     If Not oRenameMap.ContainsKey(sFullPath) Then
         ' v2.2.15: apply string rules, then reuse / suffix per provenance
-        Dim sRuled As String = ApplyStringRules(sNewFull, oStringRules)
+        Dim sRuled As String = sNewFull
+        If Not bNameOverride Then sRuled = ApplyStringRules(sNewFull, oStringRules)
         Dim bRuleChanged As Boolean = Not String.Equals(sRuled, sNewFull, StringComparison.Ordinal)
         Dim bReused As Boolean = False
         Dim sTestFull As String = ResolveTarget(sFullPath, sRuled, bRuleChanged, oMappedTargets, sLogPath, bReused, oSourcePathCache)
