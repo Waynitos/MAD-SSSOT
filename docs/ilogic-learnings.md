@@ -71,3 +71,23 @@ Sources (research 2026-11-05):
 - https://forums.autodesk.com/t5/inventor-programming-forum/assembly-and-some-of-its-parts-renamed-and-saved-as-new-copy/td-p/11984657
 - https://forums.autodesk.com/t5/inventor-programming-forum/vba-filedescriptor-replacereference-clears-adaptivity/td-p/11142067
 - https://forums.autodesk.com/t5/inventor-programming-forum/ilogic-design-copy-programatically/td-p/5796804
+
+## Phase 3/4 ref rewrite — Prefer ReplaceReference-only; drop duplicate occurrence passes
+
+Phase 3a’s file-level `FileDescriptor.ReplaceReference` already rewrites refs across the structure. Phase 3b (occurrence `Replace`) and Phase 4 (`Phase4_WalkOccs`) mostly reload children and repeat the same work; Phase 4 also `Save2`s every target assembly with no dirty check and can save the GA twice.
+
+Prefer:
+- Keep 3a as the only bulk pass. Run occurrence replace only for locked/E_INVALIDARG descriptors and adaptive occurrences (`Replace2(path, False, , True)` then `LocalAdaptive = True`). `ReplaceReference` alone clears adaptivity.
+- Bottom-up order must come from the rename/dependency map. Sorting by path length is not deepest-first when all targets sit in one flat folder.
+- Make Phase 4 check-only: scan `File.ReferencedFileDescriptors` without forcing `oOcc.Definition.Document` loads or unsuppress storms; open/replace only when a stale ref remains; save only if `Dirty`; open the GA invisible when possible.
+- Buffer log writes (`StringBuilder`) instead of per-reference `File.AppendAllText`.
+
+Risks: shared InternalName is required for `ReplaceReference`; basename fallbacks can point at the wrong file; model states/substitutes need their own descriptor handling; in-memory docs can look stale after replace until reload/model-state toggle.
+
+Sources (research 2026-11-05):
+- https://forums.autodesk.com/t5/inventor-programming-forum/trying-to-save-and-replace-parts-in-an-assembly/td-p/11088412
+- https://forums.autodesk.com/t5/inventor-programming-forum/vba-filedescriptor-replacereference-clears-adaptivity/td-p/11142067
+- https://forums.autodesk.com/t5/inventor-programming-ilogic/replace-part-in-assembly/td-p/2557686
+- https://forums.autodesk.com/t5/inventor-programming-forum/assembly-and-some-of-its-parts-renamed-and-saved-as-new-copy/td-p/11984657
+- https://help.autodesk.com/cloudhelp/2025/ENU/Inventor-API/files/FileDescriptor_ReplaceReference.htm
+- https://forums.autodesk.com/t5/inventor-programming-forum/replacereference-on-quot-piping-runs-environment-quot-assembly/td-p/6392875
