@@ -1,7 +1,7 @@
 '' =====================================================================
 '' SUPER_CLEAN_SWEEPER.iLogicVb
 '' Copy Design with full provenance architecture
-'' Version: 2.2.19 — 2026-11-05
+'' Version: 2.2.20 — 2026-11-05
 ''
 '' PURPOSE
 ''   Replicates Vault Copy Design outside of Vault.
@@ -39,6 +39,15 @@
 ''   outer Finally still restores the original SilentOperation at the end.
 ''   Phase 3 saves with Save2(False) (fallback Save) so the save does not
 ''   cascade to dirty CC/library dependents.
+''
+'' V2.2.20
+''   DRAWING ENTRY SCAN: when started from a drawing, the GA model is found
+''   through ReferencedDocumentDescriptors (FullDocumentName) instead of
+''   ReferencedFileDescriptors, so DART SHUT references are included.  Any
+''   text from the first "<" onward is stripped from the path.  The first
+''   .iam wins (first .ipt as fallback).  If the descriptor loop fails, the
+''   scan falls back to ReferencedDocuments.  Logged as "ENTRY-SCAN:
+''   descriptors" or "ENTRY-SCAN: fallback ReferencedDocuments".
 ''
 '' V2.2.19
 ''   DRAWING LIST POPUP: when started from a drawing, every .idw/.dwg in the
@@ -280,21 +289,77 @@ Sub Main()
         sDwgEntryPath = oActiveDoc.FullFileName
         Dim sEntryModel As String = ""
         Dim sEntryIpt As String = ""
-        Dim oEntryFD As FileDescriptor
+        ' v2.2.20: scan ReferencedDocumentDescriptors (includes DART SHUT refs);
+        ' strip any <...> tag; fall back to ReferencedDocuments on failure.
+        Dim oEntryDD As DocumentDescriptor
+        Dim oEntryRefDoc As Document
         Dim sEntryFDPath As String
         Dim sEntryFDExt As String
-        Try  ' FIX B: guard COM exception on corrupt or Vault-locked drawing FDs
-        For Each oEntryFD In oActiveDoc.ReferencedFileDescriptors
-            sEntryFDPath = ""
+        Dim iEntryLt As Integer
+        Dim bEntryScanOK As Boolean = False
+        Dim sEntryScan As String = ""
+        Try  ' FIX B: guard COM exception on corrupt or Vault-locked drawing refs
+            For Each oEntryDD In oActiveDoc.ReferencedDocumentDescriptors
+                sEntryFDPath = ""
+                sEntryFDExt = ""
+                Try
+                    sEntryFDPath = oEntryDD.FullDocumentName
+                Catch
+                End Try
+                If sEntryFDPath Is Nothing Then
+                    sEntryFDPath = ""
+                End If
+                iEntryLt = sEntryFDPath.IndexOf("<")
+                If iEntryLt >= 0 Then
+                    sEntryFDPath = sEntryFDPath.Substring(0, iEntryLt).Trim()
+                End If
+                Try
+                    sEntryFDExt = System.IO.Path.GetExtension(sEntryFDPath).ToUpper()
+                Catch
+                End Try
+                If sEntryFDExt = ".IAM" AndAlso sEntryModel = "" Then
+                    sEntryModel = sEntryFDPath
+                End If
+                If sEntryFDExt = ".IPT" AndAlso sEntryIpt = "" Then
+                    sEntryIpt = sEntryFDPath
+                End If
+            Next
+            bEntryScanOK = True
+            sEntryScan = "ENTRY-SCAN: descriptors" & vbCrLf
+        Catch
+        End Try
+        If Not bEntryScanOK Then
+            sEntryScan = "ENTRY-SCAN: fallback ReferencedDocuments" & vbCrLf
             Try
-                sEntryFDPath = oEntryFD.FullFileName
+                For Each oEntryRefDoc In oActiveDoc.ReferencedDocuments
+                    sEntryFDPath = ""
+                    sEntryFDExt = ""
+                    Try
+                        sEntryFDPath = oEntryRefDoc.FullDocumentName
+                    Catch
+                    End Try
+                    If sEntryFDPath Is Nothing Then
+                        sEntryFDPath = ""
+                    End If
+                    iEntryLt = sEntryFDPath.IndexOf("<")
+                    If iEntryLt >= 0 Then
+                        sEntryFDPath = sEntryFDPath.Substring(0, iEntryLt).Trim()
+                    End If
+                    Try
+                        sEntryFDExt = System.IO.Path.GetExtension(sEntryFDPath).ToUpper()
+                    Catch
+                    End Try
+                    If sEntryFDExt = ".IAM" AndAlso sEntryModel = "" Then
+                        sEntryModel = sEntryFDPath
+                    End If
+                    If sEntryFDExt = ".IPT" AndAlso sEntryIpt = "" Then
+                        sEntryIpt = sEntryFDPath
+                    End If
+                Next
             Catch
             End Try
-            sEntryFDExt = System.IO.Path.GetExtension(sEntryFDPath).ToUpper()
-            If sEntryFDExt = ".IAM" AndAlso sEntryModel = "" Then sEntryModel = sEntryFDPath
-            If sEntryFDExt = ".IPT" AndAlso sEntryIpt = "" Then sEntryIpt = sEntryFDPath
-        Next
-        Catch : End Try
+        End If
+        sEntryLog = sEntryScan
         If sEntryModel = "" Then sEntryModel = sEntryIpt
         If sEntryModel <> "" Then
             Try  ' FIX A: ItemByName to check if already open
@@ -309,7 +374,7 @@ Sub Main()
                 End Try
             End If
             oAsmDoc = TryCast(oEntryDoc, AssemblyDocument)
-            sEntryLog = "ENTRY: Drawing — model is " & sEntryModel & vbCrLf
+            sEntryLog &= "ENTRY: Drawing — model is " & sEntryModel & vbCrLf
         End If
     Else
         oAsmDoc = TryCast(oActiveDoc, AssemblyDocument)
@@ -332,7 +397,7 @@ Sub Main()
         System.Environment.SpecialFolder.Desktop)
     Dim sLogPath As String = System.IO.Path.Combine(sDesktop, _
         "SUPER_CLEAN_SWEEPER_" & Now.ToString("yyyyMMdd_HHmmss") & ".log")
-    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.19  —  " & Now.ToString() & vbCrLf & _
+    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.20  —  " & Now.ToString() & vbCrLf & _
                          "GA: " & sTopFull & vbCrLf
     Try : System.IO.File.WriteAllText(sLogPath, sLog) : Catch : End Try
     If sEntryLog <> "" Then
@@ -1839,7 +1904,7 @@ Sub Main()
 
     ' ── 8. Final summary ──────────────────────────────────────────────────────
     Dim sSummary As String = _
-        "SUPER CLEAN SWEEPER v2.2.19 — COMPLETE" & vbCrLf & vbCrLf & _
+        "SUPER CLEAN SWEEPER v2.2.20 — COMPLETE" & vbCrLf & vbCrLf & _
         "Phase 1  Rename map built:   " & oRenameMap.Count & " file(s)" & vbCrLf & _
         "Phase 2  SaveAs + Provenance:" & vbCrLf & _
         "         Saved    : " & iSaved & vbCrLf & _
