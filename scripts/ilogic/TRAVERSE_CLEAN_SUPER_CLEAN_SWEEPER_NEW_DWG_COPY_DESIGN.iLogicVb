@@ -1,7 +1,7 @@
 '' =====================================================================
 '' SUPER_CLEAN_SWEEPER.iLogicVb
 '' Copy Design with full provenance architecture
-'' Version: 2.2.15 — 2026-11-05
+'' Version: 2.2.16 — 2026-11-05
 ''
 '' PURPOSE
 ''   Replicates Vault Copy Design outside of Vault.
@@ -39,6 +39,12 @@
 ''   outer Finally still restores the original SilentOperation at the end.
 ''   Phase 3 saves with Save2(False) (fallback Save) so the save does not
 ''   cascade to dirty CC/library dependents.
+''
+'' V2.2.16
+''   DV-FAIL LOG: in the Phase 2 design-view activation block, the outer
+''   Catch around Activate() now logs the failure as
+''   "DV-FAIL: <new file> (<design view>) — <error message>" instead of
+''   swallowing it silently.
 ''
 '' V2.2.15
 ''   STRING-REPLACEMENT POPUP: before Phase 1 a form shows 3 Find/Replace
@@ -276,7 +282,7 @@ Sub Main()
         System.Environment.SpecialFolder.Desktop)
     Dim sLogPath As String = System.IO.Path.Combine(sDesktop, _
         "SUPER_CLEAN_SWEEPER_" & Now.ToString("yyyyMMdd_HHmmss") & ".log")
-    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.15  —  " & Now.ToString() & vbCrLf & _
+    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.16  —  " & Now.ToString() & vbCrLf & _
                          "GA: " & sTopFull & vbCrLf
     Try : System.IO.File.WriteAllText(sLogPath, sLog) : Catch : End Try
     If sEntryLog <> "" Then
@@ -956,7 +962,9 @@ Sub Main()
                                     End Try
                                 End If
                             End If
-                        Catch : End Try
+                        Catch exDV As Exception
+                            Try : System.IO.File.AppendAllText(sLogPath, "DV-FAIL: " & sNewName2 & " (" & sSrcDV & ") — " & exDV.Message & vbCrLf) : Catch : End Try
+                        End Try
                     End If
 
                     ' Save provenance to disk  ' FIX C: Save2(False) — no cascade to dirty dependents
@@ -1465,7 +1473,7 @@ Sub Main()
 
     ' ── 8. Final summary ──────────────────────────────────────────────────────
     Dim sSummary As String = _
-        "SUPER CLEAN SWEEPER v2.2.15 — COMPLETE" & vbCrLf & vbCrLf & _
+        "SUPER CLEAN SWEEPER v2.2.16 — COMPLETE" & vbCrLf & vbCrLf & _
         "Phase 1  Rename map built:   " & oRenameMap.Count & " file(s)" & vbCrLf & _
         "Phase 2  SaveAs + Provenance:" & vbCrLf & _
         "         Saved    : " & iSaved & vbCrLf & _
