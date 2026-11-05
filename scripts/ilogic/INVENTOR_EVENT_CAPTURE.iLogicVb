@@ -8,8 +8,9 @@
 '' WHY UserInputEvents.OnActivateCommand:
 ''   ApplicationEvents.OnOpenDocument requires ByRef HandlingCode in
 ''   the delegate, which iLogic lambdas cannot use.
-''   UserInputEvents.OnActivateCommand has no ByRef param — the Private
-''   Sub pattern compiles cleanly in iLogic.
+''   UserInputEvents.OnActivateCommand(CommandName As String,
+''   Context As NameValueMap) has no ByRef param, so a Private Sub
+''   handler compiles cleanly in iLogic.
 ''
 '' WHAT TO DO:
 ''   1. Run this rule → "CAPTURE ACTIVE" dialog appears.
@@ -31,63 +32,27 @@
 ''     (pre-imported; duplicates cause Inventor.File / System.IO.File ambiguity)
 ''   - Do NOT add Imports Inventor (pre-imported; would conflict)
 ''   - Do NOT place bare Dim at outer scope (only Sub/Function/Class valid there)
-''   - Private Sub OUTSIDE Sub Main() works for event handlers
+''   - Sub Main first; helper Subs/Functions after it
 ''   - Use System.IO.File / System.IO.Path fully qualified throughout
 ''   - Fully qualify System.Environment.GetFolderPath/SpecialFolder
 ''
-'' Handler leak fix: RemoveHandler is called on STOP and defensively
-''   before AddHandler on START, preventing duplicate-fire accumulation.
-''   g_sLogPath caches the log path so CaptureCommand needs no file I/O.
+'' HANDLER LIFETIME:
+''   The STOP run is a NEW rule instance, so "RemoveHandler ..., AddressOf
+''   CaptureCommand" from STOP builds a different delegate and detaches
+''   nothing. START therefore stores the UserInputEvents object, the exact
+''   delegate passed to AddHandler, and the log path in Shared/Static
+''   holders (GetSetCapture* — same Static GetSet pattern as GetSetExcelApp
+''   in TRAVERSE). STOP removes that same delegate from that same object.
+''   If the rule was edited (recompiled) between START and STOP the holders
+''   are empty; STOP then reports that the old handler may still be
+''   attached until Inventor is restarted.
 ''
-'' Last updated: 2026-11-04 fix: use UserInputEvents.OnActivateCommand,
-''   add RemoveHandler on STOP, defensive Remove before AddHandler,
-''   cache log path in g_sLogPath to avoid per-command file reads.
+'' Last updated: 2026-11-05 Code-Assassin: Shared/Static holders for the
+''   events object, delegate and log path (replaces module-level Dim
+''   g_sLogPath); RemoveHandler uses the stored delegate; Logger.Info and
+''   START file writes each in their own Try.
+''   2026-11-04: UserInputEvents.OnActivateCommand, RemoveHandler on STOP.
 '' =====================================================================
-
-' ─── Module-level cache: log path for the active capture session ──────────
-' Persists for the lifetime of this compiled rule instance (kept alive by
-' the event subscription).  Set during START, read in CaptureCommand,
-' cleared during STOP.  Empty string = capture not active in this instance.
-Dim g_sLogPath As String = ""
-
-
-' ─── Desktop sentinel path ───────────────────────────────────────────────
-Function SentinelPath() As String
-    Return System.IO.Path.Combine( _
-        System.Environment.GetFolderPath(System.Environment.SpecialFolder.Desktop), _
-        "INVENTOR_CAPTURE_ACTIVE.flag")
-End Function
-
-
-' ─── Event handler — fires for EVERY Inventor command ────────────────────
-' Private Sub at outer scope is valid in iLogic when delegate has no ByRef.
-Private Sub CaptureCommand(ByVal CommandID As String, ByVal Context As NameValueMap)
-    ' Skip constant noise commands to keep the log readable
-    Select Case CommandID
-        Case "AppCancelCmd", "AppDoNothingCmd", "AppUpdateViewCmd", _
-             "AppOKCmd", "AppPanViewCmd", "AppRotateViewCmd", "AppZoomViewCmd", _
-             "AppZoomAllViewCmd", "AppZoomWindowCmd"
-            Return  ' ignore navigation / generic UI noise
-    End Select
-
-    Try
-        Logger.Info("CMD: " & CommandID)
-
-        ' Use the cached log path — zero file I/O per command
-        Dim sLog As String = g_sLogPath
-        If sLog = "" Then
-            ' Fallback: read from sentinel (handles cross-instance capture)
-            Dim sSentinel As String = SentinelPath()
-            If Not System.IO.File.Exists(sSentinel) Then Return
-            sLog = System.IO.File.ReadAllText(sSentinel).Trim()
-            If sLog = "" Then Return
-        End If
-
-        Dim sLine As String = DateTime.Now.ToString("HH:mm:ss.fff") & "  " & CommandID
-        System.IO.File.AppendAllText(sLog, sLine & vbCrLf)
-    Catch
-    End Try
-End Sub
 
 
 ' ══════════════════════════════════════════════════════════════════════════
@@ -100,34 +65,42 @@ Sub Main()
     ' ── STOP if sentinel says capture is already running ─────────────────
     If System.IO.File.Exists(sSentinel) Then
         Try
-            Dim sLogPath As String = System.IO.File.ReadAllText(sSentinel).Trim()
+            ' Cached path first; flag file only if the cache is empty
+            Dim sLogPath As String = GetSetCaptureLogPath()
+            If sLogPath = "" Then
+                Try : sLogPath = System.IO.File.ReadAllText(sSentinel).Trim() : Catch : sLogPath = "" : End Try
+            End If
 
             ' Append stop marker to log
-            Try
-                System.IO.File.AppendAllText(sLogPath, _
-                    vbCrLf & "=== CAPTURE STOPPED " & _
-                    DateTime.Now.ToString("HH:mm:ss.fff") & " ===" & vbCrLf)
-            Catch : End Try
+            If sLogPath <> "" Then
+                Try
+                    System.IO.File.AppendAllText(sLogPath, _
+                        vbCrLf & "=== CAPTURE STOPPED " & _
+                        DateTime.Now.ToString("HH:mm:ss.fff") & " ===" & vbCrLf)
+                Catch
+                End Try
+            End If
 
-            ' REMOVE handler — prevents continuing to fire after stop
-            Try
-                RemoveHandler oApp.UserInputEvents.OnActivateCommand, _
-                              AddressOf CaptureCommand
-            Catch : End Try
-
-            ' Clear cached path so this instance's handler also stops logging
-            g_sLogPath = ""
+            ' REMOVE the stored delegate from the stored events object
+            Dim bDetached As Boolean = DetachCapture()
 
             ' Delete sentinel
-            System.IO.File.Delete(sSentinel)
-            Logger.Info("--- Command capture STOPPED ---")
+            Try : System.IO.File.Delete(sSentinel) : Catch : End Try
+            Try : Logger.Info("--- Command capture STOPPED ---") : Catch : End Try
+
+            Dim sNote As String = ""
+            If Not bDetached Then
+                sNote = vbCrLf & vbCrLf & _
+                    "Note: no stored handler was found (the rule may have been edited" & vbCrLf & _
+                    "since START). If commands are still being logged, restart Inventor."
+            End If
 
             Dim oRes As DialogResult = MessageBox.Show( _
                 "Command capture stopped." & vbCrLf & vbCrLf & _
-                "Log:" & vbCrLf & sLogPath & vbCrLf & vbCrLf & _
+                "Log:" & vbCrLf & sLogPath & sNote & vbCrLf & vbCrLf & _
                 "Open in Notepad now?", _
                 "CAPTURE STOPPED", MessageBoxButtons.YesNo, MessageBoxIcon.Information)
-            If oRes = DialogResult.Yes Then
+            If oRes = DialogResult.Yes AndAlso sLogPath <> "" Then
                 Try : System.Diagnostics.Process.Start("notepad.exe", sLogPath) : Catch : End Try
             End If
         Catch ex As Exception
@@ -151,31 +124,40 @@ Sub Main()
     oHdr.AppendLine("Look for: Replace Component, Update Drawing Reference, Save-related IDs.")
     oHdr.AppendLine(New String("="c, 80))
     oHdr.AppendLine()
-    System.IO.File.WriteAllText(sLog, oHdr.ToString())
 
-    ' Sentinel stores the log path as a cross-instance fallback
-    System.IO.File.WriteAllText(sSentinel, sLog)
-
-    ' Cache path in this instance so CaptureCommand needs no file I/O
-    g_sLogPath = sLog
+    Try
+        System.IO.File.WriteAllText(sLog, oHdr.ToString())
+        ' Sentinel stores the log path as a cross-instance fallback
+        System.IO.File.WriteAllText(sSentinel, sLog)
+    Catch exWrite As Exception
+        Try : System.IO.File.Delete(sSentinel) : Catch : End Try
+        MessageBox.Show("Could not create the capture log or flag file on the Desktop:" & vbCrLf & _
+                        exWrite.Message, "Capture", MessageBoxButtons.OK, MessageBoxIcon.Error)
+        Return
+    End Try
 
     ' ── Hook command events ───────────────────────────────────────────────
-    ' Defensively remove first to prevent doubling if START is run twice
-    ' without an intervening STOP (e.g. sentinel was deleted externally).
-    Try
-        RemoveHandler oApp.UserInputEvents.OnActivateCommand, AddressOf CaptureCommand
-    Catch : End Try
+    ' Detach anything still held from an earlier START (sentinel deleted
+    ' externally, or START run twice) so the handler never doubles up.
+    DetachCapture()
 
     Try
-        AddHandler oApp.UserInputEvents.OnActivateCommand, AddressOf CaptureCommand
-        Logger.Info("--- Command capture STARTED — " & sLog & " ---")
+        Dim oUIE As UserInputEvents = oApp.CommandManager.UserInputEvents
+        Dim oHandler As New UserInputEventsSink_OnActivateCommandEventHandler(AddressOf CaptureCommand)
+        AddHandler oUIE.OnActivateCommand, oHandler
+        GetSetCaptureEvents(True, oUIE)
+        GetSetCaptureHandler(True, oHandler)
+        ' Cache path so CaptureCommand needs no file reads
+        GetSetCaptureLogPath(True, sLog)
     Catch exHook As Exception
-        g_sLogPath = ""
-        System.IO.File.Delete(sSentinel)
+        DetachCapture()
+        Try : System.IO.File.Delete(sSentinel) : Catch : End Try
         MessageBox.Show("Failed to hook UserInputEvents.OnActivateCommand: " & exHook.Message, _
                         "Capture", MessageBoxButtons.OK, MessageBoxIcon.Error)
         Return
     End Try
+
+    Try : Logger.Info("--- Command capture STARTED — " & sLog & " ---") : Catch : End Try
 
     MessageBox.Show( _
         "Command capture is ACTIVE." & vbCrLf & vbCrLf & _
@@ -186,4 +168,96 @@ Sub Main()
         "Run this rule AGAIN to stop.", _
         "CAPTURE ACTIVE", MessageBoxButtons.OK, MessageBoxIcon.Information)
 
+End Sub
+
+
+' ─── Desktop sentinel path ───────────────────────────────────────────────
+Function SentinelPath() As String
+    Return System.IO.Path.Combine( _
+        System.Environment.GetFolderPath(System.Environment.SpecialFolder.Desktop), _
+        "INVENTOR_CAPTURE_ACTIVE.flag")
+End Function
+
+
+' ─── Cross-run holders (Static GetSet pattern, Shared so they outlive the
+'     rule instance that ran START) ─────────────────────────────────────────
+Shared Function GetSetCaptureEvents(Optional bSet As Boolean = False, _
+    Optional oNewVal As UserInputEvents = Nothing) As UserInputEvents
+    Static oUIEStatic As UserInputEvents = Nothing
+    If bSet Then oUIEStatic = oNewVal
+    Return oUIEStatic
+End Function
+
+Shared Function GetSetCaptureHandler(Optional bSet As Boolean = False, _
+    Optional oNewVal As UserInputEventsSink_OnActivateCommandEventHandler = Nothing) _
+    As UserInputEventsSink_OnActivateCommandEventHandler
+    Static oHandlerStatic As UserInputEventsSink_OnActivateCommandEventHandler = Nothing
+    If bSet Then oHandlerStatic = oNewVal
+    Return oHandlerStatic
+End Function
+
+Shared Function GetSetCaptureLogPath(Optional bSet As Boolean = False, _
+    Optional sNewVal As String = "") As String
+    Static sLogPathStatic As String = ""
+    If bSet Then
+        If sNewVal Is Nothing Then sNewVal = ""
+        sLogPathStatic = sNewVal
+    End If
+    Return sLogPathStatic
+End Function
+
+
+' ─── Detach the stored handler and clear all holders ─────────────────────
+' Returns True if a stored handler was found and RemoveHandler was called.
+Function DetachCapture() As Boolean
+    Dim bDetached As Boolean = False
+    Dim oUIE As UserInputEvents = GetSetCaptureEvents()
+    Dim oHandler As UserInputEventsSink_OnActivateCommandEventHandler = GetSetCaptureHandler()
+    If oUIE IsNot Nothing AndAlso oHandler IsNot Nothing Then
+        Try
+            RemoveHandler oUIE.OnActivateCommand, oHandler
+            bDetached = True
+        Catch
+        End Try
+    End If
+    GetSetCaptureHandler(True, Nothing)
+    GetSetCaptureEvents(True, Nothing)
+    GetSetCaptureLogPath(True, "")
+    Return bDetached
+End Function
+
+
+' ─── Event handler — fires for EVERY Inventor command ────────────────────
+' Signature matches UserInputEvents.OnActivateCommand(CommandName, Context).
+Private Sub CaptureCommand(ByVal CommandName As String, ByVal Context As NameValueMap)
+    ' Skip constant noise commands to keep the log readable
+    Select Case CommandName
+        Case "AppCancelCmd", "AppDoNothingCmd", "AppUpdateViewCmd", _
+             "AppOKCmd", "AppPanViewCmd", "AppRotateViewCmd", "AppZoomViewCmd", _
+             "AppZoomAllViewCmd", "AppZoomWindowCmd"
+            Return  ' ignore navigation / generic UI noise
+    End Select
+
+    ' Logger may be unusable once the START rule run has ended; never let it
+    ' stop the file write.
+    Try
+        Logger.Info("CMD: " & CommandName)
+    Catch
+    End Try
+
+    Try
+        ' Cached log path — zero file reads per command
+        Dim sLog As String = GetSetCaptureLogPath()
+        If sLog = "" Then
+            ' Fallback only when the cache is empty: read the flag file
+            Dim sSentinel As String = SentinelPath()
+            If Not System.IO.File.Exists(sSentinel) Then Return
+            sLog = System.IO.File.ReadAllText(sSentinel).Trim()
+            If sLog = "" Then Return
+        End If
+
+        Dim sLine As String = DateTime.Now.ToString("HH:mm:ss.fff") & "  " & CommandName
+        System.IO.File.AppendAllText(sLog, sLine & vbCrLf)
+    Catch
+    End Try
 End Sub
