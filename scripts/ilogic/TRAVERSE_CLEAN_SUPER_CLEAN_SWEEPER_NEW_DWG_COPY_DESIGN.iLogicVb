@@ -1,7 +1,7 @@
 '' =====================================================================
 '' SUPER_CLEAN_SWEEPER.iLogicVb
 '' Copy Design with full provenance architecture
-'' Version: 2.2.10 — 2026-11-05
+'' Version: 2.2.11 — 2026-11-05
 ''
 '' PURPOSE
 ''   Replicates Vault Copy Design outside of Vault.
@@ -39,6 +39,13 @@
 ''   outer Finally still restores the original SilentOperation at the end.
 ''   Phase 3 saves with Save2(False) (fallback Save) so the save does not
 ''   cascade to dirty CC/library dependents.
+''
+'' V2.2.11
+''   DESIGN-VIEW PRESERVATION: Phase 2 captures the source .iam's active
+''   design view representation before SaveAs, and after provenance is
+''   written activates the same-named design view in the new .iam before
+''   Save2(False), so the copy opens with the same colors, appearance
+''   overrides and visibility.  Logged as DV-ACTIVATE.
 ''
 '' V2.2.10
 ''   GA-FIRST ORDERING: Phase 2 processes the top GA first (moved to the
@@ -220,7 +227,7 @@ Sub Main()
         System.Environment.SpecialFolder.Desktop)
     Dim sLogPath As String = System.IO.Path.Combine(sDesktop, _
         "SUPER_CLEAN_SWEEPER_" & Now.ToString("yyyyMMdd_HHmmss") & ".log")
-    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.10  —  " & Now.ToString() & vbCrLf & _
+    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.11  —  " & Now.ToString() & vbCrLf & _
                          "GA: " & sTopFull & vbCrLf
     Try : System.IO.File.WriteAllText(sLogPath, sLog) : Catch : End Try
     If sEntryLog <> "" Then
@@ -680,6 +687,17 @@ Sub Main()
             ' read-only session lock).  File.Copy bypasses the Inventor session
             ' entirely and writes a raw OS copy, which is then safe to open
             ' separately for provenance writing.
+            ' v2.2.11: capture the source assembly's active design view before SaveAs
+            Dim sSrcDV As String = ""
+            If sExtU2 = ".IAM" AndAlso oDoc2 IsNot Nothing Then
+                Try
+                    Dim oSrcAsm As AssemblyDocument = TryCast(oDoc2, AssemblyDocument)
+                    If oSrcAsm IsNot Nothing Then
+                        sSrcDV = oSrcAsm.ComponentDefinition.RepresentationsManager.ActiveDesignViewRepresentation.Name
+                    End If
+                Catch : End Try
+            End If
+
             Dim bSaveAsOk2 As Boolean = False
             Dim bUsedFileCopy2 As Boolean = False
             Try
@@ -770,6 +788,17 @@ Sub Main()
                     If (sExtU2 = ".IDW" OrElse sExtU2 = ".DWG") AndAlso _
                        oModelRefs2.Count > 0 Then
                         WriteDrawingModelRefs(oNewDoc2, oModelRefs2, sLogPath)
+                    End If
+
+                    ' v2.2.11: activate the source's design view in the new assembly
+                    If sSrcDV <> "" AndAlso sExtU2 = ".IAM" Then
+                        Try
+                            Dim oNewAsm As AssemblyDocument = TryCast(oNewDoc2, AssemblyDocument)
+                            If oNewAsm IsNot Nothing Then
+                                oNewAsm.ComponentDefinition.RepresentationsManager.DesignViewRepresentations.Item(sSrcDV).Activate()
+                                Try : System.IO.File.AppendAllText(sLogPath, "DV-ACTIVATE: " & sNewName2 & " -> " & sSrcDV & vbCrLf) : Catch : End Try
+                            End If
+                        Catch : End Try
                     End If
 
                     ' Save provenance to disk  ' FIX C: Save2(False) — no cascade to dirty dependents
@@ -1213,7 +1242,7 @@ Sub Main()
 
     ' ── 8. Final summary ──────────────────────────────────────────────────────
     Dim sSummary As String = _
-        "SUPER CLEAN SWEEPER v2.2.10 — COMPLETE" & vbCrLf & vbCrLf & _
+        "SUPER CLEAN SWEEPER v2.2.11 — COMPLETE" & vbCrLf & vbCrLf & _
         "Phase 1  Rename map built:   " & oRenameMap.Count & " file(s)" & vbCrLf & _
         "Phase 2  SaveAs + Provenance:" & vbCrLf & _
         "         Saved    : " & iSaved & vbCrLf & _
