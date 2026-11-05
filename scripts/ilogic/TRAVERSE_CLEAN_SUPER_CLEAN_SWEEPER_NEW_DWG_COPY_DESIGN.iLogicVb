@@ -1,7 +1,7 @@
 '' =====================================================================
 '' SUPER_CLEAN_SWEEPER.iLogicVb
 '' Copy Design with full provenance architecture
-'' Version: 2.2.12 — 2026-11-05
+'' Version: 2.2.13 — 2026-11-05
 ''
 '' PURPOSE
 ''   Replicates Vault Copy Design outside of Vault.
@@ -39,6 +39,14 @@
 ''   outer Finally still restores the original SilentOperation at the end.
 ''   Phase 3 saves with Save2(False) (fallback Save) so the save does not
 ''   cascade to dirty CC/library dependents.
+''
+'' V2.2.13
+''   DEFAULT DESIGN VIEW ON TOP GA: in the Phase 2 DV-ACTIVATE block, when
+''   the file is the top GA (sOldFull2 = sTopFull, case-insensitive), the
+''   source's design view is re-activated as the open view.  Inventor has no
+''   direct SetAsDefault; the view active at save time is the one the file
+''   opens in.  Logged as DV-DEFAULT (or DV-DEFAULT-FAIL).  Sub-assemblies
+''   keep DV-ACTIVATE only.
 ''
 '' V2.2.12
 ''   NEW GA LEFT OPEN: Phase 4 no longer closes the new top GA after the
@@ -237,7 +245,7 @@ Sub Main()
         System.Environment.SpecialFolder.Desktop)
     Dim sLogPath As String = System.IO.Path.Combine(sDesktop, _
         "SUPER_CLEAN_SWEEPER_" & Now.ToString("yyyyMMdd_HHmmss") & ".log")
-    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.12  —  " & Now.ToString() & vbCrLf & _
+    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.13  —  " & Now.ToString() & vbCrLf & _
                          "GA: " & sTopFull & vbCrLf
     Try : System.IO.File.WriteAllText(sLogPath, sLog) : Catch : End Try
     If sEntryLog <> "" Then
@@ -809,6 +817,18 @@ Sub Main()
                             If oNewAsm IsNot Nothing Then
                                 oNewAsm.ComponentDefinition.RepresentationsManager.DesignViewRepresentations.Item(sSrcDV).Activate()
                                 Try : System.IO.File.AppendAllText(sLogPath, "DV-ACTIVATE: " & sNewName2 & " -> " & sSrcDV & vbCrLf) : Catch : End Try
+                                ' v2.2.13: on the top GA, set this design view as the default so the file opens in it
+                                If String.Equals(sOldFull2, sTopFull, StringComparison.OrdinalIgnoreCase) Then
+                                    Try
+                                        Dim oDV As DesignViewRepresentation = oNewAsm.ComponentDefinition.RepresentationsManager.DesignViewRepresentations.Item(sSrcDV)
+                                        oDV.Activate()
+                                        ' Inventor has no direct SetAsDefault; the active view at save time becomes the open view.
+                                        ' Save2(False) follows below. Log it.
+                                        Try : System.IO.File.AppendAllText(sLogPath, "DV-DEFAULT: " & sNewName2 & " -> " & sSrcDV & vbCrLf) : Catch : End Try
+                                    Catch
+                                        Try : System.IO.File.AppendAllText(sLogPath, "DV-DEFAULT-FAIL: " & sNewName2 & vbCrLf) : Catch : End Try
+                                    End Try
+                                End If
                             End If
                         Catch : End Try
                     End If
@@ -1268,7 +1288,7 @@ Sub Main()
 
     ' ── 8. Final summary ──────────────────────────────────────────────────────
     Dim sSummary As String = _
-        "SUPER CLEAN SWEEPER v2.2.12 — COMPLETE" & vbCrLf & vbCrLf & _
+        "SUPER CLEAN SWEEPER v2.2.13 — COMPLETE" & vbCrLf & vbCrLf & _
         "Phase 1  Rename map built:   " & oRenameMap.Count & " file(s)" & vbCrLf & _
         "Phase 2  SaveAs + Provenance:" & vbCrLf & _
         "         Saved    : " & iSaved & vbCrLf & _
