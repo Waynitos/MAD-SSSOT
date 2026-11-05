@@ -1,7 +1,7 @@
 '' =====================================================================
 '' SUPER_CLEAN_SWEEPER.iLogicVb
 '' Copy Design with full provenance architecture
-'' Version: 2.2.11 — 2026-11-05
+'' Version: 2.2.12 — 2026-11-05
 ''
 '' PURPOSE
 ''   Replicates Vault Copy Design outside of Vault.
@@ -39,6 +39,16 @@
 ''   outer Finally still restores the original SilentOperation at the end.
 ''   Phase 3 saves with Save2(False) (fallback Save) so the save does not
 ''   cascade to dirty CC/library dependents.
+''
+'' V2.2.12
+''   NEW GA LEFT OPEN: Phase 4 no longer closes the new top GA after the
+''   live occurrence walk and P4-GA-SAVED save; it is left open and
+''   "P4-GA-LEFT-OPEN: <filename>" is logged.  If the GA is only open
+''   invisibly (e.g. opened by the pre-Phase 2 provenance rebuild), a view
+''   is added so it shows on screen (P4-GA-SHOWN).  The outer Finally skips
+''   the close for that document (sKeepOpenGA); other documents the rule
+''   opened are still closed.  Drawing entry: the drawing is left open if it
+''   was already open and closed only if the rule opened it (unchanged).
 ''
 '' V2.2.11
 ''   DESIGN-VIEW PRESERVATION: Phase 2 captures the source .iam's active
@@ -227,7 +237,7 @@ Sub Main()
         System.Environment.SpecialFolder.Desktop)
     Dim sLogPath As String = System.IO.Path.Combine(sDesktop, _
         "SUPER_CLEAN_SWEEPER_" & Now.ToString("yyyyMMdd_HHmmss") & ".log")
-    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.11  —  " & Now.ToString() & vbCrLf & _
+    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.12  —  " & Now.ToString() & vbCrLf & _
                          "GA: " & sTopFull & vbCrLf
     Try : System.IO.File.WriteAllText(sLogPath, sLog) : Catch : End Try
     If sEntryLog <> "" Then
@@ -491,6 +501,8 @@ Sub Main()
 
     ' FIX 1: Track documents opened in PRE-PHASE 2 for explicit close in Finally.
     Dim oProvRebuildOpened As New System.Collections.Generic.List(Of Document)()
+    ' v2.2.12: full path of the new GA that Phase 4 leaves open (Finally skips its close).
+    Dim sKeepOpenGA As String = ""
 
     Try : System.IO.File.AppendAllText(sLogPath, vbCrLf & "=== PHASE 2: SAVEAS + PROVENANCE ===" & vbCrLf) : Catch : End Try
     Try  ' ← F1: outer Try/Finally — Finally restores SilentOperation
@@ -1148,9 +1160,15 @@ Sub Main()
                     Try : System.IO.File.AppendAllText(sLogPath, "P4-GA-SAVE-FAIL: " & exGASave.Message & vbCrLf) : Catch : End Try
                 End Try
                 Try : System.IO.File.AppendAllText(sLogPath, "Phase 4 complete: " & iP4Fixed & " replaced, " & iP4Failed & " failed." & vbCrLf) : Catch : End Try
-                If bGAOpenedHere Then
-                    Try : oNewGA.Close(False) : Catch : End Try
-                End If
+                ' v2.2.12: leave the new GA open so it can be checked straight away.
+                sKeepOpenGA = sNewGAPath
+                Try
+                    If oNewGA.Views.Count = 0 Then
+                        oNewGA.Views.Add()
+                        Try : System.IO.File.AppendAllText(sLogPath, "P4-GA-SHOWN: " & System.IO.Path.GetFileName(sNewGAPath) & vbCrLf) : Catch : End Try
+                    End If
+                Catch : End Try
+                Try : System.IO.File.AppendAllText(sLogPath, "P4-GA-LEFT-OPEN: " & System.IO.Path.GetFileName(sNewGAPath) & vbCrLf) : Catch : End Try
             End If
         Else
             Try : System.IO.File.AppendAllText(sLogPath, "P4-SKIP: new GA path not found in map." & vbCrLf) : Catch : End Try
@@ -1235,14 +1253,22 @@ Sub Main()
         ' FIX 1: Close all documents opened in PRE-PHASE 2 for provenance rebuild.
         ' These were not tracked by Phase 2's bOpenedHere2 flag and were left open
         ' intentionally until this point to allow Phase 3 to use them if needed.
+        ' v2.2.12: skip the close for the new GA that Phase 4 left open.
+        Dim sPRDFull As String
         For Each oPRD As Document In oProvRebuildOpened
+            sPRDFull = ""
+            Try
+                sPRDFull = oPRD.FullFileName
+            Catch
+            End Try
+            If sKeepOpenGA <> "" AndAlso String.Equals(sPRDFull, sKeepOpenGA, StringComparison.OrdinalIgnoreCase) Then Continue For
             Try : oPRD.Close(True) : Catch : End Try
         Next
     End Try  ' ← F1: outer Try/Finally ends here
 
     ' ── 8. Final summary ──────────────────────────────────────────────────────
     Dim sSummary As String = _
-        "SUPER CLEAN SWEEPER v2.2.11 — COMPLETE" & vbCrLf & vbCrLf & _
+        "SUPER CLEAN SWEEPER v2.2.12 — COMPLETE" & vbCrLf & vbCrLf & _
         "Phase 1  Rename map built:   " & oRenameMap.Count & " file(s)" & vbCrLf & _
         "Phase 2  SaveAs + Provenance:" & vbCrLf & _
         "         Saved    : " & iSaved & vbCrLf & _
