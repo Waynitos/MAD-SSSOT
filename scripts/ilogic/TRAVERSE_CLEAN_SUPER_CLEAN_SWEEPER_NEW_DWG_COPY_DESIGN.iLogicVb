@@ -1,7 +1,7 @@
 '' =====================================================================
 '' SUPER_CLEAN_SWEEPER.iLogicVb
 '' Copy Design with full provenance architecture
-'' Version: 2.2.3 — 2026-11-05
+'' Version: 2.2.4 — 2026-11-05
 ''
 '' PURPOSE
 ''   Replicates Vault Copy Design outside of Vault.
@@ -39,6 +39,18 @@
 ''   outer Finally still restores the original SilentOperation at the end.
 ''   Phase 3 saves with Save2(False) (fallback Save) so the save does not
 ''   cascade to dirty CC/library dependents.
+''
+'' V2.2.4
+''   PHASE 4 LIVE RESWEEP: after Phase 3, opens the new top GA and walks its
+''   ComponentOccurrences bottom-up (Phase4_WalkOccs).  Any occurrence still
+''   pointing at an old path with a target in oActualMap / oTargetByBase is
+''   swapped with ComponentOccurrence.Replace (unsuppress first, re-suppress
+''   after); target-folder assemblies are saved with Save2(False).
+''   Browser rename is deferred.
+''   PHASE 3 SAVE: Save2(False) only, no fallback to Save().  A failed save
+''   logs the exact Save2 error (P3-SAVE2-FAIL) and the document is left open
+''   for a later retry.  Close only after a successful save when opened here.
+''   Refs are counted as fixed only after a successful save.
 ''
 '' V2.2.3  (Code-Assassin fixes — 2026-11-05)
 ''   FIX 1: PRE-PHASE 2 document lifecycle — opened files tracked in
@@ -106,7 +118,7 @@ Sub Main()
         System.Environment.SpecialFolder.Desktop)
     Dim sLogPath As String = System.IO.Path.Combine(sDesktop, _
         "SUPER_CLEAN_SWEEPER_" & Now.ToString("yyyyMMdd_HHmmss") & ".log")
-    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.3  —  " & Now.ToString() & vbCrLf & _
+    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.4  —  " & Now.ToString() & vbCrLf & _
                          "GA: " & sTopFull & vbCrLf
     Try : System.IO.File.WriteAllText(sLogPath, sLog) : Catch : End Try
 
@@ -660,7 +672,12 @@ Sub Main()
     oP3Targets.Sort(Function(a2, b2) b2.Length.CompareTo(a2.Length))
 
     Dim sNewPath3 As String
+    ' v2.2.4: refs are counted as fixed only after the document saves.
+    Dim iPending3 As Integer = 0
+    Dim bSaved3 As Boolean = False
     For Each sNewPath3 In oP3Targets
+        iPending3 = 0
+        bSaved3 = False
         Dim sNewName3 As String = System.IO.Path.GetFileName(sNewPath3)
         Dim sExtU3    As String = System.IO.Path.GetExtension(sNewPath3).ToUpper()
         If Not System.IO.File.Exists(sNewPath3) Then Continue For
@@ -710,7 +727,7 @@ Sub Main()
                         Try
                             oFD3.ReplaceReference(sNewRef3)
                             bChanged3 = True
-                            iRefFixed += 1
+                            iPending3 += 1
                             Try : System.IO.File.AppendAllText(sLogPath, _
                                 "  P3-FD: [" & sNewName3 & "] " & _
                                 System.IO.Path.GetFileName(sOldRef3) & " -> " & _
@@ -788,7 +805,7 @@ Sub Main()
 
                             If bReplaced3 Then
                                 bChanged3 = True
-                                iRefFixed += 1
+                                iPending3 += 1
                                 Try : oOcc3.Name = System.IO.Path.GetFileNameWithoutExtension(sOccNew3) : Catch : End Try
                                 Try : System.IO.File.AppendAllText(sLogPath, _
                                     "  P3-OCC: [" & sNewName3 & "] " & _
@@ -821,28 +838,94 @@ Sub Main()
             ' SilentOperation = True suppresses Inventor's multi-file Save dialog
             ' ("Multiple files have been updated in current session...") that fires
             ' when saving an assembly whose referenced CC/library parts are dirty.
+            ' Save2(False): save this document only, do not cascade to dirty
+            ' CC/library dependents that Vault would prompt about.
+            ' v2.2.4: no fallback to Save(); log the exact Save2 error instead.
             Try
                 ThisApplication.SilentOperation = True
-                ' Save2(False): save this document only, do not cascade to dirty
-                ' CC/library dependents that Vault would prompt about.
+                oDoc3.Save2(False)
+                bSaved3 = True
+                iRefFixed += iPending3
                 Try
-                    oDoc3.Save2(False)
+                    System.IO.File.AppendAllText(sLogPath, "P3-SAVED: " & sNewName3 & _
+                        " (" & iPending3 & " ref(s))" & vbCrLf)
                 Catch
-                    oDoc3.Save()
                 End Try
-                Try : System.IO.File.AppendAllText(sLogPath, "P3-SAVED: " & sNewName3 & vbCrLf) : Catch : End Try
             Catch exSv3 As Exception
-                Try : System.IO.File.AppendAllText(sLogPath, _
-                    "P3-SAVE-FAIL: " & sNewName3 & " — " & exSv3.Message & vbCrLf) : Catch : End Try
+                iRefFailed += iPending3
+                Try
+                    System.IO.File.AppendAllText(sLogPath, _
+                        "P3-SAVE2-FAIL: " & sNewName3 & " — " & exSv3.Message & _
+                        "  (left open for retry; " & iPending3 & " ref(s) not counted as fixed)" & vbCrLf)
+                Catch
+                End Try
             End Try
+        Else
+            bSaved3 = True
         End If
-        If bOpened3 AndAlso oDoc3 IsNot Nothing Then
-            Try : oDoc3.Close(True) : Catch : End Try
+        ' Close only if the save succeeded (or nothing needed saving) AND we opened it here.
+        If bSaved3 AndAlso bOpened3 AndAlso oDoc3 IsNot Nothing Then
+            Try
+                oDoc3.Close(True)
+            Catch
+            End Try
         End If
     Next
 
     Try : System.IO.File.AppendAllText(sLogPath, _
         "Phase 3 complete: " & iRefFixed & " fixed, " & iRefFailed & " failed." & vbCrLf) : Catch : End Try
+
+    ' ── PHASE 4: LIVE OCCURRENCE RESWEEP on the active GA ──────────────────────
+    ' Runs after Phase 3. Opens the new top GA visibly and walks ComponentOccurrences
+    ' bottom-up. For any occurrence still pointing at an old path that has a target
+    ' in oActualMap, calls ComponentOccurrence.Replace. Clears read-only before save.
+    ' Never closes a document with unsaved changes via Close(True).
+    ' Browser rename is deferred.
+    Try
+        System.IO.File.AppendAllText(sLogPath, vbCrLf & "=== PHASE 4: LIVE OCCURRENCE RESWEEP ===" & vbCrLf)
+        Dim sNewGAPath As String = ""
+        If oActualMap.ContainsKey(sTopFull) Then sNewGAPath = oActualMap(sTopFull)
+        If sNewGAPath <> "" AndAlso System.IO.File.Exists(sNewGAPath) Then
+            Dim oNewGA As AssemblyDocument = Nothing
+            Dim bGAOpenedHere As Boolean = False
+            Try
+                oNewGA = TryCast(ThisApplication.Documents.ItemByName(sNewGAPath), AssemblyDocument)
+            Catch : End Try
+            If oNewGA Is Nothing Then
+                Try
+                    oNewGA = TryCast(ThisApplication.Documents.Open(sNewGAPath, True), AssemblyDocument)
+                    bGAOpenedHere = True
+                Catch exGA As Exception
+                    Try : System.IO.File.AppendAllText(sLogPath, "P4-OPEN-FAIL: " & exGA.Message & vbCrLf) : Catch : End Try
+                End Try
+            End If
+            If oNewGA IsNot Nothing Then
+                Dim iP4Fixed As Integer = 0
+                Dim iP4Failed As Integer = 0
+                Dim oP4Visited As New System.Collections.Generic.HashSet(Of String)()
+                Phase4_WalkOccs(oNewGA.ComponentDefinition, oActualMap, oTargetByBase, sTargetFolder, sLogPath, oP4Visited, iP4Fixed, iP4Failed)
+                ' Save the GA after the walk
+                Try
+                    Dim oFA4 As System.IO.FileAttributes = System.IO.File.GetAttributes(sNewGAPath)
+                    If (oFA4 And System.IO.FileAttributes.ReadOnly) = System.IO.FileAttributes.ReadOnly Then
+                        System.IO.File.SetAttributes(sNewGAPath, oFA4 And Not System.IO.FileAttributes.ReadOnly)
+                    End If
+                    oNewGA.Save2(False)
+                    Try : System.IO.File.AppendAllText(sLogPath, "P4-GA-SAVED: " & System.IO.Path.GetFileName(sNewGAPath) & vbCrLf) : Catch : End Try
+                Catch exGASave As Exception
+                    Try : System.IO.File.AppendAllText(sLogPath, "P4-GA-SAVE-FAIL: " & exGASave.Message & vbCrLf) : Catch : End Try
+                End Try
+                Try : System.IO.File.AppendAllText(sLogPath, "Phase 4 complete: " & iP4Fixed & " replaced, " & iP4Failed & " failed." & vbCrLf) : Catch : End Try
+                If bGAOpenedHere Then
+                    Try : oNewGA.Close(False) : Catch : End Try
+                End If
+            End If
+        Else
+            Try : System.IO.File.AppendAllText(sLogPath, "P4-SKIP: new GA path not found in map." & vbCrLf) : Catch : End Try
+        End If
+    Catch exP4 As Exception
+        Try : System.IO.File.AppendAllText(sLogPath, "P4-ERROR: " & exP4.Message & vbCrLf) : Catch : End Try
+    End Try
 
     ' F1: Finally block — SilentOperation restored even if Phase 2/3 throws
     Finally
@@ -857,7 +940,7 @@ Sub Main()
 
     ' ── 8. Final summary ──────────────────────────────────────────────────────
     Dim sSummary As String = _
-        "SUPER CLEAN SWEEPER v2.2.3 — COMPLETE" & vbCrLf & vbCrLf & _
+        "SUPER CLEAN SWEEPER v2.2.4 — COMPLETE" & vbCrLf & vbCrLf & _
         "Phase 1  Rename map built:   " & oRenameMap.Count & " file(s)" & vbCrLf & _
         "Phase 2  SaveAs + Provenance:" & vbCrLf & _
         "         Saved    : " & iSaved & vbCrLf & _
@@ -1199,5 +1282,102 @@ Sub WalkTree(oDoc As Document, _
                     "  ->  " & System.IO.Path.GetFileName(sTestFull) & sColNote & vbCrLf)
             Catch : End Try
         End If
+    End If
+End Sub
+
+
+' ─────────────────────────────────────────────────────────────────────────────
+' HELPER: Phase 4 live occurrence resweep (v2.2.4)
+' ─────────────────────────────────────────────────────────────────────────────
+Sub Phase4_WalkOccs(oCompDef As ComponentDefinition, _
+                    oActualMap As System.Collections.Generic.Dictionary(Of String, String), _
+                    oTargetByBase As System.Collections.Generic.Dictionary(Of String, String), _
+                    sTargetFolder As String, _
+                    sLogPath As String, _
+                    oVisited As System.Collections.Generic.HashSet(Of String), _
+                    ByRef iFixed As Integer, _
+                    ByRef iFailed As Integer)
+    Dim sThisFull As String = ""
+    Try : sThisFull = oCompDef.Document.FullFileName : Catch : Return : End Try
+    If oVisited.Contains(sThisFull.ToUpper()) Then Return
+    oVisited.Add(sThisFull.ToUpper())
+
+    ' Snapshot occurrences
+    Dim oOccList As New System.Collections.Generic.List(Of ComponentOccurrence)()
+    Try
+        For Each oOccSnap As ComponentOccurrence In oCompDef.Occurrences
+            oOccList.Add(oOccSnap)
+        Next
+    Catch : End Try
+
+    For Each oOcc As ComponentOccurrence In oOccList
+        Dim sOccPath As String = ""
+        Try
+            sOccPath = oOcc.Definition.Document.FullFileName
+        Catch
+            Try
+                sOccPath = oOcc.ReferencedFileDescriptor.FullFileName
+            Catch
+            End Try
+        End Try
+        If sOccPath = "" Then Continue For
+
+        ' Recurse into the child first if it is an assembly. This runs for every
+        ' assembly child, including ones already in the target folder, so their
+        ' own children still pointing at old paths are swept too. oVisited stops
+        ' each assembly being walked more than once.
+        Try
+            Dim oChildDef As ComponentDefinition = oOcc.Definition
+            If oChildDef IsNot Nothing AndAlso oChildDef.Document.DocumentType = DocumentTypeEnum.kAssemblyDocumentObject Then
+                Phase4_WalkOccs(oChildDef, oActualMap, oTargetByBase, sTargetFolder, sLogPath, oVisited, iFixed, iFailed)
+            End If
+        Catch : End Try
+
+        If sOccPath.ToUpper().StartsWith(sTargetFolder.ToUpper()) Then Continue For
+
+        Dim sNewPath As String = ""
+        If oActualMap.ContainsKey(sOccPath) Then
+            sNewPath = oActualMap(sOccPath)
+        Else
+            Dim sBase As String = System.IO.Path.GetFileName(sOccPath)
+            If oTargetByBase.ContainsKey(sBase) Then sNewPath = oTargetByBase(sBase)
+        End If
+        If sNewPath = "" OrElse Not System.IO.File.Exists(sNewPath) Then Continue For
+        If String.Compare(sOccPath, sNewPath, True) = 0 Then Continue For
+
+        ' Replace the occurrence
+        Dim bWasSuppressed As Boolean = False
+        Try : bWasSuppressed = oOcc.Suppressed : Catch : End Try
+        If bWasSuppressed Then
+            Try : oOcc.Unsuppress() : Catch : End Try
+        End If
+        Try
+            oOcc.Replace(sNewPath, False)
+            iFixed += 1
+            Try : System.IO.File.AppendAllText(sLogPath, _
+                "P4-REPLACE: " & System.IO.Path.GetFileName(sOccPath) & " -> " & System.IO.Path.GetFileName(sNewPath) & vbCrLf) : Catch : End Try
+        Catch exRep As Exception
+            iFailed += 1
+            Try : System.IO.File.AppendAllText(sLogPath, _
+                "P4-REPLACE-FAIL: " & System.IO.Path.GetFileName(sOccPath) & " — " & exRep.Message & vbCrLf) : Catch : End Try
+        End Try
+        If bWasSuppressed Then
+            Try : oOcc.Suppress() : Catch : End Try
+        End If
+    Next
+
+    ' Save this assembly if it is in the target folder
+    If sThisFull.ToUpper().StartsWith(sTargetFolder.ToUpper()) Then
+        Try
+            Dim oFA As System.IO.FileAttributes = System.IO.File.GetAttributes(sThisFull)
+            If (oFA And System.IO.FileAttributes.ReadOnly) = System.IO.FileAttributes.ReadOnly Then
+                System.IO.File.SetAttributes(sThisFull, oFA And Not System.IO.FileAttributes.ReadOnly)
+            End If
+            Dim oDoc As Document = oCompDef.Document
+            oDoc.Save2(False)
+            Try : System.IO.File.AppendAllText(sLogPath, "P4-SAVED: " & System.IO.Path.GetFileName(sThisFull) & vbCrLf) : Catch : End Try
+        Catch exSave As Exception
+            Try : System.IO.File.AppendAllText(sLogPath, "P4-SAVE-FAIL: " & System.IO.Path.GetFileName(sThisFull) & " — " & exSave.Message & vbCrLf) : Catch : End Try
+        End Try
     End If
 End Sub
