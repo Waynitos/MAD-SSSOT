@@ -1,7 +1,7 @@
 '' =====================================================================
 '' SUPER_CLEAN_SWEEPER.iLogicVb
 '' Copy Design with full provenance architecture
-'' Version: 2.1.0 — 2026-11-05
+'' Version: 2.2.2 — 2026-11-05
 ''
 '' PURPOSE
 ''   Replicates Vault Copy Design outside of Vault.
@@ -31,6 +31,14 @@
 ''         CS_RunCount      = increments each rerun (1 on first run)
 ''   4. OLD PROJECT ROOT auto-detected from GA path: walk up path
 ''      segments to find the folder whose name starts with the old prefix.
+''
+'' V2.2.2
+''   SilentOperation stays True for the whole of Phase 2/3 (five per-file
+''   resets to False removed) so Vault does not pop the "Multiple files
+''   have been updated in current session" dialog between files.  The
+''   outer Finally still restores the original SilentOperation at the end.
+''   Phase 3 saves with Save2(False) (fallback Save) so the save does not
+''   cascade to dirty CC/library dependents.
 ''
 '' KEY ARCHITECTURAL PRINCIPLES (preserved from v1)
 ''   - Sub Main is FIRST; all helpers are defined AFTER it.
@@ -72,7 +80,7 @@ Sub Main()
         System.Environment.SpecialFolder.Desktop)
     Dim sLogPath As String = System.IO.Path.Combine(sDesktop, _
         "SUPER_CLEAN_SWEEPER_" & Now.ToString("yyyyMMdd_HHmmss") & ".log")
-    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.1  —  " & Now.ToString() & vbCrLf & _
+    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.2  —  " & Now.ToString() & vbCrLf & _
                          "GA: " & sTopFull & vbCrLf
     Try : System.IO.File.WriteAllText(sLogPath, sLog) : Catch : End Try
 
@@ -267,8 +275,6 @@ Sub Main()
                         ThisApplication.SilentOperation = True
                         oPRDoc = ThisApplication.Documents.Open(sPRFile, False)
                     Catch
-                    Finally
-                        ThisApplication.SilentOperation = False
                     End Try
                 End If
                 If oPRDoc IsNot Nothing Then
@@ -435,8 +441,6 @@ Sub Main()
                     Try : System.IO.File.AppendAllText(sLogPath, _
                         "SAVEAS-FAIL: " & sOldName2 & " — " & exSA2.Message & vbCrLf) : Catch : End Try
                 End If
-            Finally
-                ThisApplication.SilentOperation = False
             End Try
 
             If bSaveAsOk2 Then
@@ -476,8 +480,6 @@ Sub Main()
                 Catch exOpenNew2 As Exception
                     Try : System.IO.File.AppendAllText(sLogPath, _
                         "NEW-OPEN-FAIL: " & sNewName2 & " — " & exOpenNew2.Message & vbCrLf) : Catch : End Try
-                Finally
-                    ThisApplication.SilentOperation = False
                 End Try
 
                 If oNewDoc2 IsNot Nothing Then
@@ -602,8 +604,6 @@ Sub Main()
                 Try : System.IO.File.AppendAllText(sLogPath, _
                     "P3-OPEN-FAIL: " & sNewName3 & " — " & exOpen3.Message & vbCrLf) : Catch : End Try
                 Continue For
-            Finally
-                ThisApplication.SilentOperation = False
             End Try
         End If
         If oDoc3 Is Nothing Then Continue For
@@ -746,13 +746,17 @@ Sub Main()
             ' when saving an assembly whose referenced CC/library parts are dirty.
             Try
                 ThisApplication.SilentOperation = True
-                oDoc3.Save()
+                ' Save2(False): save this document only, do not cascade to dirty
+                ' CC/library dependents that Vault would prompt about.
+                Try
+                    oDoc3.Save2(False)
+                Catch
+                    oDoc3.Save()
+                End Try
                 Try : System.IO.File.AppendAllText(sLogPath, "P3-SAVED: " & sNewName3 & vbCrLf) : Catch : End Try
             Catch exSv3 As Exception
                 Try : System.IO.File.AppendAllText(sLogPath, _
                     "P3-SAVE-FAIL: " & sNewName3 & " — " & exSv3.Message & vbCrLf) : Catch : End Try
-            Finally
-                ThisApplication.SilentOperation = False
             End Try
         End If
         If bOpened3 AndAlso oDoc3 IsNot Nothing Then
@@ -770,7 +774,7 @@ Sub Main()
 
     ' ── 8. Final summary ──────────────────────────────────────────────────────
     Dim sSummary As String = _
-        "SUPER CLEAN SWEEPER v2.2.1 — COMPLETE" & vbCrLf & vbCrLf & _
+        "SUPER CLEAN SWEEPER v2.2.2 — COMPLETE" & vbCrLf & vbCrLf & _
         "Phase 1  Rename map built:   " & oRenameMap.Count & " file(s)" & vbCrLf & _
         "Phase 2  SaveAs + Provenance:" & vbCrLf & _
         "         Saved    : " & iSaved & vbCrLf & _
