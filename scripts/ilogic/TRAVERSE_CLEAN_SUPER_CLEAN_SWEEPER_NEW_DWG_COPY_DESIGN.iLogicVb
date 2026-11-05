@@ -1,7 +1,7 @@
 '' =====================================================================
 '' SUPER_CLEAN_SWEEPER.iLogicVb
 '' Copy Design with full provenance architecture
-'' Version: 2.2.5 — 2026-11-05
+'' Version: 2.2.6 — 2026-11-05
 ''
 '' PURPOSE
 ''   Replicates Vault Copy Design outside of Vault.
@@ -39,6 +39,11 @@
 ''   outer Finally still restores the original SilentOperation at the end.
 ''   Phase 3 saves with Save2(False) (fallback Save) so the save does not
 ''   cascade to dirty CC/library dependents.
+''
+'' V2.2.6
+''   VAULT BROWSER REFRESH: just before the final COMPLETE dialog the rule
+''   runs the "VaultRefresh" command (fallback "AppRefreshCmd") so the
+''   Vault browser shows the new paths without a manual refresh.
 ''
 '' V2.2.5
 ''   RERUN FIX: when Phase 1 finds 0 files, the script no longer exits
@@ -128,7 +133,7 @@ Sub Main()
         System.Environment.SpecialFolder.Desktop)
     Dim sLogPath As String = System.IO.Path.Combine(sDesktop, _
         "SUPER_CLEAN_SWEEPER_" & Now.ToString("yyyyMMdd_HHmmss") & ".log")
-    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.5  —  " & Now.ToString() & vbCrLf & _
+    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.6  —  " & Now.ToString() & vbCrLf & _
                          "GA: " & sTopFull & vbCrLf
     Try : System.IO.File.WriteAllText(sLogPath, sLog) : Catch : End Try
 
@@ -1015,7 +1020,7 @@ Sub Main()
 
     ' ── 8. Final summary ──────────────────────────────────────────────────────
     Dim sSummary As String = _
-        "SUPER CLEAN SWEEPER v2.2.5 — COMPLETE" & vbCrLf & vbCrLf & _
+        "SUPER CLEAN SWEEPER v2.2.6 — COMPLETE" & vbCrLf & vbCrLf & _
         "Phase 1  Rename map built:   " & oRenameMap.Count & " file(s)" & vbCrLf & _
         "Phase 2  SaveAs + Provenance:" & vbCrLf & _
         "         Saved    : " & iSaved & vbCrLf & _
@@ -1034,6 +1039,17 @@ Sub Main()
         "3. Check the log for SAVEAS-FAIL, SAVED-NO-PROV, or P3-FD-FAIL entries."
 
     Try : System.IO.File.AppendAllText(sLogPath, vbCrLf & sSummary) : Catch : End Try
+
+    ' ── Refresh Vault browser so the tree shows the new paths without a manual refresh ──
+    Try
+        ThisApplication.CommandManager.ControlDefinitions.Item("VaultRefresh").Execute()
+        Try : System.IO.File.AppendAllText(sLogPath, "Vault browser refreshed." & vbCrLf) : Catch : End Try
+    Catch
+        Try
+            ThisApplication.CommandManager.ControlDefinitions.Item("AppRefreshCmd").Execute()
+            Try : System.IO.File.AppendAllText(sLogPath, "AppRefreshCmd executed (VaultRefresh unavailable)." & vbCrLf) : Catch : End Try
+        Catch : End Try
+    End Try
 
     MessageBox.Show(sSummary, "Super Clean Sweeper — Complete", _
         MessageBoxButtons.OK, MessageBoxIcon.Information)
