@@ -1,7 +1,7 @@
 '' =====================================================================
 '' SUPER_CLEAN_SWEEPER.iLogicVb
 '' Copy Design with full provenance architecture
-'' Version: 2.2.8 — 2026-11-05
+'' Version: 2.2.9 — 2026-11-05
 ''
 '' PURPOSE
 ''   Replicates Vault Copy Design outside of Vault.
@@ -39,6 +39,20 @@
 ''   outer Finally still restores the original SilentOperation at the end.
 ''   Phase 3 saves with Save2(False) (fallback Save) so the save does not
 ''   cascade to dirty CC/library dependents.
+''
+'' V2.2.9  (Code-Assassin fixes — 2026-11-05)
+''   FIX A: bEntryDocOpenedHere flag + cleanup guards for all early Exit Sub
+''           paths in the drawing entry path — prevents session leaks on cancel.
+''   FIX B: oActiveDoc.ReferencedFileDescriptors For Each wrapped in Try/Catch
+''           — guards COM exception on corrupt or Vault-locked drawings.
+''   FIX C: Phase 2 provenance save changed from Save() to Save2(False)
+''           — prevents cascading to dirty dependents / Vault multi-file dialog.
+''   FIX D: Drawing Relink FD loop snapshots to List(Of FileDescriptor) first
+''           — consistent with Phase 3/4; prevents COM collection-modified fault.
+''   FIX E: oDwgR added to oProvRebuildOpened right after open
+''           — F1 Finally closes it even on save failure or unexpected exception.
+''   FIX F: oTargetByBase build uses *.iam + *.ipt GetFiles instead of *.*
+''           — avoids indexing PDFs/DWGs/logs on large target folders (~10x speedup).
 ''
 '' V2.2.8
 ''   DRAWING ENTRY POINT: the rule can be run from a GA drawing.  It takes
@@ -141,6 +155,8 @@ Sub Main()
     Dim bFromDwg As Boolean = False
     Dim sDwgEntryPath As String = ""
     Dim sEntryLog As String = ""
+    Dim oEntryDoc As Document = Nothing        ' FIX A: declared here so early exits can close it
+    Dim bEntryDocOpenedHere As Boolean = False  ' FIX A: True when this rule opened oEntryDoc
     Dim oActiveDoc As Document = ThisApplication.ActiveDocument
     If oActiveDoc IsNot Nothing AndAlso oActiveDoc.DocumentType = DocumentTypeEnum.kDrawingDocumentObject Then
         bFromDwg = True
@@ -150,6 +166,7 @@ Sub Main()
         Dim oEntryFD As FileDescriptor
         Dim sEntryFDPath As String
         Dim sEntryFDExt As String
+        Try  ' FIX B: guard COM exception on corrupt or Vault-locked drawing FDs
         For Each oEntryFD In oActiveDoc.ReferencedFileDescriptors
             sEntryFDPath = ""
             Try
@@ -160,16 +177,17 @@ Sub Main()
             If sEntryFDExt = ".IAM" AndAlso sEntryModel = "" Then sEntryModel = sEntryFDPath
             If sEntryFDExt = ".IPT" AndAlso sEntryIpt = "" Then sEntryIpt = sEntryFDPath
         Next
+        Catch : End Try
         If sEntryModel = "" Then sEntryModel = sEntryIpt
         If sEntryModel <> "" Then
-            Dim oEntryDoc As Document = Nothing
-            Try
+            Try  ' FIX A: ItemByName to check if already open
                 oEntryDoc = ThisApplication.Documents.ItemByName(sEntryModel)
             Catch
             End Try
             If oEntryDoc Is Nothing Then
                 Try
                     oEntryDoc = ThisApplication.Documents.Open(sEntryModel, False)
+                    bEntryDocOpenedHere = True  ' FIX A: track so early exits can close it
                 Catch
                 End Try
             End If
@@ -180,6 +198,9 @@ Sub Main()
         oAsmDoc = TryCast(oActiveDoc, AssemblyDocument)
     End If
     If oAsmDoc Is Nothing Then
+        If bEntryDocOpenedHere AndAlso oEntryDoc IsNot Nothing Then  ' FIX A
+            Try : oEntryDoc.Close(True) : Catch : End Try
+        End If
         MessageBox.Show( _
             "Open the top-level GA assembly first, then run Super Clean Sweeper.", _
             "Super Clean Sweeper")
@@ -194,7 +215,7 @@ Sub Main()
         System.Environment.SpecialFolder.Desktop)
     Dim sLogPath As String = System.IO.Path.Combine(sDesktop, _
         "SUPER_CLEAN_SWEEPER_" & Now.ToString("yyyyMMdd_HHmmss") & ".log")
-    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.8  —  " & Now.ToString() & vbCrLf & _
+    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.9  —  " & Now.ToString() & vbCrLf & _
                          "GA: " & sTopFull & vbCrLf
     Try : System.IO.File.WriteAllText(sLogPath, sLog) : Catch : End Try
     If sEntryLog <> "" Then
@@ -212,6 +233,9 @@ Sub Main()
     oFbd.Description = "Select destination folder for the new assembly copies  (the _CLEAN folder)"
     oFbd.SelectedPath = System.IO.Path.GetDirectoryName(sTopFull)
     If oFbd.ShowDialog() <> DialogResult.OK Then
+        If bEntryDocOpenedHere AndAlso oEntryDoc IsNot Nothing Then  ' FIX A
+            Try : oEntryDoc.Close(True) : Catch : End Try
+        End If
         MessageBox.Show("Cancelled — no changes made.", "Super Clean Sweeper")
         Exit Sub
     End If
@@ -232,6 +256,9 @@ Sub Main()
         "Super Clean Sweeper — New Prefix", sOldPrefix)
     sNewPrefix = Trim(sNewPrefix)
     If sNewPrefix = "" Then
+        If bEntryDocOpenedHere AndAlso oEntryDoc IsNot Nothing Then  ' FIX A
+            Try : oEntryDoc.Close(True) : Catch : End Try
+        End If
         MessageBox.Show("Cancelled — no prefix entered.", "Super Clean Sweeper")
         Exit Sub
     End If
@@ -241,7 +268,12 @@ Sub Main()
             "Files will be SaveAs'd to the target folder without renaming." & vbCrLf & vbCrLf & _
             "Continue?", "Super Clean Sweeper — Same Prefix", _
             MessageBoxButtons.YesNo, MessageBoxIcon.Warning)
-        If oSameRes <> DialogResult.Yes Then Exit Sub
+        If oSameRes <> DialogResult.Yes Then
+            If bEntryDocOpenedHere AndAlso oEntryDoc IsNot Nothing Then  ' FIX A
+                Try : oEntryDoc.Close(True) : Catch : End Try
+            End If
+            Exit Sub
+        End If
     End If
     ThisApplication.SilentOperation = True
 
@@ -277,6 +309,9 @@ Sub Main()
             System.IO.Directory.CreateDirectory(sTargetFolder)
         Catch exDir As Exception
             ThisApplication.SilentOperation = bOrigSilent
+            If bEntryDocOpenedHere AndAlso oEntryDoc IsNot Nothing Then  ' FIX A
+                Try : oEntryDoc.Close(True) : Catch : End Try
+            End If
             MessageBox.Show("Could not create target folder:" & vbCrLf & exDir.Message, _
                 "Super Clean Sweeper")
             Exit Sub
@@ -302,6 +337,9 @@ Sub Main()
                  oRenameMap, oSeen, sLogPath, oMappedTargets, oWalkOpened)
     Catch exWalk As Exception
         ThisApplication.SilentOperation = bOrigSilent
+        If bEntryDocOpenedHere AndAlso oEntryDoc IsNot Nothing Then  ' FIX A
+            Try : oEntryDoc.Close(True) : Catch : End Try
+        End If
         MessageBox.Show("Phase 1 walk failed: " & exWalk.Message, "Super Clean Sweeper")
         Exit Sub
     End Try
@@ -399,6 +437,9 @@ Sub Main()
 
     If oRenameMap.Count = 0 AndAlso oRecoveredMap.Count = 0 Then
         ThisApplication.SilentOperation = bOrigSilent
+        If bEntryDocOpenedHere AndAlso oEntryDoc IsNot Nothing Then  ' FIX A
+            Try : oEntryDoc.Close(True) : Catch : End Try
+        End If
         MessageBox.Show("No files found under project root '" & sOldProjectRoot & "'." & vbCrLf & _
             "Check the GA is open and the prefix matches its filename.", _
             "Super Clean Sweeper — Nothing to do")
@@ -417,6 +458,9 @@ Sub Main()
         "Super Clean Sweeper — Confirm", _
         MessageBoxButtons.YesNo, MessageBoxIcon.Question)
     If oConfirm <> DialogResult.Yes Then
+        If bEntryDocOpenedHere AndAlso oEntryDoc IsNot Nothing Then  ' FIX A
+            Try : oEntryDoc.Close(True) : Catch : End Try
+        End If
         MessageBox.Show("Cancelled — no changes made.", "Super Clean Sweeper")
         Exit Sub
     End If
@@ -717,9 +761,9 @@ Sub Main()
                         WriteDrawingModelRefs(oNewDoc2, oModelRefs2, sLogPath)
                     End If
 
-                    ' Save provenance to disk
+                    ' Save provenance to disk  ' FIX C: Save2(False) — no cascade to dirty dependents
                     Try
-                        oNewDoc2.Save()
+                        oNewDoc2.Save2(False)
                     Catch exSvProv2 As Exception
                         Try : System.IO.File.AppendAllText(sLogPath, _
                             "PROV-SAVE-FAIL: " & sNewName2 & " — " & exSvProv2.Message & vbCrLf) : Catch : End Try
@@ -781,13 +825,16 @@ Sub Main()
     ' Build a basename->full-path lookup for every file on disk in target folder
     Dim oTargetByBase As New System.Collections.Generic.Dictionary(Of String, String)( _
         StringComparer.OrdinalIgnoreCase)
-    Try
-        For Each sTF As String In System.IO.Directory.GetFiles(sTargetFolder, "*.*", _
+    Try  ' FIX F: *.iam + *.ipt only — avoids indexing PDFs/DWGs/logs on large targets
+        For Each sTF As String In System.IO.Directory.GetFiles(sTargetFolder, "*.iam", _
                 System.IO.SearchOption.TopDirectoryOnly)
             Dim sTFBase As String = System.IO.Path.GetFileName(sTF)
-            If Not oTargetByBase.ContainsKey(sTFBase) Then
-                oTargetByBase(sTFBase) = sTF
-            End If
+            If Not oTargetByBase.ContainsKey(sTFBase) Then oTargetByBase(sTFBase) = sTF
+        Next
+        For Each sTF As String In System.IO.Directory.GetFiles(sTargetFolder, "*.ipt", _
+                System.IO.SearchOption.TopDirectoryOnly)
+            Dim sTFBase As String = System.IO.Path.GetFileName(sTF)
+            If Not oTargetByBase.ContainsKey(sTFBase) Then oTargetByBase(sTFBase) = sTF
         Next
     Catch : End Try
 
@@ -1088,16 +1135,25 @@ Sub Main()
                 Try
                     oDwgR = ThisApplication.Documents.Open(sDwgEntryPath, False)
                     bDwgOpenedHere = True
+                    If oDwgR IsNot Nothing Then oProvRebuildOpened.Add(oDwgR)  ' FIX E: F1 Finally closes on failure
                 Catch exDwgOpen As Exception
                     Try : System.IO.File.AppendAllText(sLogPath, "DWG-OPEN-FAIL: " & exDwgOpen.Message & vbCrLf) : Catch : End Try
                 End Try
             End If
             If oDwgR IsNot Nothing Then
                 Dim iDwgReplaced As Integer = 0
-                Dim oDwgFD As FileDescriptor
                 Dim sDwgOld As String
                 Dim sDwgNew As String
-                For Each oDwgFD In oDwgR.ReferencedFileDescriptors
+                ' FIX D: snapshot FDs before iterating — consistent with Phase 3/4; prevents
+                '        COM collection-modified fault if ReplaceReference perturbs the collection
+                Dim oDwgFDs As New System.Collections.Generic.List(Of FileDescriptor)()
+                Try
+                    Dim oDwgFDSnap As FileDescriptor
+                    For Each oDwgFDSnap In oDwgR.ReferencedFileDescriptors
+                        oDwgFDs.Add(oDwgFDSnap)
+                    Next
+                Catch : End Try
+                For Each oDwgFD As FileDescriptor In oDwgFDs
                     sDwgOld = ""
                     Try
                         sDwgOld = oDwgFD.FullFileName
@@ -1146,7 +1202,7 @@ Sub Main()
 
     ' ── 8. Final summary ──────────────────────────────────────────────────────
     Dim sSummary As String = _
-        "SUPER CLEAN SWEEPER v2.2.8 — COMPLETE" & vbCrLf & vbCrLf & _
+        "SUPER CLEAN SWEEPER v2.2.9 — COMPLETE" & vbCrLf & vbCrLf & _
         "Phase 1  Rename map built:   " & oRenameMap.Count & " file(s)" & vbCrLf & _
         "Phase 2  SaveAs + Provenance:" & vbCrLf & _
         "         Saved    : " & iSaved & vbCrLf & _
