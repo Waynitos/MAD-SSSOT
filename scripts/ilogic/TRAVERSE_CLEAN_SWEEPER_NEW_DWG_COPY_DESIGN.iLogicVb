@@ -7903,33 +7903,38 @@ Function ConsolidateDerivedChain(oPartDoc As Document, sTargetFolder As String, 
             oRenameMap(sRefFullName) = sRefFullName
             If Not oProcessedDerivedDocs.Contains(sRefFullName) AndAlso sExt.ToUpper() = ".IPT" Then
                 oProcessedDerivedDocs.Add(sRefFullName)
+                Dim oSourceDoc As Document = Nothing
+                Dim bSourceDocOpenedHere As Boolean = False
                 Try
-                    Dim oSourceDoc As Document = Nothing
                     Try
                         oSourceDoc = ThisApplication.Documents.ItemByName(sRefFullName)
                     Catch
                         oSourceDoc = Nothing
                     End Try
-                    If oSourceDoc Is Nothing Then oSourceDoc = ThisApplication.Documents.Open(sRefFullName, False)
+                    If oSourceDoc Is Nothing Then oSourceDoc = OpenDocTracked(sRefFullName, bSourceDocOpenedHere)
+                    If oSourceDoc Is Nothing Then Throw New Exception("could not open document")
                     If ConsolidateDerivedChain(oSourceDoc, sTargetFolder, oLog, iCount, oRenameMap, oProcessedDerivedDocs) Then
                         oSourceDoc.Save2(False)
                     End If
                 Catch ex As Exception
                     oLog.Append(vbCrLf & "  DERIVED: failed recursing into (already local): " & System.IO.Path.GetFileName(sRefFullName) & " (" & ex.Message & ")")
                 End Try
+                CloseIfOpenedHere(oSourceDoc, bSourceDocOpenedHere)
             End If
             Continue For
         End If
 
         ' Needs copying into target folder.
         Dim oSourceDocToCopy As Document = Nothing
+        Dim bSrcCopyOpenedHere As Boolean = False
         Try
             Try
                 oSourceDocToCopy = ThisApplication.Documents.ItemByName(sRefFullName)
             Catch
                 oSourceDocToCopy = Nothing
             End Try
-            If oSourceDocToCopy Is Nothing Then oSourceDocToCopy = ThisApplication.Documents.Open(sRefFullName, False)
+            If oSourceDocToCopy Is Nothing Then oSourceDocToCopy = OpenDocTracked(sRefFullName, bSrcCopyOpenedHere)
+            If oSourceDocToCopy Is Nothing Then Throw New Exception("could not open document")
         Catch ex As Exception
             oLog.Append(vbCrLf & "  DERIVED: failed to open source for copying: " & System.IO.Path.GetFileName(sRefFullName) & " (" & ex.Message & ")")
             Continue For
@@ -7969,6 +7974,9 @@ Function ConsolidateDerivedChain(oPartDoc As Document, sTargetFolder As String, 
                 oLog.Append(vbCrLf & "  DERIVED: failed to copy: " & sFileNameNoExt & sExt & " (" & ex.Message & ")")
             End Try
         End If
+
+        ' Release the source if this function opened it (skips initially-open / dirty docs)
+        CloseIfOpenedHere(oSourceDocToCopy, bSrcCopyOpenedHere)
 
     Next
 
@@ -10085,14 +10093,17 @@ Function ProcessLevel(oCompDef As ComponentDefinition, sFind As String, sReplace
                 If bPartIsLocalNow Then
                     ' Part is local - safe to fix its derive sources and param links
                     Dim oWorkPart As Document = oRefDoc
+                    Dim bWorkPartOpenedHere As Boolean = False
                     If oRenameMap.ContainsKey(oRefDoc.FullFileName) Then
                         ' Use the renamed local copy for modifications
                         Dim sLocalPath As String = oRenameMap(oRefDoc.FullFileName)
                         Try
                             Try : oWorkPart = ThisApplication.Documents.ItemByName(sLocalPath) : Catch : oWorkPart = Nothing : End Try
-                            If oWorkPart Is Nothing Then oWorkPart = ThisApplication.Documents.Open(sLocalPath, False)
+                            If oWorkPart Is Nothing Then oWorkPart = OpenDocTracked(sLocalPath, bWorkPartOpenedHere)
+                            If oWorkPart Is Nothing Then oWorkPart = oRefDoc  ' fall back to original if open fails
                         Catch
                             oWorkPart = oRefDoc  ' fall back to original if open fails
+                            bWorkPartOpenedHere = False
                         End Try
                     End If
                     Try
@@ -10109,6 +10120,8 @@ Function ProcessLevel(oCompDef As ComponentDefinition, sFind As String, sReplace
                     Catch ex As Exception
                         oLog.Append(vbCrLf & "FAILED updating param table links in: " & oWorkPart.DisplayName & " (" & ex.Message & ")")
                     End Try
+                    ' Close the local copy only if we opened it here and it has no unsaved edits
+                    CloseIfOpenedHere(oWorkPart, bWorkPartOpenedHere)
                 End If  ' bPartIsLocalNow
             End If
 
@@ -11325,6 +11338,7 @@ Function ProcessDerivedSource(oPartDoc As Document, sFind As String, sReplace As
                         Else
                             ' Need to copy the base source to the new name
                             Dim bBaseSaveAsOk As Boolean = False
+                            Dim bBaseOpenedHere As Boolean = False
                             Try
                                 System.IO.File.AppendAllText(sLogFilePath, "      " & DateTime.Now.ToString("HH:mm:ss.fff") & "  BASE COMPONENT SaveAs starting: " & sBaseNameNoExt & sBaseExt & "  ->  " & sBaseNewName & sBaseExt & vbCrLf)
                             Catch
@@ -11336,8 +11350,9 @@ Function ProcessDerivedSource(oPartDoc As Document, sFind As String, sReplace As
                                     Catch
                                         oBaseDoc = Nothing
                                     End Try
-                                    If oBaseDoc Is Nothing Then oBaseDoc = ThisApplication.Documents.Open(sBaseFullName, False)
+                                    If oBaseDoc Is Nothing Then oBaseDoc = OpenDocTracked(sBaseFullName, bBaseOpenedHere)
                                 End If
+                                If oBaseDoc Is Nothing Then Throw New Exception("could not open base component")
                                 oBaseDoc.SaveAs(sBaseNewFull, True)
                                 bBaseSaveAsOk = True
                                 Try
@@ -11361,6 +11376,8 @@ Function ProcessDerivedSource(oPartDoc As Document, sFind As String, sReplace As
                                     oLog.Append(vbCrLf & "  BASE COMPONENT copy FAILED: " & sBaseNameNoExt & sBaseExt & " (" & exBCopy.Message & ")")
                                 End Try
                             End If
+                            ' SaveAs(..., True) is a copy - the source is not used again here
+                            CloseIfOpenedHere(oBaseDoc, bBaseOpenedHere)
                             If System.IO.File.Exists(sBaseNewFull) Then
                                 oRenameMap(sBaseFullName) = sBaseNewFull
                                 iCount = iCount + 1
@@ -12500,6 +12517,8 @@ Function ProcessFrameGeneratorSet( _
         oLog.Append(vbCrLf & "  FRAME: saved new frame assembly")
     Catch exSave As Exception
         oLog.Append(vbCrLf & "  FRAME: initial save failed (" & exSave.Message & ") - trying save-together")
+        ' Docs opened here for save-together; closed after the retry save below
+        Dim oRelOpenedHere As New System.Collections.Generic.List(Of Document)
         For Each kvp As System.Collections.Generic.KeyValuePair(Of String, String) In oLocalMap
             If String.Compare(kvp.Key, kvp.Value, True) = 0 Then Continue For
             If String.Compare(kvp.Value, sFrameNewFull, True) = 0 Then Continue For
@@ -12507,7 +12526,9 @@ Function ProcessFrameGeneratorSet( _
                 Dim oRelDoc As Document = Nothing
                 Try : oRelDoc = ThisApplication.Documents.ItemByName(kvp.Value) : Catch : oRelDoc = Nothing : End Try
                 If oRelDoc Is Nothing AndAlso System.IO.File.Exists(kvp.Value) Then
-                    oRelDoc = ThisApplication.Documents.Open(kvp.Value, False)
+                    Dim bRelOpenedHere As Boolean = False
+                    oRelDoc = OpenDocTracked(kvp.Value, bRelOpenedHere)
+                    If bRelOpenedHere AndAlso oRelDoc IsNot Nothing Then oRelOpenedHere.Add(oRelDoc)
                 End If
                 If oRelDoc IsNot Nothing Then
                     Try
@@ -12528,6 +12549,9 @@ Function ProcessFrameGeneratorSet( _
         Catch exSave2 As Exception
             oLog.Append(vbCrLf & "  FRAME: save-together still failed: " & exSave2.Message)
         End Try
+        For Each oRelClose As Document In oRelOpenedHere
+            CloseIfOpenedHere(oRelClose, True)
+        Next
     End Try
 
     Dim bParentOk As Boolean = False
