@@ -1,7 +1,7 @@
 ﻿'' =====================================================================
 '' SUPER_CLEAN_SWEEPER.iLogicVb
 '' Copy Design with full provenance architecture
-'' Version: 2.0.5 — 2026-11-05
+'' Version: 2.1.0 — 2026-11-05
 ''
 '' PURPOSE
 ''   Replicates Vault Copy Design outside of Vault.
@@ -32,26 +32,14 @@
 ''   4. OLD PROJECT ROOT auto-detected from GA path: walk up path
 ''      segments to find the folder whose name starts with the old prefix.
 ''
-'' V2.0.4
-''   Phase 3 also walks the active GA and queues every already-processed
-''   .iam/.ipt that lives under the target folder, so a later cleanup run
-''   rewrites their FileDescriptors to newly-copied non-std parts (Bolted
-''   Connections, JC parts, library parts).  The provenance guard still
-''   skips the SaveAs, but no longer skips the reference rewrite.
-''
-'' V2.0.5
-''   SilentOperation stays True for the whole of Phase 2/3 (per-file
-''   resets to False removed) so Vault does not pop the "Multiple files
-''   have been updated" dialog between files.  The outer Finally still
-''   restores the original SilentOperation at the end.
-''
 '' KEY ARCHITECTURAL PRINCIPLES (preserved from v1)
 ''   - Sub Main is FIRST; all helpers are defined AFTER it.
 ''   - No module-level Dim declarations outside Sub/Function bodies.
 ''   - No Imports statements (System.IO etc. are pre-imported in iLogic).
 ''   - For Each loop variables declared As Object for non-primitive types.
 ''   - ThisApplication only accessed inside Sub/Function bodies.
-''   - CC guard uses IsContentMember (not DocumentSubType comparison).
+''   - CC guard: skip only when IsContentMember=True AND path contains "Content Center".
+''     Non-std CC parts saved into a project folder are treated as project files.
 ''   - Counters declared before outer Try block to avoid variable hiding.
 ''
 '' PHASES
@@ -84,7 +72,7 @@ Sub Main()
         System.Environment.SpecialFolder.Desktop)
     Dim sLogPath As String = System.IO.Path.Combine(sDesktop, _
         "SUPER_CLEAN_SWEEPER_" & Now.ToString("yyyyMMdd_HHmmss") & ".log")
-    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.0.5  —  " & Now.ToString() & vbCrLf & _
+    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.0  —  " & Now.ToString() & vbCrLf & _
                          "GA: " & sTopFull & vbCrLf
     Try : System.IO.File.WriteAllText(sLogPath, sLog) : Catch : End Try
 
@@ -192,10 +180,20 @@ Sub Main()
     Dim sTopNewFull2 As String = ComputeNewName(sTopFull, sOldProjectRoot, sNewPrefix, sTargetFolder)
     If sTopNewFull2 <> "" Then
         If Not oRenameMap.ContainsKey(sTopFull) Then
-            oRenameMap(sTopFull) = sTopNewFull2
+            ' Collision guard for top asm (normally unique, but guard anyway)
+            Dim sTopTest As String = sTopNewFull2
+            Dim sTopTestBase As String = System.IO.Path.GetFileNameWithoutExtension(sTopNewFull2)
+            Dim sTopTestExt  As String = System.IO.Path.GetExtension(sTopNewFull2)
+            Dim sTopTestDir  As String = System.IO.Path.GetDirectoryName(sTopNewFull2)
+            Dim iTopSuffix As Integer = 2
+            Do While oRenameMap.ContainsValue(sTopTest) OrElse System.IO.File.Exists(sTopTest)
+                sTopTest = System.IO.Path.Combine(sTopTestDir, sTopTestBase & "_" & iTopSuffix & sTopTestExt)
+                iTopSuffix += 1
+            Loop
+            oRenameMap(sTopFull) = sTopTest
             Try : System.IO.File.AppendAllText(sLogPath, _
                 "MAP (TOP): " & System.IO.Path.GetFileName(sTopFull) & _
-                "  ->  " & System.IO.Path.GetFileName(sTopNewFull2) & vbCrLf) : Catch : End Try
+                "  ->  " & System.IO.Path.GetFileName(sTopTest) & vbCrLf) : Catch : End Try
         End If
     End If
 
@@ -246,6 +244,55 @@ Sub Main()
     ' Track files actually placed on disk (Phase 3 uses this map)
     Dim oActualMap As New System.Collections.Generic.Dictionary(Of String, String)( _
         StringComparer.OrdinalIgnoreCase)
+
+    ' ── PRE-POPULATE oActualMap from provenance of files already in target ────
+    ' Files SaveAs'd in a PRIOR run are not in oRenameMap (ComputeNewName returns ""
+    ' for them because they are already in sTargetFolder).  Read CS_SourcePath from
+    ' every file in the target folder to reconstruct the full old→new map so Phase 3
+    ' can repoint ALL stray references, not just the 26 from this run.
+    Try : System.IO.File.AppendAllText(sLogPath, vbCrLf & "=== PRE-PHASE 2: REBUILD ACTUAL MAP FROM PROVENANCE ===" & vbCrLf) : Catch : End Try
+    Dim iProvRebuild As Integer = 0
+    Try
+        For Each sPRFile As String In System.IO.Directory.GetFiles(sTargetFolder, "*.*", _
+                System.IO.SearchOption.TopDirectoryOnly)
+            Dim sPRExt As String = System.IO.Path.GetExtension(sPRFile).ToUpper()
+            If sPRExt <> ".IAM" AndAlso sPRExt <> ".IPT" AndAlso _
+               sPRExt <> ".IDW" AndAlso sPRExt <> ".DWG" Then Continue For
+            Dim sCSSource As String = ""
+            Try
+                Dim oPRDoc As Document = Nothing
+                Try : oPRDoc = ThisApplication.Documents.ItemByName(sPRFile) : Catch : End Try
+                If oPRDoc Is Nothing Then
+                    Try
+                        ThisApplication.SilentOperation = True
+                        oPRDoc = ThisApplication.Documents.Open(sPRFile, False)
+                    Catch
+                    Finally
+                        ThisApplication.SilentOperation = False
+                    End Try
+                End If
+                If oPRDoc IsNot Nothing Then
+                    Try
+                        sCSSource = oPRDoc.PropertySets( _
+                            "Inventor User Defined Properties").Item("CS_SourcePath").Value
+                    Catch : End Try
+                    ' Don't close — may already have been open; Phase 2 will handle lifecycle
+                End If
+            Catch : End Try
+            If sCSSource <> "" AndAlso Not oActualMap.ContainsKey(sCSSource) Then
+                oActualMap(sCSSource) = sPRFile
+                iProvRebuild += 1
+                Try : System.IO.File.AppendAllText(sLogPath, _
+                    "PROV-REBUILD: " & System.IO.Path.GetFileName(sCSSource) & _
+                    " -> " & System.IO.Path.GetFileName(sPRFile) & vbCrLf) : Catch : End Try
+            End If
+        Next
+    Catch exPR As Exception
+        Try : System.IO.File.AppendAllText(sLogPath, _
+            "PROV-REBUILD-ERROR: " & exPR.Message & vbCrLf) : Catch : End Try
+    End Try
+    Try : System.IO.File.AppendAllText(sLogPath, _
+        "Prov-rebuild complete: " & iProvRebuild & " prior mappings restored." & vbCrLf) : Catch : End Try
 
     Dim sOldFull2 As String
     For Each sOldFull2 In oMapKeys
@@ -346,13 +393,50 @@ Sub Main()
             End If
 
             ' ── SaveAs to new path (SaveCopyAs = True) ───────────────────────
+            ' Primary path: oDoc.SaveAs with SaveCopyAs=True creates an independent
+            ' copy with a fresh GUID (Inventor's preferred approach).
+            ' Fallback path: System.IO.File.Copy — used when SaveAs returns
+            ' E_INVALIDARG (0x80070057), which happens when the document is already
+            ' open in the active Inventor session as a GA dependent (Vault-managed
+            ' read-only session lock).  File.Copy bypasses the Inventor session
+            ' entirely and writes a raw OS copy, which is then safe to open
+            ' separately for provenance writing.
             Dim bSaveAsOk2 As Boolean = False
+            Dim bUsedFileCopy2 As Boolean = False
             Try
+                ThisApplication.SilentOperation = True
                 oDoc2.SaveAs(sNewFull2, True)
                 bSaveAsOk2 = System.IO.File.Exists(sNewFull2)
             Catch exSA2 As Exception
-                Try : System.IO.File.AppendAllText(sLogPath, _
-                    "SAVEAS-FAIL: " & sOldName2 & " — " & exSA2.Message & vbCrLf) : Catch : End Try
+                ' Check for E_INVALIDARG (session-lock / Vault read-only)
+                Dim bIsLock2 As Boolean = False
+                Try
+                    If exSA2.HResult = &H80070057 OrElse _
+                       exSA2.Message.IndexOf("incorrect", StringComparison.OrdinalIgnoreCase) >= 0 Then
+                        bIsLock2 = True
+                    End If
+                Catch : End Try
+                If bIsLock2 Then
+                    ' ── Fallback: raw OS file copy ──────────────────────────
+                    Try
+                        System.IO.File.Copy(sOldFull2, sNewFull2, True)
+                        bSaveAsOk2 = System.IO.File.Exists(sNewFull2)
+                        bUsedFileCopy2 = True
+                    Catch exFC2 As Exception
+                        Try : System.IO.File.AppendAllText(sLogPath, _
+                            "SAVEAS-FAIL: " & sOldName2 & " — " & exSA2.Message & _
+                            " [FileCopy also failed: " & exFC2.Message & "]" & vbCrLf) : Catch : End Try
+                    End Try
+                    If Not bSaveAsOk2 Then
+                        Try : System.IO.File.AppendAllText(sLogPath, _
+                            "SAVEAS-FAIL: " & sOldName2 & " — " & exSA2.Message & vbCrLf) : Catch : End Try
+                    End If
+                Else
+                    Try : System.IO.File.AppendAllText(sLogPath, _
+                        "SAVEAS-FAIL: " & sOldName2 & " — " & exSA2.Message & vbCrLf) : Catch : End Try
+                End If
+            Finally
+                ThisApplication.SilentOperation = False
             End Try
 
             If bSaveAsOk2 Then
@@ -372,6 +456,8 @@ Sub Main()
                 Catch exOpenNew2 As Exception
                     Try : System.IO.File.AppendAllText(sLogPath, _
                         "NEW-OPEN-FAIL: " & sNewName2 & " — " & exOpenNew2.Message & vbCrLf) : Catch : End Try
+                Finally
+                    ThisApplication.SilentOperation = False
                 End Try
 
                 If oNewDoc2 IsNot Nothing Then
@@ -395,8 +481,9 @@ Sub Main()
 
                     Try : oNewDoc2.Close(True) : Catch : End Try
 
+                    Dim sSaveMethod2 As String = If(bUsedFileCopy2, "COPY+PROV", "SAVED+PROV")
                     Try : System.IO.File.AppendAllText(sLogPath, _
-                        "SAVED+PROV: " & sOldName2 & "  ->  " & sNewName2 & _
+                        sSaveMethod2 & ": " & sOldName2 & "  ->  " & sNewName2 & _
                         "  [OldGUID:" & sOldGUID2 & "  Run:" & iRunCount2 & "]" & vbCrLf) : Catch : End Try
                 End If
 
@@ -422,121 +509,200 @@ Sub Main()
         "Phase 2 complete: " & iSaved & " saved, " & _
         iSkipped & " prov-skipped, " & iSaveFailed & " failed." & vbCrLf) : Catch : End Try
 
-    ' ── 7. PHASE 3 — Fix internal references in new files ────────────────────
+    ' ── 7. PHASE 3 — Fix internal references ─────────────────────────────────
+    ' APPROACH (from old Traverse rule code-assassin analysis):
+    '   3a) File.ReferencedFileDescriptors + FD.ReplaceReference
+    '       — E_INVALIDARG (0x80070057) on this call means the FD is locked
+    '         (CC/DA part).  This is a SAFE SKIP, not a failure.
+    '         The old Traverse rule explicitly treats HResult &H80070057 as skip.
+    '   3b) ComponentOccurrence.Replace(newPath, False)
+    '       — The REAL workhorse for Design Accelerator and library parts.
+    '         Works even when FD.ReplaceReference throws E_INVALIDARG.
+    '
+    ' Document source: open files in isolation (deepest-first from oActualMap)
+    ' because AllReferencedDocuments also returns E_INVALIDARG for the same FDs.
+    ' Opening in isolation IS correct here — 3b uses Occurrence.Replace which
+    ' doesn't depend on the parent context.
     Try : System.IO.File.AppendAllText(sLogPath, vbCrLf & "=== PHASE 3: FIX INTERNAL REFS ===" & vbCrLf) : Catch : End Try
 
-    Dim oNewSet As New System.Collections.Generic.HashSet(Of String)( _
+    ' Build a basename->full-path lookup for every file on disk in target folder
+    Dim oTargetByBase As New System.Collections.Generic.Dictionary(Of String, String)( _
         StringComparer.OrdinalIgnoreCase)
-    Dim sActualVal As String
-    For Each sActualVal In oActualMap.Values
-        oNewSet.Add(sActualVal)
-    Next
-
-    ' v2.0.4: also queue every already-processed .iam/.ipt in the active GA
-    ' that lives under the target folder (these are excluded from the rename
-    ' map), so their FileDescriptors are rewritten to newly-copied parts.
-    Dim sTgtPrefix3 As String = sTargetFolder.TrimEnd("\"c) & "\"
-    Dim iQueued3 As Integer = 0
-    Dim oGaRef3 As Object = Nothing
-    Dim sGaPath3 As String = ""
-    Dim sGaExt3 As String = ""
-    If sTopFull.StartsWith(sTgtPrefix3, StringComparison.OrdinalIgnoreCase) Then
-        If oNewSet.Add(sTopFull) Then
-            iQueued3 += 1
-            Try : System.IO.File.AppendAllText(sLogPath, _
-                "P3-QUEUE (GA, in target): " & System.IO.Path.GetFileName(sTopFull) & vbCrLf) : Catch : End Try
-        End If
-    End If
     Try
-        For Each oGaRef3 In oAsmDoc.AllReferencedDocuments
-            sGaPath3 = ""
-            Try : sGaPath3 = oGaRef3.FullFileName : Catch : End Try
-            If sGaPath3 = "" Then Continue For
-            sGaExt3 = System.IO.Path.GetExtension(sGaPath3).ToUpper()
-            If sGaExt3 <> ".IAM" AndAlso sGaExt3 <> ".IPT" Then Continue For
-            If Not sGaPath3.StartsWith(sTgtPrefix3, StringComparison.OrdinalIgnoreCase) Then Continue For
-            If oNewSet.Add(sGaPath3) Then
-                iQueued3 += 1
-                Try : System.IO.File.AppendAllText(sLogPath, _
-                    "P3-QUEUE (already processed): " & System.IO.Path.GetFileName(sGaPath3) & vbCrLf) : Catch : End Try
+        For Each sTF As String In System.IO.Directory.GetFiles(sTargetFolder, "*.*", _
+                System.IO.SearchOption.TopDirectoryOnly)
+            Dim sTFBase As String = System.IO.Path.GetFileName(sTF)
+            If Not oTargetByBase.ContainsKey(sTFBase) Then
+                oTargetByBase(sTFBase) = sTF
             End If
         Next
-    Catch exQueue3 As Exception
-        Try : System.IO.File.AppendAllText(sLogPath, _
-            "P3-QUEUE-FAIL: " & exQueue3.Message & vbCrLf) : Catch : End Try
-    End Try
-    Try : System.IO.File.AppendAllText(sLogPath, _
-        "P3-QUEUE: " & iQueued3 & " already-processed file(s) under target added." & vbCrLf) : Catch : End Try
-    Dim oNewSorted As New System.Collections.Generic.List(Of String)(oNewSet)
-    oNewSorted.Sort(Function(a2, b2) b2.Length.CompareTo(a2.Length))
+    Catch : End Try
+
+    ' Build full list of new .iam files to process — from oActualMap values
+    ' PLUS any .iam already in target folder not in this run (PROV-SKIPs).
+    Dim oP3Targets As New System.Collections.Generic.List(Of String)()
+    Dim oP3Seen As New System.Collections.Generic.HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+    ' Add all from oActualMap (files SaveAs'd or skipped this run)
+    For Each sV3 As String In oActualMap.Values
+        Dim sVExtU3 As String = System.IO.Path.GetExtension(sV3).ToUpper()
+        If (sVExtU3 = ".IAM" OrElse sVExtU3 = ".IPT") AndAlso Not oP3Seen.Contains(sV3) Then
+            oP3Seen.Add(sV3)
+            oP3Targets.Add(sV3)
+        End If
+    Next
+    ' Also scan target folder on disk for any .iam not already in list
+    Try
+        For Each sTF3 As String In System.IO.Directory.GetFiles(sTargetFolder, "*.iam", _
+                System.IO.SearchOption.TopDirectoryOnly)
+            If Not oP3Seen.Contains(sTF3) Then
+                oP3Seen.Add(sTF3)
+                oP3Targets.Add(sTF3)
+            End If
+        Next
+    Catch : End Try
+    ' Process deepest-first (longest path = deepest)
+    oP3Targets.Sort(Function(a2, b2) b2.Length.CompareTo(a2.Length))
 
     Dim sNewPath3 As String
-    For Each sNewPath3 In oNewSorted
+    For Each sNewPath3 In oP3Targets
         Dim sNewName3 As String = System.IO.Path.GetFileName(sNewPath3)
         Dim sExtU3    As String = System.IO.Path.GetExtension(sNewPath3).ToUpper()
-
-        If sExtU3 <> ".IAM" AndAlso sExtU3 <> ".IPT" Then Continue For
         If Not System.IO.File.Exists(sNewPath3) Then Continue For
 
-        Dim bOpened3 As Boolean = False
-        Dim oDoc3    As Document = Nothing
+        ' Open the new file (SilentOperation to suppress Vault dialogs)
+        Dim bOpened3  As Boolean  = False
+        Dim oDoc3     As Document = Nothing
+        Try : oDoc3 = ThisApplication.Documents.ItemByName(sNewPath3) : Catch : End Try
+        If oDoc3 Is Nothing Then
+            Try
+                ThisApplication.SilentOperation = True
+                oDoc3 = ThisApplication.Documents.Open(sNewPath3, False)
+                bOpened3 = True
+            Catch exOpen3 As Exception
+                Try : System.IO.File.AppendAllText(sLogPath, _
+                    "P3-OPEN-FAIL: " & sNewName3 & " — " & exOpen3.Message & vbCrLf) : Catch : End Try
+                Continue For
+            Finally
+                ThisApplication.SilentOperation = False
+            End Try
+        End If
+        If oDoc3 Is Nothing Then Continue For
+
+        ' Helper: resolve old ref path → new path
+        ' Uses oActualMap first, then basename fallback in target folder
+        Dim bChanged3 As Boolean = False
+
         Try
-            Try : oDoc3 = ThisApplication.Documents.ItemByName(sNewPath3) : Catch : End Try
-            If oDoc3 Is Nothing Then
+            ' ── 3a: File.ReferencedFileDescriptors ─────────────────────────
+            ' E_INVALIDARG (HResult &H80070057) = CC/DA locked FD — safe skip
+            If oDoc3.File IsNot Nothing Then
                 Try
-                    ThisApplication.SilentOperation = True
-                    oDoc3 = ThisApplication.Documents.Open(sNewPath3, False)
-                    bOpened3 = True
-                Catch exOpen3 As Exception
+                    For Each oFD3 As Object In oDoc3.File.ReferencedFileDescriptors
+                        Dim sOldRef3 As String = ""
+                        Try : sOldRef3 = oFD3.FullFileName : Catch : Continue For : End Try
+                        If sOldRef3 = "" Then Continue For
+                        If sOldRef3.ToUpper().StartsWith(sTargetFolder.ToUpper()) Then Continue For
+
+                        Dim sNewRef3 As String = ""
+                        If oActualMap.ContainsKey(sOldRef3) Then
+                            sNewRef3 = oActualMap(sOldRef3)
+                        Else
+                            Dim sB3 As String = System.IO.Path.GetFileName(sOldRef3)
+                            If oTargetByBase.ContainsKey(sB3) Then sNewRef3 = oTargetByBase(sB3)
+                        End If
+                        If sNewRef3 = "" OrElse Not System.IO.File.Exists(sNewRef3) Then Continue For
+                        If String.Compare(sOldRef3, sNewRef3, True) = 0 Then Continue For
+
+                        Try
+                            oFD3.ReplaceReference(sNewRef3)
+                            bChanged3 = True
+                            iRefFixed += 1
+                            Try : System.IO.File.AppendAllText(sLogPath, _
+                                "  P3-FD: [" & sNewName3 & "] " & _
+                                System.IO.Path.GetFileName(sOldRef3) & " -> " & _
+                                System.IO.Path.GetFileName(sNewRef3) & vbCrLf) : Catch : End Try
+                        Catch exFD3 As Exception
+                            ' E_INVALIDARG = CC/DA locked — safe skip (old Traverse behaviour)
+                            If exFD3.HResult = &H80070057 Then
+                                Try : System.IO.File.AppendAllText(sLogPath, _
+                                    "  P3-FD-SKIP(locked): [" & sNewName3 & "] " & _
+                                    System.IO.Path.GetFileName(sOldRef3) & vbCrLf) : Catch : End Try
+                            Else
+                                iRefFailed += 1
+                                Try : System.IO.File.AppendAllText(sLogPath, _
+                                    "  P3-FD-FAIL: [" & sNewName3 & "] " & _
+                                    System.IO.Path.GetFileName(sOldRef3) & " — " & exFD3.Message & vbCrLf) : Catch : End Try
+                            End If
+                        End Try
+                    Next
+                Catch exFDW3 As Exception
                     Try : System.IO.File.AppendAllText(sLogPath, _
-                        "P3-OPEN-FAIL: " & sNewName3 & " — " & exOpen3.Message & vbCrLf) : Catch : End Try
-                    Continue For
+                        "P3-FD-WALK-FAIL: " & sNewName3 & " — " & exFDW3.Message & vbCrLf) : Catch : End Try
                 End Try
             End If
 
-            Dim bChanged3 As Boolean = False
-            Try
-                If oDoc3.File Is Nothing Then
-                    Try : System.IO.File.AppendAllText(sLogPath, _
-                        "P3-FILE-NULL: " & sNewName3 & vbCrLf) : Catch : End Try
-                    Continue For
-                End If
-                For Each oFD3 As Object In oDoc3.File.ReferencedFileDescriptors
-                    Dim sOldRef3 As String = ""
-                    Try : sOldRef3 = oFD3.FullFileName : Catch : Continue For : End Try
-
-                    If Not oActualMap.ContainsKey(sOldRef3) Then Continue For
-                    Dim sNewRef3 As String = oActualMap(sOldRef3)
-                    If Not System.IO.File.Exists(sNewRef3) Then Continue For
-                    If String.Compare(sOldRef3, sNewRef3, True) = 0 Then Continue For
-
-                    Try
-                        oFD3.ReplaceReference(sNewRef3)
-                        bChanged3 = True
-                        iRefFixed += 1
-                        Try : System.IO.File.AppendAllText(sLogPath, _
-                            "  P3-FD: " & System.IO.Path.GetFileName(sOldRef3) & _
-                            "  ->  " & System.IO.Path.GetFileName(sNewRef3) & vbCrLf) : Catch : End Try
-                    Catch exFD3 As Exception
-                        iRefFailed += 1
-                        Try : System.IO.File.AppendAllText(sLogPath, _
-                            "  P3-FD-FAIL: " & System.IO.Path.GetFileName(sOldRef3) & _
-                            " — " & exFD3.Message & vbCrLf) : Catch : End Try
-                    End Try
-                Next
-            Catch exFDWalk3 As Exception
-                Try : System.IO.File.AppendAllText(sLogPath, _
-                    "P3-FD-WALK-FAIL: " & sNewName3 & " — " & exFDWalk3.Message & vbCrLf) : Catch : End Try
-            End Try
-
-            If bChanged3 Then
+            ' ── 3b: ComponentOccurrence.Replace — the real workhorse ───────
+            ' Handles DA-managed parts, library parts, anything FD can't fix.
+            If sExtU3 = ".IAM" Then
                 Try
-                    oDoc3.Save()
+                    Dim oAsmDef3 As AssemblyComponentDefinition = _
+                        TryCast(oDoc3, AssemblyDocument).ComponentDefinition
+                    If oAsmDef3 IsNot Nothing Then
+                        ' Snapshot occurrences first to avoid collection-modified errors
+                        Dim oOccSnap3 As New System.Collections.Generic.List(Of ComponentOccurrence)()
+                        Try
+                            For Each oOcc3Snap As ComponentOccurrence In oAsmDef3.Occurrences
+                                oOccSnap3.Add(oOcc3Snap)
+                            Next
+                        Catch : End Try
+
+                        For Each oOcc3 As ComponentOccurrence In oOccSnap3
+                            Dim sOccOld3 As String = ""
+                            Try : sOccOld3 = oOcc3.Definition.Document.FullFileName : Catch
+                                Try : sOccOld3 = oOcc3.ReferencedFileDescriptor.FullFileName : Catch : Continue For : End Try
+                            End Try
+                            If sOccOld3 = "" Then Continue For
+                            If sOccOld3.ToUpper().StartsWith(sTargetFolder.ToUpper()) Then Continue For
+
+                            Dim sOccNew3 As String = ""
+                            If oActualMap.ContainsKey(sOccOld3) Then
+                                sOccNew3 = oActualMap(sOccOld3)
+                            Else
+                                Dim sBOcc3 As String = System.IO.Path.GetFileName(sOccOld3)
+                                If oTargetByBase.ContainsKey(sBOcc3) Then sOccNew3 = oTargetByBase(sBOcc3)
+                            End If
+                            If sOccNew3 = "" OrElse Not System.IO.File.Exists(sOccNew3) Then Continue For
+                            If String.Compare(sOccOld3, sOccNew3, True) = 0 Then Continue For
+
+                            Dim bReplaced3 As Boolean = False
+                            Try
+                                oOcc3.Replace(sOccNew3, False)
+                                bReplaced3 = True
+                            Catch
+                                ' Fallback: try FD on the occurrence's own descriptor
+                                Try
+                                    Dim oFD3b As FileDescriptor = oOcc3.ReferencedFileDescriptor
+                                    If oFD3b IsNot Nothing Then
+                                        oFD3b.ReplaceReference(sOccNew3)
+                                        bReplaced3 = True
+                                    End If
+                                Catch : End Try
+                            End Try
+
+                            If bReplaced3 Then
+                                bChanged3 = True
+                                iRefFixed += 1
+                                Try : oOcc3.Name = System.IO.Path.GetFileNameWithoutExtension(sOccNew3) : Catch : End Try
+                                Try : System.IO.File.AppendAllText(sLogPath, _
+                                    "  P3-OCC: [" & sNewName3 & "] " & _
+                                    System.IO.Path.GetFileName(sOccOld3) & " -> " & _
+                                    System.IO.Path.GetFileName(sOccNew3) & vbCrLf) : Catch : End Try
+                            End If
+                        Next
+                    End If
+                Catch exOcc3 As Exception
                     Try : System.IO.File.AppendAllText(sLogPath, _
-                        "P3-SAVED: " & sNewName3 & vbCrLf) : Catch : End Try
-                Catch exSv3 As Exception
-                    Try : System.IO.File.AppendAllText(sLogPath, _
-                        "P3-SAVE-FAIL: " & sNewName3 & " — " & exSv3.Message & vbCrLf) : Catch : End Try
+                        "P3-OCC-FAIL: " & sNewName3 & " — " & exOcc3.Message & vbCrLf) : Catch : End Try
                 End Try
             End If
 
@@ -544,11 +710,34 @@ Sub Main()
             iRefFailed += 1
             Try : System.IO.File.AppendAllText(sLogPath, _
                 "P3-ERROR: " & sNewName3 & " — " & exP3.Message & vbCrLf) : Catch : End Try
-        Finally
-            If bOpened3 AndAlso oDoc3 IsNot Nothing Then
-                Try : oDoc3.Close(True) : Catch : End Try
-            End If
         End Try
+
+        ' Save if changed, then close if we opened it
+        If bChanged3 Then
+            ' Clear RO before save
+            Try
+                Dim oFA3 As System.IO.FileAttributes = System.IO.File.GetAttributes(sNewPath3)
+                If (oFA3 And System.IO.FileAttributes.ReadOnly) = System.IO.FileAttributes.ReadOnly Then
+                    System.IO.File.SetAttributes(sNewPath3, oFA3 And Not System.IO.FileAttributes.ReadOnly)
+                End If
+            Catch : End Try
+            ' SilentOperation = True suppresses Inventor's multi-file Save dialog
+            ' ("Multiple files have been updated in current session...") that fires
+            ' when saving an assembly whose referenced CC/library parts are dirty.
+            Try
+                ThisApplication.SilentOperation = True
+                oDoc3.Save()
+                Try : System.IO.File.AppendAllText(sLogPath, "P3-SAVED: " & sNewName3 & vbCrLf) : Catch : End Try
+            Catch exSv3 As Exception
+                Try : System.IO.File.AppendAllText(sLogPath, _
+                    "P3-SAVE-FAIL: " & sNewName3 & " — " & exSv3.Message & vbCrLf) : Catch : End Try
+            Finally
+                ThisApplication.SilentOperation = False
+            End Try
+        End If
+        If bOpened3 AndAlso oDoc3 IsNot Nothing Then
+            Try : oDoc3.Close(True) : Catch : End Try
+        End If
     Next
 
     Try : System.IO.File.AppendAllText(sLogPath, _
@@ -561,7 +750,7 @@ Sub Main()
 
     ' ── 8. Final summary ──────────────────────────────────────────────────────
     Dim sSummary As String = _
-        "SUPER CLEAN SWEEPER v2.0.5 — COMPLETE" & vbCrLf & vbCrLf & _
+        "SUPER CLEAN SWEEPER v2.2.0 — COMPLETE" & vbCrLf & vbCrLf & _
         "Phase 1  Rename map built:   " & oRenameMap.Count & " file(s)" & vbCrLf & _
         "Phase 2  SaveAs + Provenance:" & vbCrLf & _
         "         Saved    : " & iSaved & vbCrLf & _
@@ -614,11 +803,10 @@ Function ComputeNewName(sOldFull As String, _
     If String.Compare(sOldProjectRoot, "", True) <> 0 Then  ' always true; used as scope guard
         Dim iFirstDash As Integer = sBase.IndexOf("-"c)
         If iFirstDash > 0 Then
-            Dim sToken0 As String = sBase.Substring(0, iFirstDash)
+            Dim sToken0 As String = sBase.Substring(0, iFirstDash).Trim()
             ' Only strip if token0 starts with "PJ", is all alphanumeric,
             ' AND the token does NOT equal sNewPrefix (avoid stripping when same prefix)
             If sToken0.ToUpper().StartsWith("PJ") AndAlso _
-               sToken0.Trim() = sToken0 AndAlso _
                String.Compare(sToken0, sNewPrefix, True) <> 0 Then
                 Dim bAllAlNum As Boolean = True
                 Dim ci As Integer
@@ -832,10 +1020,14 @@ Sub WalkTree(oDoc As Document, _
                 End Try
             End If
 
-            ' CC guard: IsContentMember check on open document
+            ' CC guard: skip only when BOTH IsContentMember=True AND the file
+            ' actually lives in the Vault Content Center folder.
+            ' Non-standard fasteners/parts placed from CC but saved into a
+            ' project folder must be copied and prefixed like any project file.
             Try
                 If oChild.DocumentType = DocumentTypeEnum.kPartDocumentObject AndAlso _
-                   oChild.ComponentDefinition.IsContentMember Then
+                   oChild.ComponentDefinition.IsContentMember AndAlso _
+                   sRefPath.ToUpper().Contains("CONTENT CENTER") Then
                     Try
                         System.IO.File.AppendAllText(sLogPath, _
                             "WALK-CC-SKIP: " & System.IO.Path.GetFileName(sRefPath) & vbCrLf)
@@ -860,13 +1052,30 @@ Sub WalkTree(oDoc As Document, _
     Dim sNewFull As String = ComputeNewName(sFullPath, sOldProjectRoot, sNewPrefix, sTargetFolder)
     If sNewFull = "" Then Return   ' already in target, or CC part
 
-    If String.Compare(sFullPath, sNewFull, True) <> 0 Then
-        If Not oRenameMap.ContainsKey(sFullPath) Then
-            oRenameMap(sFullPath) = sNewFull
+    ' ── Collision guard: if another source already maps to this target name,
+    '    suffix this one with _2, _3 … to keep them unique.
+    '    E.g. multiple different "Bolted Connection1.iam" from different sub-assemblies
+    '    would otherwise all collapse onto "PJ00205-Bolted Connection1.iam".
+    If Not oRenameMap.ContainsKey(sFullPath) Then
+        Dim sTestFull As String = sNewFull
+        Dim sTestBase As String = System.IO.Path.GetFileNameWithoutExtension(sNewFull)
+        Dim sTestExt  As String = System.IO.Path.GetExtension(sNewFull)
+        Dim sTestDir  As String = System.IO.Path.GetDirectoryName(sNewFull)
+        Dim iSuffix As Integer = 2
+        ' Check both map values AND existing files on disk
+        Do While oRenameMap.ContainsValue(sTestFull) OrElse _
+                 System.IO.File.Exists(sTestFull)
+            sTestFull = System.IO.Path.Combine(sTestDir, sTestBase & "_" & iSuffix & sTestExt)
+            iSuffix += 1
+        Loop
+        If String.Compare(sFullPath, sTestFull, True) <> 0 Then
+            oRenameMap(sFullPath) = sTestFull
             Try
+                Dim sColNote As String = ""
+                If iSuffix > 2 Then sColNote = "  [collision-suffix]"
                 System.IO.File.AppendAllText(sLogPath, _
                     "MAP: " & System.IO.Path.GetFileName(sFullPath) & _
-                    "  ->  " & System.IO.Path.GetFileName(sNewFull) & vbCrLf)
+                    "  ->  " & System.IO.Path.GetFileName(sTestFull) & sColNote & vbCrLf)
             Catch : End Try
         End If
     End If
