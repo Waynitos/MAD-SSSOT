@@ -1,7 +1,7 @@
 '' =====================================================================
 '' SUPER_CLEAN_SWEEPER.iLogicVb
 '' Copy Design with full provenance architecture
-'' Version: 2.2.4 — 2026-11-05
+'' Version: 2.2.5 — 2026-11-05
 ''
 '' PURPOSE
 ''   Replicates Vault Copy Design outside of Vault.
@@ -39,6 +39,16 @@
 ''   outer Finally still restores the original SilentOperation at the end.
 ''   Phase 3 saves with Save2(False) (fallback Save) so the save does not
 ''   cascade to dirty CC/library dependents.
+''
+'' V2.2.5
+''   RERUN FIX: when Phase 1 finds 0 files, the script no longer exits
+''   straight away.  It scans the target folder for .iam/.ipt, reads
+''   CS_SourcePath from each (ItemByName if open, else opened invisibly
+''   and closed again), and adds CS_SourcePath -> current path to
+''   oActualMap.  If at least one entry is recovered the run continues so
+''   Phase 4 can resweep the GA; if none, "Nothing to do" + Exit Sub.
+''   Phase 4 also uses the active GA itself when it already sits in the
+''   target folder.
 ''
 '' V2.2.4
 ''   PHASE 4 LIVE RESWEEP: after Phase 3, opens the new top GA and walks its
@@ -118,7 +128,7 @@ Sub Main()
         System.Environment.SpecialFolder.Desktop)
     Dim sLogPath As String = System.IO.Path.Combine(sDesktop, _
         "SUPER_CLEAN_SWEEPER_" & Now.ToString("yyyyMMdd_HHmmss") & ".log")
-    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.4  —  " & Now.ToString() & vbCrLf & _
+    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.5  —  " & Now.ToString() & vbCrLf & _
                          "GA: " & sTopFull & vbCrLf
     Try : System.IO.File.WriteAllText(sLogPath, sLog) : Catch : End Try
 
@@ -260,7 +270,64 @@ Sub Main()
     Next
     oWalkOpened.Clear()
 
+    ' v2.2.5: on a rerun Phase 1 can find 0 files (everything is already in the
+    ' target folder).  Rebuild old->new pairs from CS_SourcePath on every .iam/.ipt
+    ' in the target folder so Phase 4 can still run.  The pairs are merged into
+    ' oActualMap as soon as it is created (inside the outer Try).
+    Dim oRecoveredMap As New System.Collections.Generic.Dictionary(Of String, String)( _
+        StringComparer.OrdinalIgnoreCase)
     If oRenameMap.Count = 0 Then
+        Try : System.IO.File.AppendAllText(sLogPath, vbCrLf & "=== RERUN: PROVENANCE RECOVERY (Phase 1 found 0 files) ===" & vbCrLf) : Catch : End Try
+        Dim sRecFile As String
+        Dim sRecExt As String
+        Dim sRecSource As String
+        Dim oRecDoc As Document
+        Dim bRecOpened As Boolean
+        Dim aRecFiles() As String = New String() {}
+        Try
+            aRecFiles = System.IO.Directory.GetFiles(sTargetFolder, "*.*", System.IO.SearchOption.TopDirectoryOnly)
+        Catch exRecDir As Exception
+            Try : System.IO.File.AppendAllText(sLogPath, "REC-DIR-FAIL: " & exRecDir.Message & vbCrLf) : Catch : End Try
+        End Try
+        For Each sRecFile In aRecFiles
+            sRecExt = System.IO.Path.GetExtension(sRecFile).ToUpper()
+            If sRecExt <> ".IAM" AndAlso sRecExt <> ".IPT" Then Continue For
+            sRecSource = ""
+            oRecDoc = Nothing
+            bRecOpened = False
+            Try
+                oRecDoc = ThisApplication.Documents.ItemByName(sRecFile)
+            Catch
+            End Try
+            If oRecDoc Is Nothing Then
+                Try
+                    ThisApplication.SilentOperation = True
+                    oRecDoc = ThisApplication.Documents.Open(sRecFile, False)
+                    bRecOpened = True
+                Catch exRecOpen As Exception
+                    Try : System.IO.File.AppendAllText(sLogPath, "REC-OPEN-FAIL: " & System.IO.Path.GetFileName(sRecFile) & " — " & exRecOpen.Message & vbCrLf) : Catch : End Try
+                End Try
+            End If
+            If oRecDoc IsNot Nothing Then
+                Try
+                    sRecSource = CStr(oRecDoc.PropertySets("Inventor User Defined Properties").Item("CS_SourcePath").Value)
+                Catch
+                End Try
+                If bRecOpened Then
+                    Try : oRecDoc.Close(True) : Catch : End Try
+                End If
+            End If
+            If sRecSource <> "" AndAlso String.Compare(sRecSource, sRecFile, True) <> 0 Then
+                If Not oRecoveredMap.ContainsKey(sRecSource) Then
+                    oRecoveredMap(sRecSource) = sRecFile
+                    Try : System.IO.File.AppendAllText(sLogPath, "REC-PROV: " & System.IO.Path.GetFileName(sRecSource) & " -> " & System.IO.Path.GetFileName(sRecFile) & vbCrLf) : Catch : End Try
+                End If
+            End If
+        Next
+        Try : System.IO.File.AppendAllText(sLogPath, "Provenance recovery complete: " & oRecoveredMap.Count & " entr(ies) recovered." & vbCrLf) : Catch : End Try
+    End If
+
+    If oRenameMap.Count = 0 AndAlso oRecoveredMap.Count = 0 Then
         ThisApplication.SilentOperation = bOrigSilent
         MessageBox.Show("No files found under project root '" & sOldProjectRoot & "'." & vbCrLf & _
             "Check the GA is open and the prefix matches its filename.", _
@@ -308,6 +375,12 @@ Sub Main()
     ' Track files actually placed on disk (Phase 3 uses this map)
     Dim oActualMap As New System.Collections.Generic.Dictionary(Of String, String)( _
         StringComparer.OrdinalIgnoreCase)
+
+    ' v2.2.5: merge pairs recovered from provenance on a 0-file rerun.
+    Dim sRecKey As String
+    For Each sRecKey In oRecoveredMap.Keys
+        oActualMap(sRecKey) = oRecoveredMap(sRecKey)
+    Next
 
     ' ── PRE-POPULATE oActualMap from provenance of files already in target ────
     ' Files SaveAs'd in a PRIOR run are not in oRenameMap (ComputeNewName returns ""
@@ -885,6 +958,8 @@ Sub Main()
         System.IO.File.AppendAllText(sLogPath, vbCrLf & "=== PHASE 4: LIVE OCCURRENCE RESWEEP ===" & vbCrLf)
         Dim sNewGAPath As String = ""
         If oActualMap.ContainsKey(sTopFull) Then sNewGAPath = oActualMap(sTopFull)
+        ' v2.2.5: on a rerun the active GA may already be the new GA in the target folder.
+        If sNewGAPath = "" AndAlso sTopFull.ToUpper().StartsWith(sTargetFolder.ToUpper()) Then sNewGAPath = sTopFull
         If sNewGAPath <> "" AndAlso System.IO.File.Exists(sNewGAPath) Then
             Dim oNewGA As AssemblyDocument = Nothing
             Dim bGAOpenedHere As Boolean = False
@@ -940,7 +1015,7 @@ Sub Main()
 
     ' ── 8. Final summary ──────────────────────────────────────────────────────
     Dim sSummary As String = _
-        "SUPER CLEAN SWEEPER v2.2.4 — COMPLETE" & vbCrLf & vbCrLf & _
+        "SUPER CLEAN SWEEPER v2.2.5 — COMPLETE" & vbCrLf & vbCrLf & _
         "Phase 1  Rename map built:   " & oRenameMap.Count & " file(s)" & vbCrLf & _
         "Phase 2  SaveAs + Provenance:" & vbCrLf & _
         "         Saved    : " & iSaved & vbCrLf & _
