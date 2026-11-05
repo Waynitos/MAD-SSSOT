@@ -1,7 +1,7 @@
 '' =====================================================================
 '' SUPER_CLEAN_SWEEPER.iLogicVb
 '' Copy Design with full provenance architecture
-'' Version: 2.2.16 — 2026-11-05
+'' Version: 2.2.17 — 2026-11-05
 ''
 '' PURPOSE
 ''   Replicates Vault Copy Design outside of Vault.
@@ -39,6 +39,25 @@
 ''   outer Finally still restores the original SilentOperation at the end.
 ''   Phase 3 saves with Save2(False) (fallback Save) so the save does not
 ''   cascade to dirty CC/library dependents.
+''
+'' V2.2.17  (Code-Assassin fixes — 2026-11-05)
+''   FIX 1 (HIGH): ResolveTarget no longer reuses an existing file on a
+''     plain prefix collision.  An existing target is reused ONLY when its
+''     CS_SourcePath exactly matches the current source.  A mismatch or a
+''     blank CS_SourcePath adds a _N suffix, logged as
+''     "SUFFIX: <file> (provenance mismatch)".  Phase 3 now skips any file
+''     this run did not create (oCreatedThisRun), logged as
+''     "P3-SKIP-NOT-CREATED: <file>", so it never saves another file.
+''   FIX 2 (MEDIUM): row 1 of the string-replacement form starts blank;
+''     the prefix swap is already done by ComputeNewName.
+''   FIX 3 (MEDIUM, speed): oSourcePathCache (Sub Main scoped, passed
+''     through WalkTree and ResolveTarget) caches CS_SourcePath reads.
+''     ReadCSSourcePath checks the cache first; on a miss it reads from the
+''     in-session document, else opens invisibly, reads, closes, and caches.
+''   FIX 4 (LOW): if the suffix loop reaches 10000, "SUFFIX-EXHAUSTED: <base>"
+''     is logged and ResolveTarget returns ""; both callers skip the file.
+''   FIX 5 (LOW): string-rule Find/Replace is case-insensitive
+''     (Regex.Replace with RegexOptions.IgnoreCase, find text escaped).
 ''
 '' V2.2.16
 ''   DV-FAIL LOG: in the Phase 2 design-view activation block, the outer
@@ -282,7 +301,7 @@ Sub Main()
         System.Environment.SpecialFolder.Desktop)
     Dim sLogPath As String = System.IO.Path.Combine(sDesktop, _
         "SUPER_CLEAN_SWEEPER_" & Now.ToString("yyyyMMdd_HHmmss") & ".log")
-    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.16  —  " & Now.ToString() & vbCrLf & _
+    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.17  —  " & Now.ToString() & vbCrLf & _
                          "GA: " & sTopFull & vbCrLf
     Try : System.IO.File.WriteAllText(sLogPath, sLog) : Catch : End Try
     If sEntryLog <> "" Then
@@ -432,8 +451,6 @@ Sub Main()
         aReplBox(iRuleRow).Width = 260
         oRuleForm.Controls.Add(aReplBox(iRuleRow))
     Next
-    aFindBox(0).Text = sOldPrefix
-    aReplBox(0).Text = sNewPrefix
     Dim oRuleOk As New System.Windows.Forms.Button()
     oRuleOk.Text = "OK"
     oRuleOk.Left = 368
@@ -488,11 +505,14 @@ Sub Main()
     ' v2.2.15: sources whose target is an existing file being reused (Phase 2 skips SaveAs)
     Dim oReuseKeys As New System.Collections.Generic.HashSet(Of String)( _
         StringComparer.OrdinalIgnoreCase)
+    ' v2.2.17: cache of CS_SourcePath reads (target path -> CS_SourcePath)
+    Dim oSourcePathCache As New System.Collections.Generic.Dictionary(Of String, String)( _
+        StringComparer.OrdinalIgnoreCase)
 
     Try
         WalkTree(oAsmDoc, sOldProjectRoot, sNewPrefix, sTargetFolder, _
                  oRenameMap, oSeen, sLogPath, oMappedTargets, oWalkOpened, _
-                 oStringRules, oReuseKeys)
+                 oStringRules, oReuseKeys, oSourcePathCache)
     Catch exWalk As Exception
         ThisApplication.SilentOperation = bOrigSilent
         If bEntryDocOpenedHere AndAlso oEntryDoc IsNot Nothing Then  ' FIX A
@@ -512,13 +532,16 @@ Sub Main()
             Dim sTopRuled As String = ApplyStringRules(sTopNewFull2, oStringRules)
             Dim bTopRuleChanged As Boolean = Not String.Equals(sTopRuled, sTopNewFull2, StringComparison.Ordinal)
             Dim bTopReused As Boolean = False
-            Dim sTopTest As String = ResolveTarget(sTopFull, sTopRuled, bTopRuleChanged, oMappedTargets, sLogPath, bTopReused)
-            If bTopReused Then oReuseKeys.Add(sTopFull)
-            oRenameMap(sTopFull) = sTopTest
-            oMappedTargets.Add(sTopTest)
-            Try : System.IO.File.AppendAllText(sLogPath, _
-                "MAP (TOP): " & System.IO.Path.GetFileName(sTopFull) & _
-                "  ->  " & System.IO.Path.GetFileName(sTopTest) & vbCrLf) : Catch : End Try
+            Dim sTopTest As String = ResolveTarget(sTopFull, sTopRuled, bTopRuleChanged, oMappedTargets, sLogPath, bTopReused, oSourcePathCache)
+            ' v2.2.17: "" means the suffix range was exhausted — skip mapping the top GA
+            If sTopTest <> "" Then
+                If bTopReused Then oReuseKeys.Add(sTopFull)
+                oRenameMap(sTopFull) = sTopTest
+                oMappedTargets.Add(sTopTest)
+                Try : System.IO.File.AppendAllText(sLogPath, _
+                    "MAP (TOP): " & System.IO.Path.GetFileName(sTopFull) & _
+                    "  ->  " & System.IO.Path.GetFileName(sTopTest) & vbCrLf) : Catch : End Try
+            End If
         End If
     End If
 
@@ -650,6 +673,10 @@ Sub Main()
 
     ' Track files actually placed on disk (Phase 3 uses this map)
     Dim oActualMap As New System.Collections.Generic.Dictionary(Of String, String)( _
+        StringComparer.OrdinalIgnoreCase)
+    ' v2.2.17: target files actually created (SaveAs / File.Copy) by THIS run.
+    ' Phase 3 only opens and saves files in this set.
+    Dim oCreatedThisRun As New System.Collections.Generic.HashSet(Of String)( _
         StringComparer.OrdinalIgnoreCase)
 
     ' v2.2.5: merge pairs recovered from provenance on a 0-file rerun.
@@ -912,6 +939,7 @@ Sub Main()
                 ' .ipt File.Copy results are safe to open — they have no sub-refs.
                 If bUsedFileCopy2 AndAlso sExtU2 = ".IAM" Then
                     oActualMap(sOldFull2) = sNewFull2
+                    oCreatedThisRun.Add(sNewFull2)
                     iSaved += 1
                     Try : System.IO.File.AppendAllText(sLogPath, _
                         "COPY+DEFER-PROV: " & sOldName2 & "  ->  " & sNewName2 & _
@@ -990,6 +1018,7 @@ Sub Main()
                 End If
 
                 oActualMap(sOldFull2) = sNewFull2
+                oCreatedThisRun.Add(sNewFull2)
                 iSaved += 1
             Else
                 iSaveFailed += 1
@@ -1077,6 +1106,11 @@ Sub Main()
         Dim sNewName3 As String = System.IO.Path.GetFileName(sNewPath3)
         Dim sExtU3    As String = System.IO.Path.GetExtension(sNewPath3).ToUpper()
         If Not System.IO.File.Exists(sNewPath3) Then Continue For
+        ' v2.2.17: never open or save a file this run did not create
+        If Not oCreatedThisRun.Contains(sNewPath3) Then
+            Try : System.IO.File.AppendAllText(sLogPath, "P3-SKIP-NOT-CREATED: " & sNewName3 & vbCrLf) : Catch : End Try
+            Continue For
+        End If
 
         ' Open the new file (SilentOperation to suppress Vault dialogs)
         Dim bOpened3  As Boolean  = False
@@ -1473,7 +1507,7 @@ Sub Main()
 
     ' ── 8. Final summary ──────────────────────────────────────────────────────
     Dim sSummary As String = _
-        "SUPER CLEAN SWEEPER v2.2.16 — COMPLETE" & vbCrLf & vbCrLf & _
+        "SUPER CLEAN SWEEPER v2.2.17 — COMPLETE" & vbCrLf & vbCrLf & _
         "Phase 1  Rename map built:   " & oRenameMap.Count & " file(s)" & vbCrLf & _
         "Phase 2  SaveAs + Provenance:" & vbCrLf & _
         "         Saved    : " & iSaved & vbCrLf & _
@@ -1728,7 +1762,8 @@ Sub WalkTree(oDoc As Document, _
              oMappedTargets As System.Collections.Generic.HashSet(Of String), _
              oWalkOpened As System.Collections.Generic.List(Of Document), _
              oStringRules As System.Collections.Generic.List(Of String()), _
-             oReuseKeys As System.Collections.Generic.HashSet(Of String))
+             oReuseKeys As System.Collections.Generic.HashSet(Of String), _
+             oSourcePathCache As System.Collections.Generic.Dictionary(Of String, String))
 
     Dim sFullPath As String = ""
     Try : sFullPath = oDoc.FullFileName : Catch : Return : End Try
@@ -1792,7 +1827,7 @@ Sub WalkTree(oDoc As Document, _
 
             WalkTree(oChild, sOldProjectRoot, sNewPrefix, sTargetFolder, _
                      oRenameMap, oSeen, sLogPath, oMappedTargets, oWalkOpened, _
-                     oStringRules, oReuseKeys)
+                     oStringRules, oReuseKeys, oSourcePathCache)
         Next
     Catch exWalk As Exception
         Try
@@ -1816,8 +1851,9 @@ Sub WalkTree(oDoc As Document, _
         Dim sRuled As String = ApplyStringRules(sNewFull, oStringRules)
         Dim bRuleChanged As Boolean = Not String.Equals(sRuled, sNewFull, StringComparison.Ordinal)
         Dim bReused As Boolean = False
-        Dim sTestFull As String = ResolveTarget(sFullPath, sRuled, bRuleChanged, oMappedTargets, sLogPath, bReused)
-        If String.Compare(sFullPath, sTestFull, True) <> 0 Then
+        Dim sTestFull As String = ResolveTarget(sFullPath, sRuled, bRuleChanged, oMappedTargets, sLogPath, bReused, oSourcePathCache)
+        ' v2.2.17: "" means the suffix range was exhausted — skip this file
+        If sTestFull <> "" AndAlso String.Compare(sFullPath, sTestFull, True) <> 0 Then
             oRenameMap(sFullPath) = sTestFull
             oMappedTargets.Add(sTestFull)
             If bReused Then oReuseKeys.Add(sFullPath)
@@ -2042,7 +2078,7 @@ End Sub
 
 ' ─────────────────────────────────────────────────────────────────────────────
 ' HELPER: apply string-replacement rules to a new full path's base name (v2.2.15)
-' Exact, case-sensitive replace on the file name without extension.
+' v2.2.17: case-insensitive replace on the file name without extension.
 ' If the rules would empty the name, the original is kept.
 ' ─────────────────────────────────────────────────────────────────────────────
 Function ApplyStringRules(sNewFull As String, _
@@ -2055,7 +2091,12 @@ Function ApplyStringRules(sNewFull As String, _
     Dim sResult As String = sBase
     Dim aPair As String()
     For Each aPair In oRules
-        If aPair(0) <> "" Then sResult = sResult.Replace(aPair(0), aPair(1))
+        If aPair(0) <> "" Then
+            sResult = System.Text.RegularExpressions.Regex.Replace(sResult, _
+                System.Text.RegularExpressions.Regex.Escape(aPair(0)), _
+                aPair(1).Replace("$", "$$"), _
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase)
+        End If
     Next
     If sResult.Trim() = "" Then Return sNewFull
     Return System.IO.Path.Combine(sDir, sResult & sExt)
@@ -2064,9 +2105,13 @@ End Function
 
 ' ─────────────────────────────────────────────────────────────────────────────
 ' HELPER: read CS_SourcePath from a file (v2.2.15)
-' Uses the in-session document if open, else opens invisibly and closes it.
+' v2.2.17: checks oCache first.  On a miss it uses the in-session document if
+' open, else opens invisibly, reads, and closes it; the result is cached.
+' (The Inventor API has no iProperty read without opening the document.)
 ' ─────────────────────────────────────────────────────────────────────────────
-Function ReadCSSourcePath(sPath As String) As String
+Function ReadCSSourcePath(sPath As String, _
+                          oCache As System.Collections.Generic.Dictionary(Of String, String)) As String
+    If oCache IsNot Nothing AndAlso oCache.ContainsKey(sPath) Then Return oCache(sPath)
     Dim sVal As String = ""
     Dim oDoc As Document = Nothing
     Try
@@ -2078,6 +2123,8 @@ Function ReadCSSourcePath(sPath As String) As String
             sVal = oDoc.PropertySets("Inventor User Defined Properties").Item("CS_SourcePath").Value
         Catch
         End Try
+        If sVal Is Nothing Then sVal = ""
+        If oCache IsNot Nothing Then oCache(sPath) = sVal
         Return sVal
     End If
     Dim bPrevSilent As Boolean = ThisApplication.SilentOperation
@@ -2093,6 +2140,8 @@ Function ReadCSSourcePath(sPath As String) As String
     Finally
         ThisApplication.SilentOperation = bPrevSilent
     End Try
+    If sVal Is Nothing Then sVal = ""
+    If oCache IsNot Nothing Then oCache(sPath) = sVal
     Return sVal
 End Function
 
@@ -2101,35 +2150,33 @@ End Function
 ' HELPER: pick the target path for a source (v2.2.15)
 '   - free name                                   -> use it
 '   - exists, CS_SourcePath = source              -> REUSE (provenance match)
-'   - exists, mismatch, no string rule changed it -> REUSE (prefix collision)
-'   - exists, mismatch, string rule changed it    -> _N suffix (string-rule collision)
+'   - exists, CS_SourcePath mismatch or blank     -> _N suffix (provenance mismatch)
 '   - already mapped by another source this run   -> _N suffix (in-run collision)
 ' In the suffix loop an existing _N file whose CS_SourcePath matches is reused.
 ' bReused is set True when an existing file is reused.
+' v2.2.17: no prefix-collision reuse; bRuleChanged is kept in the signature
+' but no longer affects the decision.  Returns "" (SUFFIX-EXHAUSTED) when no
+' free _N name is found below 10000; callers treat "" as skip.
 ' ─────────────────────────────────────────────────────────────────────────────
 Function ResolveTarget(sSource As String, _
                        sCand As String, _
                        bRuleChanged As Boolean, _
                        oMappedTargets As System.Collections.Generic.HashSet(Of String), _
                        sLogPath As String, _
-                       ByRef bReused As Boolean) As String
+                       ByRef bReused As Boolean, _
+                       oSourcePathCache As System.Collections.Generic.Dictionary(Of String, String)) As String
     bReused = False
     Dim sReason As String = ""
     Dim sExistingSrc As String = ""
     If Not oMappedTargets.Contains(sCand) Then
         If Not System.IO.File.Exists(sCand) Then Return sCand
-        sExistingSrc = ReadCSSourcePath(sCand)
-        If String.Equals(sExistingSrc, sSource, StringComparison.OrdinalIgnoreCase) Then
+        sExistingSrc = ReadCSSourcePath(sCand, oSourcePathCache)
+        If sExistingSrc <> "" AndAlso String.Equals(sExistingSrc, sSource, StringComparison.OrdinalIgnoreCase) Then
             bReused = True
             Try : System.IO.File.AppendAllText(sLogPath, "REUSE: " & System.IO.Path.GetFileName(sCand) & " (provenance match)" & vbCrLf) : Catch : End Try
             Return sCand
         End If
-        If Not bRuleChanged Then
-            bReused = True
-            Try : System.IO.File.AppendAllText(sLogPath, "REUSE: " & System.IO.Path.GetFileName(sCand) & " (prefix collision, CS_SourcePath: " & sExistingSrc & ")" & vbCrLf) : Catch : End Try
-            Return sCand
-        End If
-        sReason = "string-rule collision"
+        sReason = "provenance mismatch"
     Else
         sReason = "in-run collision"
     End If
@@ -2146,8 +2193,8 @@ Function ResolveTarget(sSource As String, _
                 Try : System.IO.File.AppendAllText(sLogPath, "SUFFIX: " & System.IO.Path.GetFileName(sTry) & " (" & sReason & ")" & vbCrLf) : Catch : End Try
                 Return sTry
             End If
-            sExistingSrc = ReadCSSourcePath(sTry)
-            If String.Equals(sExistingSrc, sSource, StringComparison.OrdinalIgnoreCase) Then
+            sExistingSrc = ReadCSSourcePath(sTry, oSourcePathCache)
+            If sExistingSrc <> "" AndAlso String.Equals(sExistingSrc, sSource, StringComparison.OrdinalIgnoreCase) Then
                 bReused = True
                 Try : System.IO.File.AppendAllText(sLogPath, "REUSE: " & System.IO.Path.GetFileName(sTry) & " (provenance match)" & vbCrLf) : Catch : End Try
                 Return sTry
@@ -2155,5 +2202,7 @@ Function ResolveTarget(sSource As String, _
         End If
         iSfx += 1
     Loop
-    Return sTry
+    ' v2.2.17: no free name found — do not return a name that may already exist
+    Try : System.IO.File.AppendAllText(sLogPath, "SUFFIX-EXHAUSTED: " & sBase & vbCrLf) : Catch : End Try
+    Return ""
 End Function
