@@ -1,7 +1,7 @@
 '' =====================================================================
 '' SUPER_CLEAN_SWEEPER.iLogicVb
 '' Copy Design with full provenance architecture
-'' Version: 2.2.7 — 2026-11-05
+'' Version: 2.2.8 — 2026-11-05
 ''
 '' PURPOSE
 ''   Replicates Vault Copy Design outside of Vault.
@@ -39,6 +39,17 @@
 ''   outer Finally still restores the original SilentOperation at the end.
 ''   Phase 3 saves with Save2(False) (fallback Save) so the save does not
 ''   cascade to dirty CC/library dependents.
+''
+'' V2.2.8
+''   DRAWING ENTRY POINT: the rule can be run from a GA drawing.  It takes
+''   the drawing's first referenced .iam (else first .ipt) as the model,
+''   opens it if needed, and runs Phase 1-4 on it.  Logged as
+''   "ENTRY: Drawing — model is <path>".
+''   DRAWING RELINK PASS: after Phase 4, the original drawing's
+''   ReferencedFileDescriptors found in oActualMap (target on disk) are
+''   repointed with ReplaceReference, the drawing is saved with
+''   Save2(False), and "DWG-RELINK: n replaced" is logged.  The drawing is
+''   closed only if the rule opened it.
 ''
 '' V2.2.7
 ''   ELAPSED TIME: dtStart is captured right after the log file is created.
@@ -112,7 +123,8 @@
 ''   Phase 1  Build old->new rename map  (walk GA tree, no disk writes)
 ''   Phase 2  SaveAs + Provenance        (creates new files, writes props)
 ''   Phase 3  Fix internal references    (open new .iam/.ipt, rewrite FDs)
-''   (Phase 4 / drawing relink is a separate follow-on step)
+''   Phase 4  Live occurrence resweep on the new GA
+''   Drawing relink (only when started from a GA drawing)
 '' =====================================================================
 
 
@@ -122,7 +134,51 @@
 Sub Main()
 
     ' ── 0. Validate active document ──────────────────────────────────────────
-    Dim oAsmDoc As AssemblyDocument = TryCast(ThisApplication.ActiveDocument, AssemblyDocument)
+    ' v2.2.8: the rule can also be started from a GA drawing.  The drawing's main
+    ' model (first .iam it references, else first .ipt) is used as the GA, and the
+    ' drawing is relinked to the new model paths after Phase 4.
+    Dim oAsmDoc As AssemblyDocument = Nothing
+    Dim bFromDwg As Boolean = False
+    Dim sDwgEntryPath As String = ""
+    Dim sEntryLog As String = ""
+    Dim oActiveDoc As Document = ThisApplication.ActiveDocument
+    If oActiveDoc IsNot Nothing AndAlso oActiveDoc.DocumentType = DocumentTypeEnum.kDrawingDocumentObject Then
+        bFromDwg = True
+        sDwgEntryPath = oActiveDoc.FullFileName
+        Dim sEntryModel As String = ""
+        Dim sEntryIpt As String = ""
+        Dim oEntryFD As FileDescriptor
+        Dim sEntryFDPath As String
+        Dim sEntryFDExt As String
+        For Each oEntryFD In oActiveDoc.ReferencedFileDescriptors
+            sEntryFDPath = ""
+            Try
+                sEntryFDPath = oEntryFD.FullFileName
+            Catch
+            End Try
+            sEntryFDExt = System.IO.Path.GetExtension(sEntryFDPath).ToUpper()
+            If sEntryFDExt = ".IAM" AndAlso sEntryModel = "" Then sEntryModel = sEntryFDPath
+            If sEntryFDExt = ".IPT" AndAlso sEntryIpt = "" Then sEntryIpt = sEntryFDPath
+        Next
+        If sEntryModel = "" Then sEntryModel = sEntryIpt
+        If sEntryModel <> "" Then
+            Dim oEntryDoc As Document = Nothing
+            Try
+                oEntryDoc = ThisApplication.Documents.ItemByName(sEntryModel)
+            Catch
+            End Try
+            If oEntryDoc Is Nothing Then
+                Try
+                    oEntryDoc = ThisApplication.Documents.Open(sEntryModel, False)
+                Catch
+                End Try
+            End If
+            oAsmDoc = TryCast(oEntryDoc, AssemblyDocument)
+            sEntryLog = "ENTRY: Drawing — model is " & sEntryModel & vbCrLf
+        End If
+    Else
+        oAsmDoc = TryCast(oActiveDoc, AssemblyDocument)
+    End If
     If oAsmDoc Is Nothing Then
         MessageBox.Show( _
             "Open the top-level GA assembly first, then run Super Clean Sweeper.", _
@@ -138,9 +194,12 @@ Sub Main()
         System.Environment.SpecialFolder.Desktop)
     Dim sLogPath As String = System.IO.Path.Combine(sDesktop, _
         "SUPER_CLEAN_SWEEPER_" & Now.ToString("yyyyMMdd_HHmmss") & ".log")
-    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.7  —  " & Now.ToString() & vbCrLf & _
+    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.8  —  " & Now.ToString() & vbCrLf & _
                          "GA: " & sTopFull & vbCrLf
     Try : System.IO.File.WriteAllText(sLogPath, sLog) : Catch : End Try
+    If sEntryLog <> "" Then
+        Try : System.IO.File.AppendAllText(sLogPath, sEntryLog) : Catch : End Try
+    End If
     Dim dtStart As DateTime = Now
 
     ' ── 2. Suppress Inventor confirmation dialogs ─────────────────────────────
@@ -1013,6 +1072,67 @@ Sub Main()
         Try : System.IO.File.AppendAllText(sLogPath, "P4-ERROR: " & exP4.Message & vbCrLf) : Catch : End Try
     End Try
 
+    ' ── DRAWING RELINK (v2.2.8): only when the rule was started from a drawing ──
+    ' Repoints the original drawing's model references to the new paths using
+    ' oActualMap, saves with Save2(False), closes only if opened here.
+    If bFromDwg AndAlso sDwgEntryPath <> "" Then
+        Try
+            Try : System.IO.File.AppendAllText(sLogPath, vbCrLf & "=== DRAWING RELINK ===" & vbCrLf) : Catch : End Try
+            Dim oDwgR As Document = Nothing
+            Dim bDwgOpenedHere As Boolean = False
+            Try
+                oDwgR = ThisApplication.Documents.ItemByName(sDwgEntryPath)
+            Catch
+            End Try
+            If oDwgR Is Nothing Then
+                Try
+                    oDwgR = ThisApplication.Documents.Open(sDwgEntryPath, False)
+                    bDwgOpenedHere = True
+                Catch exDwgOpen As Exception
+                    Try : System.IO.File.AppendAllText(sLogPath, "DWG-OPEN-FAIL: " & exDwgOpen.Message & vbCrLf) : Catch : End Try
+                End Try
+            End If
+            If oDwgR IsNot Nothing Then
+                Dim iDwgReplaced As Integer = 0
+                Dim oDwgFD As FileDescriptor
+                Dim sDwgOld As String
+                Dim sDwgNew As String
+                For Each oDwgFD In oDwgR.ReferencedFileDescriptors
+                    sDwgOld = ""
+                    Try
+                        sDwgOld = oDwgFD.FullFileName
+                    Catch
+                    End Try
+                    If sDwgOld = "" Then Continue For
+                    If Not oActualMap.ContainsKey(sDwgOld) Then Continue For
+                    sDwgNew = oActualMap(sDwgOld)
+                    If Not System.IO.File.Exists(sDwgNew) Then Continue For
+                    Try
+                        oDwgFD.ReplaceReference(sDwgNew)
+                        iDwgReplaced += 1
+                        Try : System.IO.File.AppendAllText(sLogPath, "DWG-REPLACE: " & System.IO.Path.GetFileName(sDwgOld) & " -> " & System.IO.Path.GetFileName(sDwgNew) & vbCrLf) : Catch : End Try
+                    Catch exDwgRep As Exception
+                        Try : System.IO.File.AppendAllText(sLogPath, "DWG-REPLACE-FAIL: " & System.IO.Path.GetFileName(sDwgOld) & " — " & exDwgRep.Message & vbCrLf) : Catch : End Try
+                    End Try
+                Next
+                Dim bDwgSaved As Boolean = False
+                Try
+                    oDwgR.Save2(False)
+                    bDwgSaved = True
+                    Try : System.IO.File.AppendAllText(sLogPath, "DWG-SAVED: " & System.IO.Path.GetFileName(sDwgEntryPath) & vbCrLf) : Catch : End Try
+                Catch exDwgSave As Exception
+                    Try : System.IO.File.AppendAllText(sLogPath, "DWG-SAVE-FAIL: " & exDwgSave.Message & vbCrLf) : Catch : End Try
+                End Try
+                Try : System.IO.File.AppendAllText(sLogPath, "DWG-RELINK: " & iDwgReplaced & " replaced" & vbCrLf) : Catch : End Try
+                If bDwgOpenedHere AndAlso bDwgSaved Then
+                    Try : oDwgR.Close(True) : Catch : End Try
+                End If
+            End If
+        Catch exDwg As Exception
+            Try : System.IO.File.AppendAllText(sLogPath, "DWG-RELINK-ERROR: " & exDwg.Message & vbCrLf) : Catch : End Try
+        End Try
+    End If
+
     ' F1: Finally block — SilentOperation restored even if Phase 2/3 throws
     Finally
         ThisApplication.SilentOperation = bOrigSilent
@@ -1026,7 +1146,7 @@ Sub Main()
 
     ' ── 8. Final summary ──────────────────────────────────────────────────────
     Dim sSummary As String = _
-        "SUPER CLEAN SWEEPER v2.2.7 — COMPLETE" & vbCrLf & vbCrLf & _
+        "SUPER CLEAN SWEEPER v2.2.8 — COMPLETE" & vbCrLf & vbCrLf & _
         "Phase 1  Rename map built:   " & oRenameMap.Count & " file(s)" & vbCrLf & _
         "Phase 2  SaveAs + Provenance:" & vbCrLf & _
         "         Saved    : " & iSaved & vbCrLf & _
