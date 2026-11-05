@@ -1,7 +1,7 @@
 '' =====================================================================
 '' SUPER_CLEAN_SWEEPER.iLogicVb
 '' Copy Design with full provenance architecture
-'' Version: 2.2.21 — 2026-11-05
+'' Version: 2.2.22 — 2026-11-05
 ''
 '' PURPOSE
 ''   Replicates Vault Copy Design outside of Vault.
@@ -39,6 +39,21 @@
 ''   outer Finally still restores the original SilentOperation at the end.
 ''   Phase 3 saves with Save2(False) (fallback Save) so the save does not
 ''   cascade to dirty CC/library dependents.
+''
+'' V2.2.22
+''   DRAWING LIST FORM LAYOUT: matches the old Traverse ShowDrawingModelRenameForm
+''   layout — title "Drawing Model Renames — Models and New Names", header about
+''   string rules, column headers CURRENT/NEW, scrollable panel, per-drawing
+''   number + include checkbox (default ON) + filename, models in a FixedSingle
+''   bordered panel (old -> new), first appearance editable with later repeats
+''   read-only and TextChanged-synced to the master, footer "Include ALL
+''   drawings" plus OK/Cancel.  Unchecked drawings are removed from oDwgList
+''   (logged DWG-EXCLUDED) so the relink pass skips them; name overrides are
+''   taken from the master box when any included drawing lists that model.
+''   STRING RULES PREFILL: 5 Find/Replace rows with "->" arrows; rows 1-3
+''   prefilled from DetectStringAnomalies (mismatched middle tokens,
+''   double-prefix first; never the plain old->new prefix swap); rows 4-5
+''   blank for custom entries.  Logged STRING-SUGGEST / STRING-DETECT-FAIL.
 ''
 '' V2.2.21
 ''   DRAWING LIST DESCRIPTOR SCAN: the Drawing List folder scan reads each
@@ -409,7 +424,7 @@ Sub Main()
         System.Environment.SpecialFolder.Desktop)
     Dim sLogPath As String = System.IO.Path.Combine(sDesktop, _
         "SUPER_CLEAN_SWEEPER_" & Now.ToString("yyyyMMdd_HHmmss") & ".log")
-    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.21  —  " & Now.ToString() & vbCrLf & _
+    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.22  —  " & Now.ToString() & vbCrLf & _
                          "GA: " & sTopFull & vbCrLf
     Try : System.IO.File.WriteAllText(sLogPath, sLog) : Catch : End Try
     If sEntryLog <> "" Then
@@ -512,9 +527,11 @@ Sub Main()
         End Try
     End If
 
-    ' ── 4c. String-replacement rules (v2.2.15) ───────────────────────────────
-    ' Up to 3 Find/Replace pairs, applied to each new base name after the
-    ' prefix swap.  Row 1 is prefilled with old prefix -> new prefix.
+    ' ── 4c. String-replacement rules (v2.2.22) ───────────────────────────────
+    ' Up to 5 Find/Replace pairs, applied to each new base name after the
+    ' prefix swap.  Rows 1-3 may be prefilled from DetectStringAnomalies;
+    ' rows 4-5 stay blank for custom entries.  Never prefill the plain
+    ' old-prefix -> new-prefix swap (ComputeNewName already does that).
     Dim oStringRules As New System.Collections.Generic.List(Of String())()
     ThisApplication.SilentOperation = bOrigSilent
     Dim oRuleForm As New System.Windows.Forms.Form()
@@ -523,53 +540,87 @@ Sub Main()
     oRuleForm.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen
     oRuleForm.MaximizeBox = False
     oRuleForm.MinimizeBox = False
-    oRuleForm.Width = 580
-    oRuleForm.Height = 270
+    oRuleForm.Width = 560
+    oRuleForm.Height = 340
     Dim oRuleHint As New System.Windows.Forms.Label()
-    oRuleHint.Text = "Find/Replace pairs applied to new file names after the prefix swap. Leave Find blank to skip a row."
-    oRuleHint.Left = 12
-    oRuleHint.Top = 10
-    oRuleHint.Width = 540
+    oRuleHint.Text = "Optional segment replaces (up to 5) - applied AFTER prefix swap. Leave Find blank to skip a row."
+    oRuleHint.Left = 15
+    oRuleHint.Top = 12
+    oRuleHint.Width = 520
     oRuleHint.Height = 30
     oRuleForm.Controls.Add(oRuleHint)
     Dim oFindHdr As New System.Windows.Forms.Label()
     oFindHdr.Text = "Find"
-    oFindHdr.Left = 12
-    oFindHdr.Top = 44
-    oFindHdr.Width = 250
+    oFindHdr.Left = 15
+    oFindHdr.Top = 46
+    oFindHdr.Width = 220
     oRuleForm.Controls.Add(oFindHdr)
     Dim oReplHdr As New System.Windows.Forms.Label()
     oReplHdr.Text = "Replace with"
-    oReplHdr.Left = 284
-    oReplHdr.Top = 44
-    oReplHdr.Width = 250
+    oReplHdr.Left = 250
+    oReplHdr.Top = 46
+    oReplHdr.Width = 220
     oRuleForm.Controls.Add(oReplHdr)
-    Dim aFindBox(2) As System.Windows.Forms.TextBox
-    Dim aReplBox(2) As System.Windows.Forms.TextBox
+    Dim aFindBox(4) As System.Windows.Forms.TextBox
+    Dim aReplBox(4) As System.Windows.Forms.TextBox
+    Dim aArrowLbl(4) As System.Windows.Forms.Label
     Dim iRuleRow As Integer
-    For iRuleRow = 0 To 2
+    For iRuleRow = 0 To 4
         aFindBox(iRuleRow) = New System.Windows.Forms.TextBox()
-        aFindBox(iRuleRow).Left = 12
-        aFindBox(iRuleRow).Top = 68 + iRuleRow * 32
-        aFindBox(iRuleRow).Width = 260
+        aFindBox(iRuleRow).Left = 15
+        aFindBox(iRuleRow).Top = 70 + iRuleRow * 30
+        aFindBox(iRuleRow).Width = 220
         oRuleForm.Controls.Add(aFindBox(iRuleRow))
+        aArrowLbl(iRuleRow) = New System.Windows.Forms.Label()
+        aArrowLbl(iRuleRow).Text = "->"
+        aArrowLbl(iRuleRow).Left = 238
+        aArrowLbl(iRuleRow).Top = 73 + iRuleRow * 30
+        aArrowLbl(iRuleRow).Width = 20
+        oRuleForm.Controls.Add(aArrowLbl(iRuleRow))
         aReplBox(iRuleRow) = New System.Windows.Forms.TextBox()
-        aReplBox(iRuleRow).Left = 284
-        aReplBox(iRuleRow).Top = 68 + iRuleRow * 32
-        aReplBox(iRuleRow).Width = 260
+        aReplBox(iRuleRow).Left = 250
+        aReplBox(iRuleRow).Top = 70 + iRuleRow * 30
+        aReplBox(iRuleRow).Width = 220
         oRuleForm.Controls.Add(aReplBox(iRuleRow))
     Next
+    ' Prefill rows 1-3 from tree anomaly detect; rows 4-5 stay blank.
+    Dim oSRSuggest As System.Collections.Generic.List(Of String()) = Nothing
+    Dim oSRPair As String()
+    Dim iSRSug As Integer
+    Try
+        oSRSuggest = DetectStringAnomalies(oAsmDoc, sOldPrefix, sNewPrefix, 3)
+    Catch exSRDetect As Exception
+        Try : System.IO.File.AppendAllText(sLogPath, "STRING-DETECT-FAIL: " & exSRDetect.Message & vbCrLf) : Catch : End Try
+        oSRSuggest = New System.Collections.Generic.List(Of String())()
+    End Try
+    If oSRSuggest IsNot Nothing Then
+        iSRSug = 0
+        For Each oSRPair In oSRSuggest
+            If iSRSug > 2 Then Exit For
+            If oSRPair Is Nothing Then Continue For
+            If oSRPair.Length < 2 Then Continue For
+            If Trim(oSRPair(0)) = "" Then Continue For
+            If String.Compare(Trim(oSRPair(0)), sOldPrefix, True) = 0 AndAlso _
+               String.Compare(Trim(oSRPair(1)), sNewPrefix, True) = 0 Then
+                Continue For
+            End If
+            aFindBox(iSRSug).Text = oSRPair(0)
+            aReplBox(iSRSug).Text = oSRPair(1)
+            Try : System.IO.File.AppendAllText(sLogPath, "STRING-SUGGEST: " & oSRPair(0) & " -> " & oSRPair(1) & vbCrLf) : Catch : End Try
+            iSRSug = iSRSug + 1
+        Next
+    End If
     Dim oRuleOk As New System.Windows.Forms.Button()
     oRuleOk.Text = "OK"
-    oRuleOk.Left = 368
-    oRuleOk.Top = 180
+    oRuleOk.Left = 348
+    oRuleOk.Top = 240
     oRuleOk.Width = 84
     oRuleOk.DialogResult = System.Windows.Forms.DialogResult.OK
     oRuleForm.Controls.Add(oRuleOk)
     Dim oRuleCancel As New System.Windows.Forms.Button()
     oRuleCancel.Text = "Cancel"
-    oRuleCancel.Left = 460
-    oRuleCancel.Top = 180
+    oRuleCancel.Left = 440
+    oRuleCancel.Top = 240
     oRuleCancel.Width = 84
     oRuleCancel.DialogResult = System.Windows.Forms.DialogResult.Cancel
     oRuleForm.Controls.Add(oRuleCancel)
@@ -586,7 +637,7 @@ Sub Main()
     End If
     Dim sRuleFind As String
     Dim sRuleRepl As String
-    For iRuleRow = 0 To 2
+    For iRuleRow = 0 To 4
         sRuleFind = aFindBox(iRuleRow).Text
         sRuleRepl = aReplBox(iRuleRow).Text
         If sRuleFind = "" Then Continue For
@@ -597,7 +648,7 @@ Sub Main()
     Try : oRuleForm.Dispose() : Catch : End Try
     ThisApplication.SilentOperation = True
 
-    ' ── 4d. Drawing List (v2.2.19): models per drawing + new names ───────────
+    ' ── 4d. Drawing List (v2.2.22): models per drawing + new names ───────────
     ' Only when started from a drawing.  Scans the drawing's folder for .idw/.dwg,
     ' lists each drawing's referenced models and lets the user set the new base
     ' name of each model.  Edited names override the automatic new name.
@@ -731,42 +782,50 @@ Sub Main()
             End If
         Next
 
-        ' v2.2.21: the form is always shown when started from a drawing, even if
-        ' some or all drawings failed to scan.
+        ' v2.2.22: Drawing List form matches old Traverse ShowDrawingModelRenameForm
+        ' layout (include checkboxes, bordered model panels, synced repeats).
+        ' Always shown when started from a drawing, even if some/all scans failed.
         If True Then
             ThisApplication.SilentOperation = bOrigSilent
+            Dim iDMFormW As Integer = 680
+            Dim iDMPanelLeft As Integer = 10
+            Dim iDMPanelW As Integer = 648
+            Dim iDMOldLeft As Integer = 6
+            Dim iDMOldW As Integer = 268
+            Dim iDMNewLeft As Integer = 300
+            Dim iDMNewW As Integer = 336
             Dim oDLForm As New System.Windows.Forms.Form()
-            oDLForm.Text = "Drawing List — Models and New Names"
+            oDLForm.Text = "Drawing Model Renames — Models and New Names"
             oDLForm.FormBorderStyle = System.Windows.Forms.FormBorderStyle.FixedDialog
             oDLForm.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen
             oDLForm.MaximizeBox = False
             oDLForm.MinimizeBox = False
-            oDLForm.Width = 780
+            oDLForm.Width = iDMFormW
             oDLForm.Height = 640
             Dim oDLHint As New System.Windows.Forms.Label()
-            oDLHint.Text = "Set the new base name (no extension) for any model. Grey rows repeat a model listed earlier, or a model that is not copied."
-            oDLHint.Left = 12
+            oDLHint.Text = "Set NEW model names below — applied FIRST. String rules will NOT rename any model listed here."
+            oDLHint.Left = 10
             oDLHint.Top = 8
-            oDLHint.Width = 740
-            oDLHint.Height = 30
+            oDLHint.Width = iDMFormW - 20
+            oDLHint.Height = 18
             oDLForm.Controls.Add(oDLHint)
             Dim oDLOldHdr As New System.Windows.Forms.Label()
-            oDLOldHdr.Text = "Old model"
-            oDLOldHdr.Left = 32
-            oDLOldHdr.Top = 42
-            oDLOldHdr.Width = 340
+            oDLOldHdr.Text = "CURRENT model name (read-only)"
+            oDLOldHdr.Left = iDMPanelLeft + 1 + iDMOldLeft
+            oDLOldHdr.Top = 30
+            oDLOldHdr.Width = iDMOldW
             oDLForm.Controls.Add(oDLOldHdr)
             Dim oDLNewHdr As New System.Windows.Forms.Label()
-            oDLNewHdr.Text = "New model name"
-            oDLNewHdr.Left = 378
-            oDLNewHdr.Top = 42
-            oDLNewHdr.Width = 340
+            oDLNewHdr.Text = "NEW model name (editable)"
+            oDLNewHdr.Left = iDMPanelLeft + 1 + iDMNewLeft
+            oDLNewHdr.Top = 30
+            oDLNewHdr.Width = iDMNewW
             oDLForm.Controls.Add(oDLNewHdr)
             Dim oDLPanel As New System.Windows.Forms.Panel()
-            oDLPanel.Left = 12
-            oDLPanel.Top = 64
-            oDLPanel.Width = 740
-            oDLPanel.Height = 480
+            oDLPanel.Left = iDMPanelLeft
+            oDLPanel.Top = 50
+            oDLPanel.Width = iDMPanelW
+            oDLPanel.Height = 490
             oDLPanel.AutoScroll = True
             oDLPanel.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle
             oDLForm.Controls.Add(oDLPanel)
@@ -775,53 +834,116 @@ Sub Main()
                 StringComparer.OrdinalIgnoreCase)
             Dim oDLPrefill As New System.Collections.Generic.Dictionary(Of String, String)( _
                 StringComparer.OrdinalIgnoreCase)
+            Dim oDMIncludeMap As New System.Collections.Generic.Dictionary(Of String, System.Windows.Forms.CheckBox)( _
+                StringComparer.OrdinalIgnoreCase)
             Dim iDLY As Integer = 6
+            Dim iDMDrawingNum As Integer = 0
+            Dim iDMPanelH As Integer = 0
+            Dim iDMMY As Integer = 0
+            Dim iDMTxtLeft As Integer = 0
+            Dim iDMTxtW As Integer = 0
             If oDwgList.Count = 0 Then
                 Dim oDLNone As New System.Windows.Forms.Label()
                 oDLNone.Text = "No model refs were found in the drawings in this folder.  OK continues with the automatic names; Cancel exits."
                 oDLNone.Left = 4
                 oDLNone.Top = iDLY
-                oDLNone.Width = 700
+                oDLNone.Width = 620
                 oDLNone.Height = 40
                 oDLPanel.Controls.Add(oDLNone)
-                iDLY += 44
+                iDLY = iDLY + 44
                 Try : System.IO.File.AppendAllText(sLogPath, "DWGLIST: no model refs found in any drawing" & vbCrLf) : Catch : End Try
             End If
             Dim sDLDwg As String
             Dim sDLModel As String
             Dim sDLNewFull As String
             Dim sDLPre As String
-            Dim oDLHdr As System.Windows.Forms.Label
+            Dim oDMNumLbl As System.Windows.Forms.Label
+            Dim oDMInclChk As System.Windows.Forms.CheckBox
+            Dim oDMDwgLbl As System.Windows.Forms.Label
+            Dim oDMBorder As System.Windows.Forms.Panel
             Dim oDLOld As System.Windows.Forms.Label
+            Dim oDMArrLbl As System.Windows.Forms.Label
             Dim oDLBox As System.Windows.Forms.TextBox
+            Dim oDMLockedBox As System.Windows.Forms.TextBox
             For Each sDLDwg In oDwgList
-                oDLHdr = New System.Windows.Forms.Label()
-                oDLHdr.Text = "DRAWING:  " & System.IO.Path.GetFileName(sDLDwg)
-                oDLHdr.Left = 4
-                oDLHdr.Top = iDLY
-                oDLHdr.Width = 700
-                oDLHdr.Height = 20
-                oDLPanel.Controls.Add(oDLHdr)
-                iDLY += 24
+                iDMDrawingNum = iDMDrawingNum + 1
+                oDMNumLbl = New System.Windows.Forms.Label()
+                oDMNumLbl.Text = iDMDrawingNum.ToString() & "."
+                oDMNumLbl.Left = 4
+                oDMNumLbl.Top = iDLY
+                oDMNumLbl.Width = 22
+                oDMNumLbl.Height = 20
+                oDLPanel.Controls.Add(oDMNumLbl)
+                oDMInclChk = New System.Windows.Forms.CheckBox()
+                oDMInclChk.Left = 26
+                oDMInclChk.Top = iDLY - 1
+                oDMInclChk.Width = 18
+                oDMInclChk.Height = 20
+                oDMInclChk.Checked = True
+                oDMInclChk.Tag = sDLDwg
+                oDLPanel.Controls.Add(oDMInclChk)
+                oDMIncludeMap(sDLDwg) = oDMInclChk
+                oDMDwgLbl = New System.Windows.Forms.Label()
+                oDMDwgLbl.Text = System.IO.Path.GetFileName(sDLDwg)
+                oDMDwgLbl.Left = 46
+                oDMDwgLbl.Top = iDLY
+                oDMDwgLbl.Width = 580
+                oDMDwgLbl.Height = 20
+                oDLPanel.Controls.Add(oDMDwgLbl)
+                iDLY = iDLY + 24
+                iDMPanelH = oDwgModels(sDLDwg).Count * 26 + 6
+                If iDMPanelH < 32 Then iDMPanelH = 32
+                oDMBorder = New System.Windows.Forms.Panel()
+                oDMBorder.Left = iDMOldLeft
+                oDMBorder.Top = iDLY
+                oDMBorder.Width = iDMPanelW - iDMOldLeft * 2 - 4
+                oDMBorder.Height = iDMPanelH
+                oDMBorder.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle
+                oDLPanel.Controls.Add(oDMBorder)
+                iDMMY = 3
                 For Each sDLModel In oDwgModels(sDLDwg)
                     oDLOld = New System.Windows.Forms.Label()
                     oDLOld.Text = System.IO.Path.GetFileName(sDLModel)
-                    oDLOld.Left = 20
-                    oDLOld.Top = iDLY + 3
-                    oDLOld.Width = 340
+                    oDLOld.Left = 2
+                    oDLOld.Top = iDMMY
+                    oDLOld.Width = iDMOldW - 2
                     oDLOld.Height = 20
-                    oDLPanel.Controls.Add(oDLOld)
-                    oDLBox = New System.Windows.Forms.TextBox()
-                    oDLBox.Left = 366
-                    oDLBox.Top = iDLY
-                    oDLBox.Width = 340
-                    If oDLPrefill.ContainsKey(sDLModel) Then
-                        ' later occurrence: same old name maps to one new name only
-                        oDLBox.Text = oDLPrefill(sDLModel)
-                        oDLBox.ReadOnly = True
-                        oDLBox.Enabled = False
+                    oDMBorder.Controls.Add(oDLOld)
+                    oDMArrLbl = New System.Windows.Forms.Label()
+                    oDMArrLbl.Text = "->"
+                    oDMArrLbl.Left = iDMOldW + 4
+                    oDMArrLbl.Top = iDMMY
+                    oDMArrLbl.Width = 20
+                    oDMArrLbl.Height = 20
+                    oDMBorder.Controls.Add(oDMArrLbl)
+                    iDMTxtLeft = iDMOldW + 26
+                    iDMTxtW = oDMBorder.Width - iDMTxtLeft - 4
+                    If oDLBoxes.ContainsKey(sDLModel) Then
+                        ' Later appearance — read-only mirror synced to master
+                        oDMLockedBox = New System.Windows.Forms.TextBox()
+                        oDMLockedBox.Left = iDMTxtLeft
+                        oDMLockedBox.Top = iDMMY
+                        oDMLockedBox.Width = iDMTxtW
+                        oDMLockedBox.ReadOnly = True
+                        oDMLockedBox.Text = oDLBoxes(sDLModel).Text
+                        WireDMTextSync(oDLBoxes(sDLModel), oDMLockedBox)
+                        oDMBorder.Controls.Add(oDMLockedBox)
+                    ElseIf oDLPrefill.ContainsKey(sDLModel) Then
+                        ' Later appearance of a locked (not-copied) model
+                        oDMLockedBox = New System.Windows.Forms.TextBox()
+                        oDMLockedBox.Left = iDMTxtLeft
+                        oDMLockedBox.Top = iDMMY
+                        oDMLockedBox.Width = iDMTxtW
+                        oDMLockedBox.ReadOnly = True
+                        oDMLockedBox.Enabled = False
+                        oDMLockedBox.Text = oDLPrefill(sDLModel)
+                        oDMBorder.Controls.Add(oDMLockedBox)
                     Else
                         sDLNewFull = ComputeNewName(sDLModel, sOldProjectRoot, sNewPrefix, sTargetFolder)
+                        oDLBox = New System.Windows.Forms.TextBox()
+                        oDLBox.Left = iDMTxtLeft
+                        oDLBox.Top = iDMMY
+                        oDLBox.Width = iDMTxtW
                         If sDLNewFull = "" Then
                             ' not copied (Content Center or already in target) — locked
                             sDLPre = System.IO.Path.GetFileNameWithoutExtension(sDLModel)
@@ -831,28 +953,38 @@ Sub Main()
                         Else
                             sDLPre = System.IO.Path.GetFileNameWithoutExtension(ApplyStringRules(sDLNewFull, oStringRules))
                             oDLBox.Text = sDLPre
+                            oDLBox.Tag = sDLModel
                             oDLBoxes(sDLModel) = oDLBox
                         End If
                         oDLPrefill(sDLModel) = sDLPre
+                        oDMBorder.Controls.Add(oDLBox)
                     End If
-                    oDLPanel.Controls.Add(oDLBox)
-                    iDLY += 28
+                    iDMMY = iDMMY + 26
                 Next
-                iDLY += 8
+                iDLY = iDLY + iDMPanelH + 8
             Next
+
+            Dim oDMIncludeAll As New System.Windows.Forms.CheckBox()
+            oDMIncludeAll.Text = "Include ALL drawings"
+            oDMIncludeAll.Left = 10
+            oDMIncludeAll.Top = 548
+            oDMIncludeAll.Width = 300
+            oDMIncludeAll.Checked = True
+            oDLForm.Controls.Add(oDMIncludeAll)
+            WireDMIncludeAll(oDMIncludeAll, oDMIncludeMap)
 
             Dim oDLOk As New System.Windows.Forms.Button()
             oDLOk.Text = "OK"
-            oDLOk.Left = 576
-            oDLOk.Top = 556
-            oDLOk.Width = 84
+            oDLOk.Left = 476
+            oDLOk.Top = 576
+            oDLOk.Width = 80
             oDLOk.DialogResult = System.Windows.Forms.DialogResult.OK
             oDLForm.Controls.Add(oDLOk)
             Dim oDLCancel As New System.Windows.Forms.Button()
             oDLCancel.Text = "Cancel"
-            oDLCancel.Left = 668
-            oDLCancel.Top = 556
-            oDLCancel.Width = 84
+            oDLCancel.Left = 568
+            oDLCancel.Top = 576
+            oDLCancel.Width = 80
             oDLCancel.DialogResult = System.Windows.Forms.DialogResult.Cancel
             oDLForm.Controls.Add(oDLCancel)
             oDLForm.AcceptButton = oDLOk
@@ -868,11 +1000,32 @@ Sub Main()
                 Exit Sub
             End If
 
-            ' Collect edited names -> oNameOverrides
+            ' Remove unchecked drawings from oDwgList (relink skips them)
+            Dim oDMKeepList As New System.Collections.Generic.List(Of String)()
+            Dim oDMInclModels As New System.Collections.Generic.HashSet(Of String)( _
+                StringComparer.OrdinalIgnoreCase)
+            For Each sDLDwg In oDwgList
+                If oDMIncludeMap.ContainsKey(sDLDwg) AndAlso oDMIncludeMap(sDLDwg).Checked Then
+                    oDMKeepList.Add(sDLDwg)
+                    For Each sDLModel In oDwgModels(sDLDwg)
+                        oDMInclModels.Add(sDLModel)
+                    Next
+                Else
+                    Try : System.IO.File.AppendAllText(sLogPath, "DWG-EXCLUDED: " & System.IO.Path.GetFileName(sDLDwg) & vbCrLf) : Catch : End Try
+                End If
+            Next
+            oDwgList.Clear()
+            For Each sDLDwg In oDMKeepList
+                oDwgList.Add(sDLDwg)
+            Next
+
+            ' Collect edited names -> oNameOverrides (only models in included drawings;
+            ' master box may sit under an excluded drawing — still use its value)
             Dim oDLKV As System.Collections.Generic.KeyValuePair(Of String, System.Windows.Forms.TextBox)
             Dim sDLTyped As String
             Dim sDLModelExt As String
             For Each oDLKV In oDLBoxes
+                If Not oDMInclModels.Contains(oDLKV.Key) Then Continue For
                 sDLTyped = oDLKV.Value.Text.Trim()
                 sDLModelExt = System.IO.Path.GetExtension(oDLKV.Key)
                 If sDLTyped.ToUpper().EndsWith(sDLModelExt.ToUpper()) AndAlso sDLTyped.Length > sDLModelExt.Length Then
@@ -1978,7 +2131,7 @@ Sub Main()
 
     ' ── 8. Final summary ──────────────────────────────────────────────────────
     Dim sSummary As String = _
-        "SUPER CLEAN SWEEPER v2.2.21 — COMPLETE" & vbCrLf & vbCrLf & _
+        "SUPER CLEAN SWEEPER v2.2.22 — COMPLETE" & vbCrLf & vbCrLf & _
         "Phase 1  Rename map built:   " & oRenameMap.Count & " file(s)" & vbCrLf & _
         "Phase 2  SaveAs + Provenance:" & vbCrLf & _
         "         Saved    : " & iSaved & vbCrLf & _
@@ -2018,6 +2171,221 @@ Sub Main()
         MessageBoxButtons.OK, MessageBoxIcon.Information)
 
 End Sub
+
+
+' ─────────────────────────────────────────────────────────────────────────────
+' HELPER: wire TextChanged so a follower box mirrors its master (v2.2.22)
+' Each call gets its own parameter bindings — safe for loop use.
+' ─────────────────────────────────────────────────────────────────────────────
+Sub WireDMTextSync(oMasterBox As System.Windows.Forms.TextBox, _
+                   oFollowerBox As System.Windows.Forms.TextBox)
+    AddHandler oMasterBox.TextChanged, Sub(sender As Object, e As System.EventArgs) oFollowerBox.Text = oMasterBox.Text
+End Sub
+
+
+' ─────────────────────────────────────────────────────────────────────────────
+' HELPER: "Include ALL drawings" toggles every per-drawing include checkbox
+' ─────────────────────────────────────────────────────────────────────────────
+Sub WireDMIncludeAll(oGlobalChk As System.Windows.Forms.CheckBox, _
+                     oIncludeMap As System.Collections.Generic.Dictionary(Of String, System.Windows.Forms.CheckBox))
+    AddHandler oGlobalChk.CheckedChanged, Sub(sender As Object, e As System.EventArgs) ApplyDMIncludeAll(oGlobalChk.Checked, oIncludeMap)
+End Sub
+
+
+' ─────────────────────────────────────────────────────────────────────────────
+' HELPER: apply Include-ALL state to every per-drawing checkbox (v2.2.22)
+' ─────────────────────────────────────────────────────────────────────────────
+Sub ApplyDMIncludeAll(bChecked As Boolean, _
+                      oIncludeMap As System.Collections.Generic.Dictionary(Of String, System.Windows.Forms.CheckBox))
+    Dim oDMMapChk As System.Windows.Forms.CheckBox
+    For Each oDMMapChk In oIncludeMap.Values
+        oDMMapChk.Checked = bChecked
+    Next
+End Sub
+
+
+' ─────────────────────────────────────────────────────────────────────────────
+' HELPER: detect anomalous middle-token Find/Replace suggestions (v2.2.22)
+' Port of Traverse ShowCopyDesignConfigForm auto-detect.  Walks AllOccurrences
+' plus the GA folder; flags mismatched middles (xx, equipment mismatch,
+' double-prefix).  Double-prefix patterns are prioritised.  Drops the plain
+' old-prefix -> new-prefix swap.  Returns up to iMax {find, replace} pairs.
+' ─────────────────────────────────────────────────────────────────────────────
+Function DetectStringAnomalies(oAsmDoc As AssemblyDocument, _
+                               sOldPrefix As String, _
+                               sNewPrefix As String, _
+                               iMax As Integer) As System.Collections.Generic.List(Of String())
+    Dim oResult As New System.Collections.Generic.List(Of String())()
+    If oAsmDoc Is Nothing Then Return oResult
+    If iMax < 1 Then Return oResult
+
+    Dim oPathsToScan As New System.Collections.Generic.HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+    Dim sSourceAsmPath As String = ""
+    Try
+        sSourceAsmPath = oAsmDoc.FullFileName
+    Catch
+        sSourceAsmPath = ""
+    End Try
+    If sSourceAsmPath <> "" Then oPathsToScan.Add(sSourceAsmPath)
+
+    ' Full-tree paths via AllOccurrences (same as old Traverse rule)
+    Dim oSROcc As ComponentOccurrence
+    Dim sOccPath As String
+    Try
+        For Each oSROcc In oAsmDoc.ComponentDefinition.AllOccurrences
+            sOccPath = ""
+            Try
+                sOccPath = oSROcc.ReferencedFileDescriptor.FullDocumentName
+            Catch
+            End Try
+            If Trim(sOccPath) <> "" AndAlso Not sOccPath.Contains("*") Then
+                oPathsToScan.Add(sOccPath)
+            End If
+        Next
+    Catch
+        ' Fallback: AllLeafOccurrences if AllOccurrences is unavailable
+        Try
+            For Each oSROcc In oAsmDoc.ComponentDefinition.Occurrences.AllLeafOccurrences
+                sOccPath = ""
+                Try
+                    sOccPath = oSROcc.ReferencedFileDescriptor.FullDocumentName
+                Catch
+                    Try
+                        sOccPath = oSROcc.Definition.Document.FullFileName
+                    Catch
+                    End Try
+                End Try
+                If Trim(sOccPath) <> "" AndAlso Not sOccPath.Contains("*") Then
+                    oPathsToScan.Add(sOccPath)
+                End If
+            Next
+        Catch
+        End Try
+    End Try
+
+    ' Also include immediate GA folder (fallback / drawings)
+    Dim sSourceFolder As String = ""
+    Dim sFilePath As String
+    Dim sExt As String
+    If sSourceAsmPath <> "" AndAlso System.IO.File.Exists(sSourceAsmPath) Then
+        sSourceFolder = System.IO.Path.GetDirectoryName(sSourceAsmPath)
+        Try
+            For Each sFilePath In System.IO.Directory.GetFiles(sSourceFolder, "*.*")
+                sExt = System.IO.Path.GetExtension(sFilePath).ToLower()
+                If sExt = ".ipt" OrElse sExt = ".iam" OrElse sExt = ".idw" OrElse sExt = ".dwg" Then
+                    oPathsToScan.Add(sFilePath)
+                End If
+            Next
+        Catch
+        End Try
+    End If
+
+    Dim sGABase As String = ""
+    Dim sCanonMiddle As String = ""
+    Dim iFirstDash As Integer
+    Dim iFirstV As Integer
+    If sSourceAsmPath <> "" AndAlso System.IO.File.Exists(sSourceAsmPath) Then
+        sGABase = System.IO.Path.GetFileNameWithoutExtension(sSourceAsmPath)
+        iFirstDash = sGABase.IndexOf("-"c)
+        iFirstV = sGABase.ToUpper().IndexOf("V")
+        If iFirstDash > 0 AndAlso iFirstV > iFirstDash Then
+            sCanonMiddle = sGABase.Substring(iFirstDash, iFirstV - iFirstDash)
+            If Not sCanonMiddle.EndsWith("-") Then sCanonMiddle = sCanonMiddle & "-"
+        End If
+    End If
+
+    Dim oMiddleCounts As New System.Collections.Generic.Dictionary(Of String, Integer)(StringComparer.OrdinalIgnoreCase)
+    Dim sBase As String
+    Dim sBaseUp As String
+    Dim iDash As Integer
+    Dim iV As Integer
+    Dim sMiddle As String
+    Dim sMidTrim As String
+    Dim bLooksLikeConvention As Boolean
+    Dim bFlag As Boolean
+    Dim sCanonEq As String
+    Dim sMidEq As String
+    Dim sCanonParts() As String
+    Dim sMidParts() As String
+    For Each sFilePath In oPathsToScan
+        sBase = System.IO.Path.GetFileNameWithoutExtension(sFilePath)
+        sBaseUp = sBase.ToUpper()
+        If Not sBaseUp.StartsWith("PJ") Then Continue For
+        If sBaseUp.Contains("GAL") OrElse sBaseUp.Contains("AS 11") OrElse _
+           sBaseUp.Contains("AS 12") OrElse sBaseUp.Contains("DIN ") OrElse _
+           sBaseUp.Contains("ISO ") OrElse sBaseUp.Contains("WASHER") OrElse _
+           sBaseUp.Contains("NYLOCK") OrElse sBaseUp.Contains("SHACKLE") Then Continue For
+        iDash = sBase.IndexOf("-"c)
+        iV = sBaseUp.IndexOf("V")
+        If iDash < 1 OrElse iV <= iDash Then Continue For
+        sMiddle = sBase.Substring(iDash, iV - iDash)
+        If Not sMiddle.EndsWith("-") Then sMiddle = sMiddle & "-"
+        If sCanonMiddle <> "" AndAlso String.Compare(sMiddle, sCanonMiddle, True) = 0 Then Continue For
+        If sMiddle.Length < 3 Then Continue For
+        sMidTrim = sMiddle.Trim("-"c)
+        bLooksLikeConvention = False
+        If sMidTrim.Length > 0 AndAlso Char.IsDigit(sMidTrim(0)) Then bLooksLikeConvention = True
+        If sMiddle.ToUpper().Contains("XX") Then bLooksLikeConvention = True
+        If sMiddle.ToUpper().Contains("-PJ") OrElse sMiddle.ToUpper().StartsWith("PJ") Then bLooksLikeConvention = True
+        If Not bLooksLikeConvention Then Continue For
+        bFlag = False
+        If sMiddle.ToUpper().Contains("XX") Then
+            bFlag = True
+        ElseIf sCanonMiddle <> "" Then
+            sCanonEq = ""
+            sMidEq = ""
+            sCanonParts = sCanonMiddle.Trim("-"c).Split("-"c)
+            sMidParts = sMiddle.Trim("-"c).Split("-"c)
+            If sCanonParts.Length > 0 Then sCanonEq = sCanonParts(0)
+            If sMidParts.Length > 0 Then sMidEq = sMidParts(0)
+            If sCanonEq <> "" AndAlso String.Compare(sMidEq, sCanonEq, True) <> 0 Then
+                bFlag = True
+            ElseIf sMiddle.ToUpper().Contains("-PJ") OrElse sMiddle.ToUpper().StartsWith("PJ") Then
+                bFlag = True
+            End If
+        End If
+        If Not bFlag Then Continue For
+        If oMiddleCounts.ContainsKey(sMiddle) Then
+            oMiddleCounts(sMiddle) = oMiddleCounts(sMiddle) + 1
+        Else
+            oMiddleCounts(sMiddle) = 1
+        End If
+    Next
+
+    Dim oSorted As New System.Collections.Generic.List(Of System.Collections.Generic.KeyValuePair(Of String, Integer))
+    Dim oMidKV As System.Collections.Generic.KeyValuePair(Of String, Integer)
+    For Each oMidKV In oMiddleCounts
+        oSorted.Add(oMidKV)
+    Next
+    oSorted.Sort(Function(a As System.Collections.Generic.KeyValuePair(Of String, Integer), _
+                          b As System.Collections.Generic.KeyValuePair(Of String, Integer)) As Integer
+                     Dim aDbl As Boolean = a.Key.ToUpper().Contains("-PJ") OrElse a.Key.ToUpper().StartsWith("PJ")
+                     Dim bDbl As Boolean = b.Key.ToUpper().Contains("-PJ") OrElse b.Key.ToUpper().StartsWith("PJ")
+                     If aDbl <> bDbl Then Return If(aDbl, -1, 1)
+                     Return b.Value.CompareTo(a.Value)
+                 End Function)
+
+    Dim oSeenTokens As New System.Collections.Generic.HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+    Dim iAdded As Integer = 0
+    Dim sFindTok As String
+    Dim sReplTok As String
+    For Each oMidKV In oSorted
+        If iAdded >= iMax Then Exit For
+        If sCanonMiddle = "" Then Exit For
+        sFindTok = oMidKV.Key
+        sReplTok = sCanonMiddle
+        If String.Compare(Trim(sFindTok), sOldPrefix, True) = 0 AndAlso _
+           String.Compare(Trim(sReplTok), sNewPrefix, True) = 0 Then
+            Continue For
+        End If
+        If Not oSeenTokens.Contains(sFindTok) Then
+            oSeenTokens.Add(sFindTok)
+            oResult.Add(New String() {sFindTok, sReplTok})
+            iAdded = iAdded + 1
+        End If
+    Next
+    Return oResult
+End Function
 
 
 ' ─────────────────────────────────────────────────────────────────────────────
