@@ -1096,31 +1096,55 @@ Sub Main()
                 iDLY = iDLY + iDMPanelH + 8
             Next
 
-            ' v2.2.27: Show native AutoCAD DWGs with informational label.
-            ' These files are detected but cannot be opened or relinked via Inventor.
+            ' v2.2.27: AutoCAD DWGs appear inline in the numbered list — same layout as
+            ' Inventor drawings but with the checkbox disabled/unchecked and a bordered
+            ' "Autocad Created Drawing – not included in This Clean Sweep" note below.
+            ' The description from DRAWING_DESCRIPTION_2 is shown to the right of the filename.
             If oAcadDwgs.Count > 0 Then
-                Dim oAcadHdrLbl As New System.Windows.Forms.Label()
-                oAcadHdrLbl.Text = "— AutoCAD drawings detected (not processable via Inventor API) —"
-                oAcadHdrLbl.Left = 4 : oAcadHdrLbl.Top = iDLY + 4 : oAcadHdrLbl.Width = 630 : oAcadHdrLbl.Height = 18
-                oDLPanel.Controls.Add(oAcadHdrLbl)
-                iDLY = iDLY + 26
                 Dim oAcadSorted As New System.Collections.Generic.List(Of String)(oAcadDwgs)
                 oAcadSorted.Sort(StringComparer.OrdinalIgnoreCase)
                 For Each sAcadEntry As String In oAcadSorted
-                    ' Row 1: filename
-                    Dim oAcadRowLbl As New System.Windows.Forms.Label()
-                    oAcadRowLbl.Text = "   " & System.IO.Path.GetFileName(sAcadEntry)
-                    oAcadRowLbl.Left = 4 : oAcadRowLbl.Top = iDLY : oAcadRowLbl.Width = 630 : oAcadRowLbl.Height = 18
-                    oDLPanel.Controls.Add(oAcadRowLbl)
-                    iDLY = iDLY + 20
-                    ' Row 2: DRAWING_DESCRIPTION_2 value (if found) + "not included" note
-                    Dim sAcadDescRow As String = ""
-                    If oAcadDwgDescs.ContainsKey(sAcadEntry) Then sAcadDescRow = Trim(oAcadDwgDescs(sAcadEntry))
-                    Dim oAcadDescLbl As New System.Windows.Forms.Label()
-                    oAcadDescLbl.Text = "        " & If(sAcadDescRow <> "", sAcadDescRow & " — not included in This Clean Sweep", "(AutoCAD — will not be opened or relinked)")
-                    oAcadDescLbl.Left = 4 : oAcadDescLbl.Top = iDLY : oAcadDescLbl.Width = 630 : oAcadDescLbl.Height = 18
-                    oDLPanel.Controls.Add(oAcadDescLbl)
-                    iDLY = iDLY + 20
+                    iDMDrawingNum = iDMDrawingNum + 1
+
+                    ' Number label
+                    Dim oAcadNumLbl As New System.Windows.Forms.Label()
+                    oAcadNumLbl.Text = iDMDrawingNum.ToString() & "."
+                    oAcadNumLbl.Left = 4 : oAcadNumLbl.Top = iDLY
+                    oAcadNumLbl.Width = 22 : oAcadNumLbl.Height = 20
+                    oDLPanel.Controls.Add(oAcadNumLbl)
+
+                    ' Include checkbox — disabled + unchecked (AutoCAD excluded from sweep)
+                    Dim oAcadChk As New System.Windows.Forms.CheckBox()
+                    oAcadChk.Left = 26 : oAcadChk.Top = iDLY - 1
+                    oAcadChk.Width = 18 : oAcadChk.Height = 20
+                    oAcadChk.Checked = False
+                    oAcadChk.Enabled = False
+                    oDLPanel.Controls.Add(oAcadChk)
+
+                    ' Filename label — with description to the right if available
+                    Dim sAcadDescInline As String = ""
+                    If oAcadDwgDescs.ContainsKey(sAcadEntry) Then sAcadDescInline = Trim(oAcadDwgDescs(sAcadEntry))
+                    Dim oAcadFileLbl As New System.Windows.Forms.Label()
+                    Dim sAcadLblText As String = System.IO.Path.GetFileName(sAcadEntry)
+                    If sAcadDescInline <> "" Then sAcadLblText = sAcadLblText & "   " & sAcadDescInline
+                    oAcadFileLbl.Text = sAcadLblText
+                    oAcadFileLbl.Left = 46 : oAcadFileLbl.Top = iDLY
+                    oAcadFileLbl.Width = 580 : oAcadFileLbl.Height = 20
+                    oDLPanel.Controls.Add(oAcadFileLbl)
+                    iDLY = iDLY + 24
+
+                    ' Bordered note panel — matches the model-list border on regular drawings
+                    Dim oAcadBorder As New System.Windows.Forms.Panel()
+                    oAcadBorder.Left = iDMOldLeft : oAcadBorder.Top = iDLY
+                    oAcadBorder.Width = iDMPanelW - iDMOldLeft * 2 - 4 : oAcadBorder.Height = 22
+                    oAcadBorder.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle
+                    Dim oAcadNoteLbl As New System.Windows.Forms.Label()
+                    oAcadNoteLbl.Text = "Autocad Created Drawing - not included in This Clean Sweep"
+                    oAcadNoteLbl.Left = 4 : oAcadNoteLbl.Top = 2
+                    oAcadNoteLbl.Width = oAcadBorder.Width - 8 : oAcadNoteLbl.Height = 18
+                    oAcadBorder.Controls.Add(oAcadNoteLbl)
+                    oDLPanel.Controls.Add(oAcadBorder)
+                    iDLY = iDLY + 30
                 Next
             End If
 
