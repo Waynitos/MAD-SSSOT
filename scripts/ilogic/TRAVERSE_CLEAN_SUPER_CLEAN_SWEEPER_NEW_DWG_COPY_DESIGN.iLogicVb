@@ -1,7 +1,7 @@
-﻿'' =====================================================================
+'' =====================================================================
 '' SUPER_CLEAN_SWEEPER.iLogicVb
 '' Copy Design with full provenance architecture
-'' Version: 2.2.26 — 2026-11-06
+'' Version: 2.2.27 — 2026-11-06
 ''
 '' PURPOSE
 ''   Replicates Vault Copy Design outside of Vault.
@@ -819,6 +819,36 @@ Sub Main()
                             Next iBs
                         End If
                         Try : System.IO.File.AppendAllText(sLogPath, "DWGLIST-AUTOCAD-TAG: " & System.IO.Path.GetFileName(sDLCheck) & " iFound=" & iFound.ToString() & vbCrLf) : Catch : End Try
+                        ' v2.2.27: BLIND SCAN — tag not found: scan entire file for UTF-16LE runs
+                        ' to reveal actual attribute tag names and readable values in this DWG.
+                        ' BLINDTAGS-U = all-caps/underscore runs (candidate attr tag names)
+                        ' BLINDVALS-U = mixed/lower runs (candidate description values)
+                        If iFound < 0 Then
+                            Dim sbBT As New System.Text.StringBuilder()
+                            Dim sbBV As New System.Text.StringBuilder()
+                            Dim sbBR As New System.Text.StringBuilder()
+                            Dim iTCnt As Integer = 0 : Dim iVCnt As Integer = 0
+                            Dim iBB2 As Integer = 0
+                            Do While iBB2 + 1 < bAll.Length AndAlso (iTCnt < 50 OrElse iVCnt < 20)
+                                Dim bL2 As Byte = bAll(iBB2) : Dim bH2 As Byte = bAll(iBB2 + 1)
+                                If bH2 = 0 AndAlso bL2 >= 32 AndAlso bL2 <= 126 Then
+                                    sbBR.Append(Chr(bL2)) : iBB2 += 2
+                                Else
+                                    If sbBR.Length >= 4 Then
+                                        Dim sBRun As String = sbBR.ToString()
+                                        If fnIsTag(sBRun) AndAlso iTCnt < 50 Then : sbBT.Append("[" & sBRun & "] ") : iTCnt += 1 : End If
+                                        If Not fnIsTag(sBRun) AndAlso iVCnt < 20 Then : sbBV.Append("[" & sBRun & "] ") : iVCnt += 1 : End If
+                                    End If
+                                    sbBR.Clear() : iBB2 += 2
+                                End If
+                            Loop
+                            If sbBR.Length >= 4 Then
+                                Dim sBRun2 As String = sbBR.ToString()
+                                If fnIsTag(sBRun2) Then sbBT.Append("[" & sBRun2 & "] ") Else sbBV.Append("[" & sBRun2 & "] ")
+                            End If
+                            Try : System.IO.File.AppendAllText(sLogPath, "DWGLIST-AUTOCAD-BLINDTAGS-U: " & System.IO.Path.GetFileName(sDLCheck) & " " & sbBT.ToString() & vbCrLf) : Catch : End Try
+                            Try : System.IO.File.AppendAllText(sLogPath, "DWGLIST-AUTOCAD-BLINDVALS-U: " & System.IO.Path.GetFileName(sDLCheck) & " " & sbBV.ToString() & vbCrLf) : Catch : End Try
+                        End If
                         If iFound >= 0 Then
                             ' Scan 3000 bytes before the tag, trying both even and odd alignments
                             Dim oRunsU As New System.Collections.Generic.List(Of String)()
@@ -870,6 +900,33 @@ Sub Main()
                             If bOk Then iFound = iBs : Exit For
                         Next iBs
                         Try : System.IO.File.AppendAllText(sLogPath, "DWGLIST-AUTOCAD-TAG: " & System.IO.Path.GetFileName(sDLCheck) & " iFound=" & iFound.ToString() & vbCrLf) : Catch : End Try
+                        ' v2.2.27: BLIND SCAN for ASCII DWGs — same logic as Unicode path above
+                        If iFound < 0 Then
+                            Dim sbBTA As New System.Text.StringBuilder()
+                            Dim sbBVA As New System.Text.StringBuilder()
+                            Dim sbBRA As New System.Text.StringBuilder()
+                            Dim iTCntA As Integer = 0 : Dim iVCntA As Integer = 0
+                            For iBB3 As Integer = 0 To bAll.Length - 1
+                                If iTCntA >= 50 AndAlso iVCntA >= 20 Then Exit For
+                                Dim bB3 As Byte = bAll(iBB3)
+                                If bB3 >= 32 AndAlso bB3 <= 126 Then
+                                    sbBRA.Append(Chr(bB3))
+                                Else
+                                    If sbBRA.Length >= 4 Then
+                                        Dim sBRunA As String = sbBRA.ToString()
+                                        If fnIsTag(sBRunA) AndAlso iTCntA < 50 Then : sbBTA.Append("[" & sBRunA & "] ") : iTCntA += 1 : End If
+                                        If Not fnIsTag(sBRunA) AndAlso iVCntA < 20 Then : sbBVA.Append("[" & sBRunA & "] ") : iVCntA += 1 : End If
+                                    End If
+                                    sbBRA.Clear()
+                                End If
+                            Next iBB3
+                            If sbBRA.Length >= 4 Then
+                                Dim sBRunA2 As String = sbBRA.ToString()
+                                If fnIsTag(sBRunA2) Then sbBTA.Append("[" & sBRunA2 & "] ") Else sbBVA.Append("[" & sBRunA2 & "] ")
+                            End If
+                            Try : System.IO.File.AppendAllText(sLogPath, "DWGLIST-AUTOCAD-BLINDTAGS-A: " & System.IO.Path.GetFileName(sDLCheck) & " " & sbBTA.ToString() & vbCrLf) : Catch : End Try
+                            Try : System.IO.File.AppendAllText(sLogPath, "DWGLIST-AUTOCAD-BLINDVALS-A: " & System.IO.Path.GetFileName(sDLCheck) & " " & sbBVA.ToString() & vbCrLf) : Catch : End Try
+                        End If
                         If iFound >= 0 Then
                             ' Scan 2000 bytes before tag
                             Dim iLimA As Integer = Math.Max(0, iFound - 2000)
