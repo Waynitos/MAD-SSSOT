@@ -441,7 +441,7 @@ Sub Main()
         System.Environment.SpecialFolder.Desktop)
     Dim sLogPath As String = System.IO.Path.Combine(sDesktop, _
         "SUPER_CLEAN_SWEEPER_" & Now.ToString("yyyyMMdd_HHmmss") & ".log")
-    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.26  —  " & Now.ToString() & vbCrLf & _
+    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.27  —  " & Now.ToString() & vbCrLf & _
                          "GA: " & sTopFull & vbCrLf
     Try : System.IO.File.WriteAllText(sLogPath, sLog) : Catch : End Try
     If sEntryLog <> "" Then
@@ -468,7 +468,7 @@ Sub Main()
     Dim sTargetFolder As String = oFbd.SelectedPath
     ThisApplication.SilentOperation = True
 
-    ' ── 3b. Run mode: Full sweep or Relink only (v2.2.26) ────────────────────
+    ' ── 3b. Run mode: Full sweep or Relink only (v2.2.27) ────────────────────
     Dim bRelinkOnly As Boolean = False
     ThisApplication.SilentOperation = bOrigSilent
     Dim oModeForm As New Form()
@@ -743,98 +743,65 @@ Sub Main()
         If Not bDLEntryFound Then oDwgFiles.Add(sDwgEntryPath)
         oDwgFiles.Sort(StringComparer.OrdinalIgnoreCase)
 
-        ' v2.2.26: Detect native AutoCAD DWG files by file header (first 2 bytes = "AC").
-        ' Inventor DWG files do NOT start with "AC".  Opening a native AutoCAD DWG
-        ' would hand it off to AutoCAD and stall the rule, so we detect and skip them.
-        ' Also reads the DRAWING_DESCRIPTION_2 block attribute from the DWG binary:
-        '   - R2000–R2004 (AC1015–AC1018): strings stored as ASCII bytes.
-        '   - R2007+ (AC1021+): strings stored as UTF-16LE.
-        '   In both formats the VALUE string precedes the TAG string in the ATTRIB
-        '   entity; we find the TAG bytes then read the last printable run before it.
+        ' v2.2.27: Detect native AutoCAD DWG files using the proper Inventor API:
+        '   ThisApplication.FileManager.IsInventorDWG() returns False for native AutoCAD DWGs.
+        ' For each AutoCAD DWG, open it briefly as a DrawingDocument (Inventor can open these
+        ' read-only without launching AutoCAD), walk Sheet.AutoCADBlocks, and call
+        ' oBlk.GetPromptTextValues() to find the DRAWING_DESCRIPTION_2 attribute value.
+        ' The document is closed immediately after reading — no AutoCAD launch risk.
         Dim oAcadDwgs As New System.Collections.Generic.HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
         Dim oAcadDwgDescs As New System.Collections.Generic.Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase)
         For Each sDLCheck As String In oDwgFiles
             If Not String.Equals(System.IO.Path.GetExtension(sDLCheck), ".dwg", StringComparison.OrdinalIgnoreCase) Then Continue For
             Try
-                Dim bHdr(5) As Byte
-                Using fsHdr As New System.IO.FileStream(sDLCheck, System.IO.FileMode.Open, System.IO.FileAccess.Read)
-                    fsHdr.Read(bHdr, 0, 6)
-                End Using
-                If bHdr(0) = 65 AndAlso bHdr(1) = 67 Then   ' "AC" = AutoCAD DWG file signature
-                    oAcadDwgs.Add(sDLCheck)
-                    ' Read DRAWING_DESCRIPTION_2 from the DWG binary.
-                    Dim sAcadDesc As String = ""
-                    Try
-                        Dim sVer As String = System.Text.Encoding.ASCII.GetString(bHdr, 0, 6) ' e.g. AC1015, AC1021
-                        ' R2007 and later (AC1021+) store strings as UTF-16LE; older formats use ASCII.
-                        Dim bUni As Boolean = (String.Compare(sVer, "AC1021", StringComparison.Ordinal) >= 0)
-                        Dim bAll As Byte() = System.IO.File.ReadAllBytes(sDLCheck)
-                        Dim iFound As Integer = -1
-                        If bUni Then
-                            ' UTF-16LE: search for the tag as Unicode bytes
-                            Dim bUTag As Byte() = System.Text.Encoding.Unicode.GetBytes("DRAWING_DESCRIPTION_2")
-                            For i As Integer = 0 To bAll.Length - bUTag.Length - 1
-                                Dim bOk As Boolean = True
-                                For j As Integer = 0 To bUTag.Length - 1
-                                    If bAll(i + j) <> bUTag(j) Then bOk = False : Exit For
-                                Next j
-                                If bOk Then iFound = i : Exit For
-                            Next i
-                            If iFound >= 0 Then
-                                ' Collect all UTF-16LE printable runs in the 400-byte window before the tag.
-                                ' The VALUE string is the last run; it immediately precedes the TAG in the entity.
-                                Dim iLim As Integer = Math.Max(0, iFound - 400)
-                                Dim oRuns As New System.Collections.Generic.List(Of String)()
-                                Dim sbU As New System.Text.StringBuilder()
-                                Dim iIdx As Integer = iLim
-                                Do While iIdx + 1 < iFound
-                                    Dim bLo As Byte = bAll(iIdx)
-                                    Dim bHi As Byte = bAll(iIdx + 1)
-                                    If bHi = 0 AndAlso bLo >= 32 AndAlso bLo <= 126 Then
-                                        sbU.Append(Chr(bLo))
-                                        iIdx += 2
-                                    Else
-                                        If sbU.Length >= 3 Then oRuns.Add(sbU.ToString())
-                                        sbU.Clear()
-                                        iIdx += 1
+                Dim bIsAcad As Boolean = False
+                Try : bIsAcad = Not ThisApplication.FileManager.IsInventorDWG(sDLCheck) : Catch : End Try
+                If Not bIsAcad Then Continue For
+
+                oAcadDwgs.Add(sDLCheck)
+                Dim sAcadDesc As String = ""
+                Dim oAcadDoc As DrawingDocument = Nothing
+                Dim bAcadOpened As Boolean = False
+                Try
+                    oAcadDoc = TryCast(ThisApplication.Documents.Open(sDLCheck, False), DrawingDocument)
+                    bAcadOpened = True
+                    If oAcadDoc IsNot Nothing Then
+                        Dim sbTagLog As New System.Text.StringBuilder()
+                        For Each oSheet As Sheet In oAcadDoc.Sheets
+                            Try
+                                For Each oBlk As AutoCADBlock In oSheet.AutoCADBlocks
+                                    Dim oTags() As String = Nothing
+                                    Dim oVals() As String = Nothing
+                                    Try : oBlk.GetPromptTextValues(oTags, oVals) : Catch : Continue For : End Try
+                                    If oTags IsNot Nothing AndAlso oVals IsNot Nothing Then
+                                        For iT As Integer = 0 To oTags.Length - 1
+                                            Dim sTag As String = If(oTags(iT), "")
+                                            Dim sVal As String = If(iT < oVals.Length, If(oVals(iT), ""), "")
+                                            sbTagLog.Append(sTag & "='" & sVal & "'; ")
+                                            ' Exact match first; fall back to any tag containing DESCRIPTION
+                                            If String.Compare(sTag, "DRAWING_DESCRIPTION_2", True) = 0 Then
+                                                sAcadDesc = Trim(sVal)
+                                            ElseIf sAcadDesc = "" AndAlso sTag.ToUpper().Contains("DESCRIPTION") Then
+                                                sAcadDesc = Trim(sVal)
+                                            End If
+                                        Next
                                     End If
-                                Loop
-                                If sbU.Length >= 3 Then oRuns.Add(sbU.ToString())
-                                If oRuns.Count > 0 Then sAcadDesc = Trim(oRuns(oRuns.Count - 1))
-                            End If
-                        Else
-                            ' ASCII: search for the tag as ASCII bytes
-                            Dim bATag As Byte() = System.Text.Encoding.ASCII.GetBytes("DRAWING_DESCRIPTION_2")
-                            For i As Integer = 0 To bAll.Length - bATag.Length - 1
-                                Dim bOk As Boolean = True
-                                For j As Integer = 0 To bATag.Length - 1
-                                    If bAll(i + j) <> bATag(j) Then bOk = False : Exit For
-                                Next j
-                                If bOk Then iFound = i : Exit For
-                            Next i
-                            If iFound >= 0 Then
-                                ' Collect ASCII runs in 200-byte window; take the last (= VALUE, closest to TAG).
-                                Dim iLim As Integer = Math.Max(0, iFound - 200)
-                                Dim sLastRun As String = ""
-                                Dim sbA As New System.Text.StringBuilder()
-                                For i As Integer = iLim To iFound - 1
-                                    Dim b As Byte = bAll(i)
-                                    If b >= 32 AndAlso b <= 126 Then
-                                        sbA.Append(Chr(b))
-                                    Else
-                                        If sbA.Length >= 3 Then sLastRun = sbA.ToString()
-                                        sbA.Clear()
-                                    End If
-                                Next i
-                                If sbA.Length >= 3 Then sLastRun = sbA.ToString()
-                                sAcadDesc = Trim(sLastRun)
-                            End If
-                        End If
-                    Catch
-                    End Try
-                    oAcadDwgDescs(sDLCheck) = sAcadDesc
-                    Try : System.IO.File.AppendAllText(sLogPath, "DWGLIST-AUTOCAD: " & System.IO.Path.GetFileName(sDLCheck) & If(sAcadDesc <> "", " [desc=" & sAcadDesc & "]", "") & vbCrLf) : Catch : End Try
-                End If
+                                Next
+                            Catch
+                            End Try
+                            If sAcadDesc <> "" Then Exit For
+                        Next
+                        Try : System.IO.File.AppendAllText(sLogPath, "DWGLIST-AUTOCAD-TAGS: " & System.IO.Path.GetFileName(sDLCheck) & " : " & sbTagLog.ToString() & vbCrLf) : Catch : End Try
+                    End If
+                Catch exAcad As Exception
+                    Try : System.IO.File.AppendAllText(sLogPath, "DWGLIST-AUTOCAD-ERR: " & System.IO.Path.GetFileName(sDLCheck) & " : " & exAcad.Message & vbCrLf) : Catch : End Try
+                Finally
+                    If bAcadOpened AndAlso oAcadDoc IsNot Nothing Then
+                        Try : oAcadDoc.Close(False) : Catch : End Try
+                    End If
+                End Try
+                oAcadDwgDescs(sDLCheck) = sAcadDesc
+                Try : System.IO.File.AppendAllText(sLogPath, "DWGLIST-AUTOCAD: " & System.IO.Path.GetFileName(sDLCheck) & If(sAcadDesc <> "", " [desc=" & sAcadDesc & "]", " [no desc]") & vbCrLf) : Catch : End Try
             Catch
             End Try
         Next
@@ -1129,7 +1096,7 @@ Sub Main()
                 iDLY = iDLY + iDMPanelH + 8
             Next
 
-            ' v2.2.26: Show native AutoCAD DWGs with informational label.
+            ' v2.2.27: Show native AutoCAD DWGs with informational label.
             ' These files are detected but cannot be opened or relinked via Inventor.
             If oAcadDwgs.Count > 0 Then
                 Dim oAcadHdrLbl As New System.Windows.Forms.Label()
@@ -2295,7 +2262,7 @@ Sub Main()
     End If
 
 
-    ' ── Type B orphan copy (v2.2.26) ─────────────────────────────────────────
+    ' ── Type B orphan copy (v2.2.27) ─────────────────────────────────────────
     ' Models referenced by a drawing but not in the GA map are copied
     ' independently with the new prefix and added to oActualMap.
     Try : System.IO.File.AppendAllText(sLogPath, vbCrLf & "=== TYPE B ORPHANS ===" & vbCrLf) : Catch : End Try
@@ -2350,7 +2317,7 @@ Sub Main()
                     oOrphDoc = ThisApplication.Documents.Open(sOrphResolved, False)
                 End If
 
-                ' v2.2.26: .iam orphans get a full WalkTree + Phase-2/3 sub-tree copy so all
+                ' v2.2.27: .iam orphans get a full WalkTree + Phase-2/3 sub-tree copy so all
                 ' child parts come across with the new prefix, refs are fixed inside the new
                 ' assembly, and the drawing relink can then point to the correct new copies.
                 ' .ipt orphans have no sub-tree so a single SaveAs is still correct.
@@ -2499,7 +2466,7 @@ Sub Main()
 
     ' ── 8. Final summary ──────────────────────────────────────────────────────
     Dim sSummary As String = _
-        "SUPER CLEAN SWEEPER v2.2.26 — COMPLETE" & vbCrLf & vbCrLf & _
+        "SUPER CLEAN SWEEPER v2.2.27 — COMPLETE" & vbCrLf & vbCrLf & _
         "Phase 1  Rename map built:   " & oRenameMap.Count & " file(s)" & vbCrLf & _
         "Phase 2  SaveAs + Provenance:" & vbCrLf & _
         "         Saved    : " & iSaved & vbCrLf & _
@@ -3424,7 +3391,7 @@ Function ResolveTarget(sSource As String, _
 End Function
 
 ' ═══════════════════════════════════════════════════════════════════════════════
-' ProcessOrphanSubTree  (v2.2.26)
+' ProcessOrphanSubTree  (v2.2.27)
 ' Performs a full WalkTree + Phase-2 SaveAs + Phase-3 ref-fix on an orphan
 ' assembly that is referenced by a drawing but absent from the main GA tree.
 ' Mirrors what the main rule does for the GA:
