@@ -2257,6 +2257,11 @@ Sub Main()
     ' are opened is unchanged.
     If bFromDwg AndAlso sDwgEntryPath <> "" Then
         Try : System.IO.File.AppendAllText(sLogPath, vbCrLf & "=== DRAWING RELINK ===" & vbCrLf) : Catch : End Try
+        ' Suppress iLogic event-driven rule popups that fire when drawings are opened.
+        ' SilentOperation was restored by F1 Finally after Phase 3 — re-enable it here.
+        Dim bRelinkSilent As Boolean = ThisApplication.SilentOperation
+        ThisApplication.SilentOperation = True
+        Try : iLogicVb.EventRuleManager.DisableEventRules = True : Catch : End Try
         Dim oRelinkDwgs As New System.Collections.Generic.List(Of String)(oDwgList)
         Dim bRelinkHasEntry As Boolean = False
         Dim sRelinkDwg As String
@@ -2356,6 +2361,9 @@ Sub Main()
             End Try
         Next
         Try : System.IO.File.AppendAllText(sLogPath, "Drawing relink complete: " & oRelinkDwgs.Count & " drawing(s), " & iDwgTotal & " ref(s) replaced." & vbCrLf) : Catch : End Try
+        ' Restore SilentOperation and re-enable iLogic event rules
+        Try : iLogicVb.EventRuleManager.DisableEventRules = False : Catch : End Try
+        ThisApplication.SilentOperation = bRelinkSilent
     End If
 
     ' ── 8. Final summary ──────────────────────────────────────────────────────
