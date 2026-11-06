@@ -721,6 +721,10 @@ Sub Main()
         StringComparer.OrdinalIgnoreCase)
     Dim oDwgModels As New System.Collections.Generic.Dictionary(Of String, System.Collections.Generic.List(Of String))( _
         StringComparer.OrdinalIgnoreCase)
+    ' oDrawingStateMatch: declared here (top-level, before both bFromDwg blocks) so it is
+    ' visible inside the form-building block (~line 1382) AND in Phase B2 relink (~line 2603).
+    Dim oDrawingStateMatch As New System.Collections.Generic.Dictionary(Of String, Boolean)( _
+        StringComparer.OrdinalIgnoreCase)
     If bFromDwg AndAlso sDwgEntryPath <> "" Then
         Try : System.IO.File.AppendAllText(sLogPath, vbCrLf & "=== DRAWING LIST ===" & vbCrLf) : Catch : End Try
         Dim sDwgFolder As String = System.IO.Path.GetDirectoryName(sDwgEntryPath)
@@ -759,49 +763,152 @@ Sub Main()
                 If Not bIsAcad Then Continue For
 
                 oAcadDwgs.Add(sDLCheck)
+                ' AutoCAD DWG binary scan for DRAWING_DESCRIPTION_2.
+                ' We do NOT open via Inventor API — Inventor cannot expose AutoCAD block
+                ' attributes for native AutoCAD files (AutoCADBlocks collection is empty).
+                ' Instead we scan the raw bytes: the DWG format stores ATTRIB entities as
+                ' VALUE string followed by TAG string, so we find the TAG bytes then read
+                ' the last printable text run before them.
+                '   AC1015-AC1018 (R2000-R2004): strings are ASCII bytes.
+                '   AC1021+       (R2007+)      : strings are UTF-16LE.
                 Dim sAcadDesc As String = ""
-                Dim oAcadDoc As DrawingDocument = Nothing
-                Dim bAcadOpened As Boolean = False
                 Try
-                    oAcadDoc = TryCast(ThisApplication.Documents.Open(sDLCheck, False), DrawingDocument)
-                    bAcadOpened = True
-                    If oAcadDoc IsNot Nothing Then
-                        Dim sbTagLog As New System.Text.StringBuilder()
-                        For Each oSheet As Sheet In oAcadDoc.Sheets
-                            Try
-                                For Each oBlk As AutoCADBlock In oSheet.AutoCADBlocks
-                                    Dim oTags() As String = Nothing
-                                    Dim oVals() As String = Nothing
-                                    Try : oBlk.GetPromptTextValues(oTags, oVals) : Catch : Continue For : End Try
-                                    If oTags IsNot Nothing AndAlso oVals IsNot Nothing Then
-                                        For iT As Integer = 0 To oTags.Length - 1
-                                            Dim sTag As String = If(oTags(iT), "")
-                                            Dim sVal As String = If(iT < oVals.Length, If(oVals(iT), ""), "")
-                                            sbTagLog.Append(sTag & "='" & sVal & "'; ")
-                                            ' Exact match first; fall back to any tag containing DESCRIPTION
-                                            If String.Compare(sTag, "DRAWING_DESCRIPTION_2", True) = 0 Then
-                                                sAcadDesc = Trim(sVal)
-                                            ElseIf sAcadDesc = "" AndAlso sTag.ToUpper().Contains("DESCRIPTION") Then
-                                                sAcadDesc = Trim(sVal)
-                                            End If
-                                        Next
-                                    End If
-                                Next
-                            Catch
-                            End Try
-                            If sAcadDesc <> "" Then Exit For
+                    Dim bHdr(5) As Byte
+                    Using fsH As New System.IO.FileStream(sDLCheck, System.IO.FileMode.Open, System.IO.FileAccess.Read, System.IO.FileShare.Read)
+                        fsH.Read(bHdr, 0, 6)
+                    End Using
+                    Dim sVer As String = System.Text.Encoding.ASCII.GetString(bHdr, 0, 6)
+                    Dim bUni As Boolean = (String.Compare(sVer, "AC1021", StringComparison.Ordinal) >= 0)
+                    Dim bAll As Byte() = System.IO.File.ReadAllBytes(sDLCheck)
+                    Dim iFound As Integer = -1
+                    ' Helper: returns True if a run looks like a DWG internal name
+                    ' (all uppercase letters, digits and underscores — matches attribute tag pattern).
+                    ' We use this to skip runs like "DRAWING_DESCRIPTION_2", "STANDARD", "0" etc.
+                    ' and find the human-readable description value instead.
+                    Dim fnIsTag As Func(Of String, Boolean) = Function(sRun As String) As Boolean
+                        If sRun.Length = 0 Then Return True
+                        For Each cCh As Char In sRun
+                            If Not (Char.IsUpper(cCh) OrElse Char.IsDigit(cCh) OrElse cCh = "_"c OrElse cCh = "-"c OrElse cCh = "."c) Then Return False
                         Next
-                        Try : System.IO.File.AppendAllText(sLogPath, "DWGLIST-AUTOCAD-TAGS: " & System.IO.Path.GetFileName(sDLCheck) & " : " & sbTagLog.ToString() & vbCrLf) : Catch : End Try
+                        Return True
+                    End Function
+
+                    ' Log DWG version for diagnostics
+                    Try : System.IO.File.AppendAllText(sLogPath, "DWGLIST-AUTOCAD-VER: " & System.IO.Path.GetFileName(sDLCheck) & " ver=" & sVer & " unicode=" & bUni.ToString() & vbCrLf) : Catch : End Try
+
+                    If bUni Then
+                        ' UTF-16LE: search for tag as Unicode bytes.
+                        ' Try both byte alignments (even and odd start) to handle stream packing.
+                        Dim bUTag As Byte() = System.Text.Encoding.Unicode.GetBytes("DRAWING_DESCRIPTION_2")
+                        For iBs As Integer = 0 To bAll.Length - bUTag.Length - 1
+                            Dim bOk As Boolean = True
+                            For jBs As Integer = 0 To bUTag.Length - 1
+                                If bAll(iBs + jBs) <> bUTag(jBs) Then bOk = False : Exit For
+                            Next jBs
+                            If bOk Then iFound = iBs : Exit For
+                        Next iBs
+                        If iFound < 0 Then
+                            ' Also try case-insensitive ASCII scan for UTF-16LE (high byte = 0, low byte is ASCII)
+                            Dim bAlt As Byte() = System.Text.Encoding.ASCII.GetBytes("DRAWING_DESCRIPTION_2")
+                            For iBs As Integer = 0 To bAll.Length - bAlt.Length - 1
+                                Dim bOk As Boolean = True
+                                For jBs As Integer = 0 To bAlt.Length - 1
+                                    If bAll(iBs + jBs) <> bAlt(jBs) Then bOk = False : Exit For
+                                Next jBs
+                                If bOk Then iFound = iBs : Exit For
+                            Next iBs
+                        End If
+                        Try : System.IO.File.AppendAllText(sLogPath, "DWGLIST-AUTOCAD-TAG: " & System.IO.Path.GetFileName(sDLCheck) & " iFound=" & iFound.ToString() & vbCrLf) : Catch : End Try
+                        If iFound >= 0 Then
+                            ' Scan 3000 bytes before the tag, trying both even and odd alignments
+                            Dim oRunsU As New System.Collections.Generic.List(Of String)()
+                            For iAlign As Integer = 0 To 1
+                                Dim iLimU As Integer = Math.Max(iAlign, iFound - 3000)
+                                Dim sbU As New System.Text.StringBuilder()
+                                Dim iIdx As Integer = iLimU
+                                Do While iIdx + 1 < iFound
+                                    Dim bLo As Byte = bAll(iIdx)
+                                    Dim bHiByte As Byte = bAll(iIdx + 1)
+                                    If bHiByte = 0 AndAlso bLo >= 32 AndAlso bLo <= 126 Then
+                                        sbU.Append(Chr(bLo))
+                                        iIdx += 2
+                                    Else
+                                        If sbU.Length >= 3 Then oRunsU.Add(sbU.ToString())
+                                        sbU.Clear()
+                                        iIdx += 2
+                                    End If
+                                Loop
+                                If sbU.Length >= 3 Then oRunsU.Add(sbU.ToString())
+                            Next iAlign
+                            ' Log all runs found (diagnostic)
+                            Dim sRunLog As String = ""
+                            For Each sR As String In oRunsU
+                                sRunLog = sRunLog & "[" & sR & "] "
+                            Next
+                            Try : System.IO.File.AppendAllText(sLogPath, "DWGLIST-AUTOCAD-RUNS-U: " & System.IO.Path.GetFileName(sDLCheck) & " " & sRunLog & vbCrLf) : Catch : End Try
+                            ' Work backward to find last non-tag-like run with mixed/lower chars
+                            For iRun As Integer = oRunsU.Count - 1 To 0 Step -1
+                                Dim sCand As String = Trim(oRunsU(iRun))
+                                If sCand.Length >= 3 AndAlso Not fnIsTag(sCand) Then
+                                    sAcadDesc = sCand
+                                    Exit For
+                                End If
+                            Next iRun
+                            ' Fallback: last run of any kind if still empty
+                            If sAcadDesc = "" AndAlso oRunsU.Count > 0 Then
+                                sAcadDesc = Trim(oRunsU(oRunsU.Count - 1))
+                            End If
+                        End If
+                    Else
+                        ' ASCII (R2000-R2004): search for tag as ASCII bytes.
+                        Dim bATag As Byte() = System.Text.Encoding.ASCII.GetBytes("DRAWING_DESCRIPTION_2")
+                        For iBs As Integer = 0 To bAll.Length - bATag.Length - 1
+                            Dim bOk As Boolean = True
+                            For jBs As Integer = 0 To bATag.Length - 1
+                                If bAll(iBs + jBs) <> bATag(jBs) Then bOk = False : Exit For
+                            Next jBs
+                            If bOk Then iFound = iBs : Exit For
+                        Next iBs
+                        Try : System.IO.File.AppendAllText(sLogPath, "DWGLIST-AUTOCAD-TAG: " & System.IO.Path.GetFileName(sDLCheck) & " iFound=" & iFound.ToString() & vbCrLf) : Catch : End Try
+                        If iFound >= 0 Then
+                            ' Scan 2000 bytes before tag
+                            Dim iLimA As Integer = Math.Max(0, iFound - 2000)
+                            Dim oRunsA As New System.Collections.Generic.List(Of String)()
+                            Dim sbA As New System.Text.StringBuilder()
+                            For iBs As Integer = iLimA To iFound - 1
+                                Dim bByte As Byte = bAll(iBs)
+                                If bByte >= 32 AndAlso bByte <= 126 Then
+                                    sbA.Append(Chr(bByte))
+                                Else
+                                    If sbA.Length >= 3 Then oRunsA.Add(sbA.ToString())
+                                    sbA.Clear()
+                                End If
+                            Next iBs
+                            If sbA.Length >= 3 Then oRunsA.Add(sbA.ToString())
+                            ' Log all runs found
+                            Dim sRunLogA As String = ""
+                            For Each sR As String In oRunsA
+                                sRunLogA = sRunLogA & "[" & sR & "] "
+                            Next
+                            Try : System.IO.File.AppendAllText(sLogPath, "DWGLIST-AUTOCAD-RUNS-A: " & System.IO.Path.GetFileName(sDLCheck) & " " & sRunLogA & vbCrLf) : Catch : End Try
+                            ' Work backward: find last run that isn't a DWG internal name
+                            For iRun As Integer = oRunsA.Count - 1 To 0 Step -1
+                                Dim sCandA As String = Trim(oRunsA(iRun))
+                                If sCandA.Length >= 3 AndAlso Not fnIsTag(sCandA) Then
+                                    sAcadDesc = sCandA
+                                    Exit For
+                                End If
+                            Next iRun
+                            ' Fallback: last run
+                            If sAcadDesc = "" AndAlso oRunsA.Count > 0 Then
+                                sAcadDesc = Trim(oRunsA(oRunsA.Count - 1))
+                            End If
+                        End If
                     End If
-                Catch exAcad As Exception
-                    Try : System.IO.File.AppendAllText(sLogPath, "DWGLIST-AUTOCAD-ERR: " & System.IO.Path.GetFileName(sDLCheck) & " : " & exAcad.Message & vbCrLf) : Catch : End Try
-                Finally
-                    If bAcadOpened AndAlso oAcadDoc IsNot Nothing Then
-                        Try : oAcadDoc.Close(False) : Catch : End Try
-                    End If
+                Catch
                 End Try
                 oAcadDwgDescs(sDLCheck) = sAcadDesc
-                Try : System.IO.File.AppendAllText(sLogPath, "DWGLIST-AUTOCAD: " & System.IO.Path.GetFileName(sDLCheck) & If(sAcadDesc <> "", " [desc=" & sAcadDesc & "]", " [no desc]") & vbCrLf) : Catch : End Try
+                Try : System.IO.File.AppendAllText(sLogPath, "DWGLIST-AUTOCAD: " & System.IO.Path.GetFileName(sDLCheck) & If(sAcadDesc <> "", " [desc=" & sAcadDesc & "]", " [no desc found]") & vbCrLf) : Catch : End Try
             Catch
             End Try
         Next
@@ -972,6 +1079,10 @@ Sub Main()
                 StringComparer.OrdinalIgnoreCase)
             Dim oDMIncludeMap As New System.Collections.Generic.Dictionary(Of String, System.Windows.Forms.CheckBox)( _
                 StringComparer.OrdinalIgnoreCase)
+            ' Per-drawing "Match model states?" checkboxes — keyed by full drawing path
+            Dim oStateCheckMap As New System.Collections.Generic.Dictionary(Of String, System.Windows.Forms.CheckBox)( _
+                StringComparer.OrdinalIgnoreCase)
+
             Dim iDLY As Integer = 6
             Dim iDMDrawingNum As Integer = 0
             Dim iDMPanelH As Integer = 0
@@ -1024,9 +1135,21 @@ Sub Main()
                 oDMDwgLbl.Text = System.IO.Path.GetFileName(sDLDwg)
                 oDMDwgLbl.Left = 46
                 oDMDwgLbl.Top = iDLY
-                oDMDwgLbl.Width = 580
+                oDMDwgLbl.Width = 390
                 oDMDwgLbl.Height = 20
                 oDLPanel.Controls.Add(oDMDwgLbl)
+                ' "Match model states?" — re-asserts named DrawingView model states after relink.
+                ' Needed when a drawing has views pointing at named model states (e.g. Weldment).
+                Dim oDMStateChk As New System.Windows.Forms.CheckBox()
+                oDMStateChk.Text = "Match model states?"
+                oDMStateChk.Left = 440
+                oDMStateChk.Top = iDLY - 1
+                oDMStateChk.Width = 190
+                oDMStateChk.Height = 20
+                oDMStateChk.Checked = True
+                oDMStateChk.Tag = sDLDwg
+                oDLPanel.Controls.Add(oDMStateChk)
+                oStateCheckMap(sDLDwg) = oDMStateChk
                 iDLY = iDLY + 24
                 iDMPanelH = oDwgModels(sDLDwg).Count * 26 + 6
                 If iDMPanelH < 32 Then iDMPanelH = 32
@@ -1250,6 +1373,13 @@ Sub Main()
                     oNameOverrides(sDLModel) = sDLTyped
                     Try : System.IO.File.AppendAllText(sLogPath, "DWG-NAME: " & System.IO.Path.GetFileName(sDLModel) & " -> " & sDLTyped & sDLModelExt & vbCrLf) : Catch : End Try
                 Next
+            Next
+            ' Build oDrawingStateMatch from the per-drawing "Match model states?" checkboxes
+            For Each sDLDwg In oDwgList
+                Dim bStateOn As Boolean = True   ' default on if checkbox missing
+                If oStateCheckMap.ContainsKey(sDLDwg) Then bStateOn = oStateCheckMap(sDLDwg).Checked
+                oDrawingStateMatch(sDLDwg) = bStateOn
+                Try : System.IO.File.AppendAllText(sLogPath, "DWG-STATE-MATCH: " & System.IO.Path.GetFileName(sDLDwg) & " = " & bStateOn.ToString() & vbCrLf) : Catch : End Try
             Next
             Try : oDLForm.Dispose() : Catch : End Try
             Try : System.IO.File.AppendAllText(sLogPath, "DWGLIST: " & oDwgList.Count & " drawing(s), " & oNameOverrides.Count & " name override(s)." & vbCrLf) : Catch : End Try
@@ -2461,6 +2591,41 @@ Sub Main()
                             Try : System.IO.File.AppendAllText(sLogPath, "DWG-REPLACE-FAIL: [" & sRelinkName & "] " & System.IO.Path.GetFileName(sDwgOld) & " — " & exDwgRep.Message & vbCrLf) : Catch : End Try
                         End Try
                     Next
+                    ' ── Phase B2: model state re-assertion ───────────────────
+                    ' After ReplaceReference the new doc is bound but named
+                    ' DrawingView model states (e.g. "Weldment", "LOD_Low") may
+                    ' not auto-transfer.  Walk every view and call ChangeModelState
+                    ' to re-assert the state it had before relinking.
+                    ' Only runs when the user ticked "Match model states?" for this
+                    ' drawing AND at least one reference was replaced.
+                    Dim bDoStateMatch As Boolean = False
+                    oDrawingStateMatch.TryGetValue(sRelinkDwg, bDoStateMatch)
+                    If bDoStateMatch AndAlso iDwgReplaced > 0 Then
+                        Try
+                            Dim oDrawDoc As DrawingDocument = TryCast(oDwgR, DrawingDocument)
+                            If oDrawDoc IsNot Nothing Then
+                                For Each oSht As Sheet In oDrawDoc.Sheets
+                                    For Each oVw As DrawingView In oSht.DrawingViews
+                                        Dim sStateName As String = ""
+                                        Try : sStateName = oVw.ModelState : Catch : End Try
+                                        If Trim(sStateName) <> "" AndAlso String.Compare(sStateName, "Master", True) <> 0 Then
+                                            Try
+                                                oVw.ChangeModelState(sStateName)
+                                                Try : System.IO.File.AppendAllText(sLogPath, "DWG-STATE-OK: " & sRelinkName & " view state re-asserted: " & sStateName & vbCrLf) : Catch : End Try
+                                            Catch exState As Exception
+                                                Try : System.IO.File.AppendAllText(sLogPath, "DWG-STATE-WARN: " & sRelinkName & " view '" & sStateName & "' re-assert failed: " & exState.Message & vbCrLf) : Catch : End Try
+                                            End Try
+                                        End If
+                                    Next
+                                Next
+                            End If
+                        Catch exStateOuter As Exception
+                            Try : System.IO.File.AppendAllText(sLogPath, "DWG-STATE-ERR: " & sRelinkName & " — " & exStateOuter.Message & vbCrLf) : Catch : End Try
+                        End Try
+                    ElseIf Not bDoStateMatch Then
+                        Try : System.IO.File.AppendAllText(sLogPath, "DWG-STATE-SKIP: " & sRelinkName & " (match model states not enabled)" & vbCrLf) : Catch : End Try
+                    End If
+
                     If iDwgReplaced > 0 Then
                         Try
                             oDwgR.Save2(False)
