@@ -3352,11 +3352,8 @@ Sub ProcessOrphanSubTree(oOrphTopDoc As Document, _
         "ORPHAN-WALK: " & System.IO.Path.GetFileName(sOrphOrigPath) & _
         " — " & oOrphMap.Count & " file(s) in sub-tree" & vbCrLf) : Catch : End Try
 
-    ' Close WalkTree-opened docs before SaveAs pass
-    For Each oWD As Document In oOrphOpened
-        Try : oWD.Close(True) : Catch : End Try
-    Next
-    oOrphOpened.Clear()
+    ' NOTE: oOrphOpened docs are kept open here — Phase 2 lite finds them via
+    ' ItemByName so it doesn't need to re-open them. Close them AFTER Phase 3.
 
     ' ── Phase 2 lite: SaveAs deepest-first, write 3 CS_ provenance props ─────
     Dim oOrphKeys As New System.Collections.Generic.List(Of String)(oOrphMap.Keys)
@@ -3419,7 +3416,9 @@ Sub ProcessOrphanSubTree(oOrphTopDoc As Document, _
                 bOrphO2 = True
             End If
             Dim iOrphFixed As Integer = 0
-            For Each oOrphFD As FileDescriptor In oOrphDoc2.ReferencedFileDescriptors
+            For Each oOrphFDObj As Object In oOrphDoc2.ReferencedFileDescriptors
+                Dim oOrphFD As FileDescriptor = TryCast(oOrphFDObj, FileDescriptor)
+                If oOrphFD Is Nothing Then Continue For
                 Dim sOrphFDPath As String = ""
                 Try : sOrphFDPath = oOrphFD.FullFileName : Catch : Continue For : End Try
                 If Not oActualMap.ContainsKey(sOrphFDPath) Then Continue For
@@ -3450,5 +3449,11 @@ Sub ProcessOrphanSubTree(oOrphTopDoc As Document, _
             Try : oOrphDoc2.Close(True) : Catch : End Try
         End If
     Next
+
+    ' Close all documents that WalkTree opened (now safe — Phase 2 & 3 are done)
+    For Each oWD As Document In oOrphOpened
+        Try : oWD.Close(True) : Catch : End Try
+    Next
+    oOrphOpened.Clear()
 
 End Sub
