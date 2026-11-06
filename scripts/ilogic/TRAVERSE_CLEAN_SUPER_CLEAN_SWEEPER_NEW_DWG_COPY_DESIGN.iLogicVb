@@ -1,7 +1,7 @@
 '' =====================================================================
 '' SUPER_CLEAN_SWEEPER.iLogicVb
 '' Copy Design with full provenance architecture
-'' Version: 2.2.28 — 2026-11-06
+'' Version: 2.2.29 — 2026-11-06
 ''
 '' PURPOSE
 ''   Replicates Vault Copy Design outside of Vault.
@@ -441,7 +441,7 @@ Sub Main()
         System.Environment.SpecialFolder.Desktop)
     Dim sLogPath As String = System.IO.Path.Combine(sDesktop, _
         "SUPER_CLEAN_SWEEPER_" & Now.ToString("yyyyMMdd_HHmmss") & ".log")
-    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.28  —  " & Now.ToString() & vbCrLf & _
+    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.29  —  " & Now.ToString() & vbCrLf & _
                          "GA: " & sTopFull & vbCrLf
     Try : System.IO.File.WriteAllText(sLogPath, sLog) : Catch : End Try
     If sEntryLog <> "" Then
@@ -763,240 +763,113 @@ Sub Main()
                 If Not bIsAcad Then Continue For
 
                 oAcadDwgs.Add(sDLCheck)
-                ' AutoCAD DWG binary scan for DRAWING_DESCRIPTION_2.
-                ' We do NOT open via Inventor API — Inventor cannot expose AutoCAD block
-                ' attributes for native AutoCAD files (AutoCADBlocks collection is empty).
-                ' Instead we scan the raw bytes: the DWG format stores ATTRIB entities as
-                ' VALUE string followed by TAG string, so we find the TAG bytes then read
-                ' the last printable text run before them.
-                '   AC1015-AC1018 (R2000-R2004): strings are ASCII bytes.
-                '   AC1021+       (R2007+)      : strings are UTF-16LE.
+                ' v2.2.29: Open via Inventor API and walk AutoCADBlocks/GetPromptTextValues.
+                ' This matches the approach proven in the old Traverse rule.
+                ' Fallback 1: ContainingDWGDocument COM (AcDbBlockReference/GetAttributes).
+                ' Fallback 2: raw UTF-16LE byte scan (kept for files that fail to open).
                 Dim sAcadDesc As String = ""
                 Try
-                    Dim bHdr(5) As Byte
-                    Using fsH As New System.IO.FileStream(sDLCheck, System.IO.FileMode.Open, System.IO.FileAccess.Read, System.IO.FileShare.Read)
-                        fsH.Read(bHdr, 0, 6)
-                    End Using
-                    Dim sVer As String = System.Text.Encoding.ASCII.GetString(bHdr, 0, 6)
-                    Dim bUni As Boolean = (String.Compare(sVer, "AC1021", StringComparison.Ordinal) >= 0)
-                    Dim bAll As Byte() = System.IO.File.ReadAllBytes(sDLCheck)
-                    Dim iFound As Integer = -1
-                    ' Helper: returns True if a run looks like a DWG internal name
-                    ' (all uppercase letters, digits and underscores — matches attribute tag pattern).
-                    ' We use this to skip runs like "DRAWING_DESCRIPTION_2", "STANDARD", "0" etc.
-                    ' and find the human-readable description value instead.
-                    Dim fnIsTag As Func(Of String, Boolean) = Function(sRun As String) As Boolean
-                        If sRun.Length = 0 Then Return True
-                        For Each cCh As Char In sRun
-                            If Not (Char.IsUpper(cCh) OrElse Char.IsDigit(cCh) OrElse cCh = "_"c OrElse cCh = "-"c OrElse cCh = "."c) Then Return False
-                        Next
-                        Return True
-                    End Function
-
-                    ' Log DWG version for diagnostics
-                    Try : System.IO.File.AppendAllText(sLogPath, "DWGLIST-AUTOCAD-VER: " & System.IO.Path.GetFileName(sDLCheck) & " ver=" & sVer & " unicode=" & bUni.ToString() & vbCrLf) : Catch : End Try
-
-                    If bUni Then
-                        ' UTF-16LE: search for tag as Unicode bytes.
-                        ' Try both byte alignments (even and odd start) to handle stream packing.
-                        Dim bUTag As Byte() = System.Text.Encoding.Unicode.GetBytes("DRAWING_DESCRIPTION_2")
-                        For iBs As Integer = 0 To bAll.Length - bUTag.Length - 1
-                            Dim bOk As Boolean = True
-                            For jBs As Integer = 0 To bUTag.Length - 1
-                                If bAll(iBs + jBs) <> bUTag(jBs) Then bOk = False : Exit For
-                            Next jBs
-                            If bOk Then iFound = iBs : Exit For
-                        Next iBs
-                        If iFound < 0 Then
-                            ' Also try case-insensitive ASCII scan for UTF-16LE (high byte = 0, low byte is ASCII)
-                            Dim bAlt As Byte() = System.Text.Encoding.ASCII.GetBytes("DRAWING_DESCRIPTION_2")
-                            For iBs As Integer = 0 To bAll.Length - bAlt.Length - 1
-                                Dim bOk As Boolean = True
-                                For jBs As Integer = 0 To bAlt.Length - 1
-                                    If bAll(iBs + jBs) <> bAlt(jBs) Then bOk = False : Exit For
-                                Next jBs
-                                If bOk Then iFound = iBs : Exit For
-                            Next iBs
-                        End If
-                        Try : System.IO.File.AppendAllText(sLogPath, "DWGLIST-AUTOCAD-TAG: " & System.IO.Path.GetFileName(sDLCheck) & " iFound=" & iFound.ToString() & vbCrLf) : Catch : End Try
-                        ' v2.2.28: BLIND SCAN — tag not found: collect ALL UTF-16LE runs from entire file,
-                        ' log the LAST 50 of each type. Title-block ATTRIB entities sit near the END of a
-                        ' DWG, so the first-50 approach (v2.2.27) consumed its budget on header metadata.
-                        ' BLINDTAGS-U = all-caps/underscore runs (attr tag names)
-                        ' BLINDVALS-U = mixed/lower runs (readable attribute values)
-                        ' DWGLIST-AUTOCAD-PARTIAL: targeted forward-context for known partial hits.
-                        If iFound < 0 Then
-                            Dim oTagRunsU As New System.Collections.Generic.List(Of String)()
-                            Dim oValRunsU As New System.Collections.Generic.List(Of String)()
-                            Dim sbBR As New System.Text.StringBuilder()
-                            Dim iBB2 As Integer = 0
-                            Do While iBB2 + 1 < bAll.Length
-                                Dim bL2 As Byte = bAll(iBB2) : Dim bH2 As Byte = bAll(iBB2 + 1)
-                                If bH2 = 0 AndAlso bL2 >= 32 AndAlso bL2 <= 126 Then
-                                    sbBR.Append(Chr(bL2)) : iBB2 += 2
-                                Else
-                                    If sbBR.Length >= 4 Then
-                                        Dim sBRun As String = sbBR.ToString()
-                                        If fnIsTag(sBRun) Then oTagRunsU.Add(sBRun) Else oValRunsU.Add(sBRun)
-                                    End If
-                                    sbBR.Clear() : iBB2 += 2
-                                End If
-                            Loop
-                            If sbBR.Length >= 4 Then
-                                Dim sBRun2 As String = sbBR.ToString()
-                                If fnIsTag(sBRun2) Then oTagRunsU.Add(sBRun2) Else oValRunsU.Add(sBRun2)
-                            End If
-                            Dim iTagStartU As Integer = Math.Max(0, oTagRunsU.Count - 50)
-                            Dim iValStartU As Integer = Math.Max(0, oValRunsU.Count - 50)
-                            Dim sbBTU As New System.Text.StringBuilder()
-                            For iTR As Integer = iTagStartU To oTagRunsU.Count - 1 : sbBTU.Append("[" & oTagRunsU(iTR) & "] ") : Next
-                            Dim sbBVU As New System.Text.StringBuilder()
-                            For iVR As Integer = iValStartU To oValRunsU.Count - 1 : sbBVU.Append("[" & oValRunsU(iVR) & "] ") : Next
-                            Try : System.IO.File.AppendAllText(sLogPath, "DWGLIST-AUTOCAD-BLINDTAGS-U: " & System.IO.Path.GetFileName(sDLCheck) & " total=" & oTagRunsU.Count.ToString() & " last50: " & sbBTU.ToString() & vbCrLf) : Catch : End Try
-                            Try : System.IO.File.AppendAllText(sLogPath, "DWGLIST-AUTOCAD-BLINDVALS-U: " & System.IO.Path.GetFileName(sDLCheck) & " total=" & oValRunsU.Count.ToString() & " last50: " & sbBVU.ToString() & vbCrLf) : Catch : End Try
-                            ' Targeted partial-match search: search for known partial hits found in prior runs
-                            ' and emit 400-byte forward context so we can read the full value.
-                            Dim oPartials As String() = New String() {"WORKING DR", "A1 PROJ", "HOSE ", "CONCENTRAT", "SLURRY", "GEN ARRANG", "GENERAL ARR", "GENERAL ASS", "DRAWING_D", "DESC"}
-                            For Each sPartial As String In oPartials
-                                Dim bPart As Byte() = System.Text.Encoding.Unicode.GetBytes(sPartial)
-                                For iBs As Integer = 0 To bAll.Length - bPart.Length - 1
-                                    Dim bOkP As Boolean = True
-                                    For jBs As Integer = 0 To bPart.Length - 1
-                                        If bAll(iBs + jBs) <> bPart(jBs) Then bOkP = False : Exit For
-                                    Next jBs
-                                    If bOkP Then
-                                        Dim iEndP As Integer = Math.Min(bAll.Length - 2, iBs + 400)
-                                        Dim sbCtx As New System.Text.StringBuilder()
-                                        Dim iCtx As Integer = iBs
-                                        Do While iCtx + 1 <= iEndP
-                                            Dim bL3 As Byte = bAll(iCtx) : Dim bH3 As Byte = bAll(iCtx + 1)
-                                            If bH3 = 0 AndAlso bL3 >= 32 AndAlso bL3 <= 126 Then
-                                                sbCtx.Append(Chr(bL3))
-                                            Else
-                                                If sbCtx.Length > 0 AndAlso sbCtx(sbCtx.Length - 1) <> "|"c Then sbCtx.Append("|")
-                                            End If
-                                            iCtx += 2
-                                        Loop
-                                        Try : System.IO.File.AppendAllText(sLogPath, "DWGLIST-AUTOCAD-PARTIAL: " & System.IO.Path.GetFileName(sDLCheck) & " match=""" & sPartial & """ at=" & iBs.ToString() & " fwd: " & sbCtx.ToString() & vbCrLf) : Catch : End Try
-                                        Exit For
-                                    End If
-                                Next iBs
-                            Next sPartial
-                        End If
-                        If iFound >= 0 Then
-                            ' Scan 3000 bytes before the tag, trying both even and odd alignments
-                            Dim oRunsU As New System.Collections.Generic.List(Of String)()
-                            For iAlign As Integer = 0 To 1
-                                Dim iLimU As Integer = Math.Max(iAlign, iFound - 3000)
-                                Dim sbU As New System.Text.StringBuilder()
-                                Dim iIdx As Integer = iLimU
-                                Do While iIdx + 1 < iFound
-                                    Dim bLo As Byte = bAll(iIdx)
-                                    Dim bHiByte As Byte = bAll(iIdx + 1)
-                                    If bHiByte = 0 AndAlso bLo >= 32 AndAlso bLo <= 126 Then
-                                        sbU.Append(Chr(bLo))
-                                        iIdx += 2
-                                    Else
-                                        If sbU.Length >= 3 Then oRunsU.Add(sbU.ToString())
-                                        sbU.Clear()
-                                        iIdx += 2
-                                    End If
-                                Loop
-                                If sbU.Length >= 3 Then oRunsU.Add(sbU.ToString())
-                            Next iAlign
-                            ' Log all runs found (diagnostic)
-                            Dim sRunLog As String = ""
-                            For Each sR As String In oRunsU
-                                sRunLog = sRunLog & "[" & sR & "] "
+                    ' ── v2.2.29  METHOD 1: Inventor API — Sheets → AutoCADBlocks → GetPromptTextValues ──
+                    ' Proven working in prior Traverse rule. Open the DWG as a DrawingDocument,
+                    ' walk every sheet's AutoCADBlocks, ask each block for its tag/value arrays.
+                    Dim oAcadDwg As DrawingDocument = Nothing
+                    Dim bAcadOpened As Boolean = False
+                    Dim sbApiTags As New System.Text.StringBuilder()
+                    Try
+                        oAcadDwg = TryCast(ThisApplication.Documents.Open(sDLCheck, False), DrawingDocument)
+                        bAcadOpened = True
+                        If oAcadDwg IsNot Nothing Then
+                            For Each oSheet As Sheet In oAcadDwg.Sheets
+                                Try
+                                    For Each oBlk As AutoCADBlock In oSheet.AutoCADBlocks
+                                        Dim oTags() As String = Nothing
+                                        Dim oVals() As String = Nothing
+                                        Try : oBlk.GetPromptTextValues(oTags, oVals) : Catch : Continue For : End Try
+                                        If oTags IsNot Nothing AndAlso oVals IsNot Nothing Then
+                                            For iT As Integer = 0 To oTags.Length - 1
+                                                Dim sTagV As String = If(oTags(iT), "")
+                                                Dim sValV As String = If(iT < oVals.Length, If(oVals(iT), ""), "")
+                                                sbApiTags.Append(sTagV & "='" & sValV & "'; ")
+                                                If String.Compare(sTagV, "DRAWING_DESCRIPTION_2", True) = 0 _
+                                                   OrElse (sAcadDesc = "" AndAlso (sTagV.ToUpper().Contains("DESCRIPTION") OrElse sTagV.ToUpper().Contains("DRAWING"))) Then
+                                                    sAcadDesc = Trim(sValV)
+                                                End If
+                                            Next
+                                        End If
+                                        If sAcadDesc <> "" Then Exit For
+                                    Next
+                                Catch : End Try
+                                If sAcadDesc <> "" Then Exit For
                             Next
-                            Try : System.IO.File.AppendAllText(sLogPath, "DWGLIST-AUTOCAD-RUNS-U: " & System.IO.Path.GetFileName(sDLCheck) & " " & sRunLog & vbCrLf) : Catch : End Try
-                            ' Work backward to find last non-tag-like run with mixed/lower chars
-                            For iRun As Integer = oRunsU.Count - 1 To 0 Step -1
-                                Dim sCand As String = Trim(oRunsU(iRun))
-                                If sCand.Length >= 3 AndAlso Not fnIsTag(sCand) Then
-                                    sAcadDesc = sCand
-                                    Exit For
-                                End If
-                            Next iRun
-                            ' Fallback: last run of any kind if still empty
-                            If sAcadDesc = "" AndAlso oRunsU.Count > 0 Then
-                                sAcadDesc = Trim(oRunsU(oRunsU.Count - 1))
-                            End If
                         End If
+                    Catch exApi As Exception
+                        Try : System.IO.File.AppendAllText(sLogPath, "DWGLIST-AUTOCAD-API-FAIL: " & System.IO.Path.GetFileName(sDLCheck) & " " & exApi.Message & vbCrLf) : Catch : End Try
+                    Finally
+                        If bAcadOpened AndAlso oAcadDwg IsNot Nothing Then
+                            Try : oAcadDwg.Close(False) : Catch : End Try
+                        End If
+                    End Try
+                    If sbApiTags.Length > 0 Then
+                        Try : System.IO.File.AppendAllText(sLogPath, "DWGLIST-AUTOCAD-API-TAGS: " & System.IO.Path.GetFileName(sDLCheck) & " : " & sbApiTags.ToString() & vbCrLf) : Catch : End Try
                     Else
-                        ' ASCII (R2000-R2004): search for tag as ASCII bytes.
-                        Dim bATag As Byte() = System.Text.Encoding.ASCII.GetBytes("DRAWING_DESCRIPTION_2")
-                        For iBs As Integer = 0 To bAll.Length - bATag.Length - 1
-                            Dim bOk As Boolean = True
-                            For jBs As Integer = 0 To bATag.Length - 1
-                                If bAll(iBs + jBs) <> bATag(jBs) Then bOk = False : Exit For
-                            Next jBs
-                            If bOk Then iFound = iBs : Exit For
-                        Next iBs
-                        Try : System.IO.File.AppendAllText(sLogPath, "DWGLIST-AUTOCAD-TAG: " & System.IO.Path.GetFileName(sDLCheck) & " iFound=" & iFound.ToString() & vbCrLf) : Catch : End Try
-                        ' v2.2.28: BLIND SCAN for ASCII DWGs — collect ALL runs, log last 50 of each type
-                        If iFound < 0 Then
-                            Dim oTagRunsA As New System.Collections.Generic.List(Of String)()
-                            Dim oValRunsA As New System.Collections.Generic.List(Of String)()
-                            Dim sbBRA As New System.Text.StringBuilder()
-                            For iBB3 As Integer = 0 To bAll.Length - 1
-                                Dim bB3 As Byte = bAll(iBB3)
-                                If bB3 >= 32 AndAlso bB3 <= 126 Then
-                                    sbBRA.Append(Chr(bB3))
-                                Else
-                                    If sbBRA.Length >= 4 Then
-                                        Dim sBRunA As String = sbBRA.ToString()
-                                        If fnIsTag(sBRunA) Then oTagRunsA.Add(sBRunA) Else oValRunsA.Add(sBRunA)
+                        Try : System.IO.File.AppendAllText(sLogPath, "DWGLIST-AUTOCAD-API-TAGS: " & System.IO.Path.GetFileName(sDLCheck) & " : (no AutoCADBlocks / no tags)" & vbCrLf) : Catch : End Try
+                    End If
+
+                    ' ── v2.2.29  METHOD 2: ContainingDWGDocument COM (AcDbBlockReference/GetAttributes) ──
+                    If sAcadDesc = "" Then
+                        Dim oAcadDwg2 As DrawingDocument = Nothing
+                        Dim bAcadOpened2 As Boolean = False
+                        Dim sbDbTags As New System.Text.StringBuilder()
+                        Try
+                            oAcadDwg2 = TryCast(ThisApplication.Documents.Open(sDLCheck, False), DrawingDocument)
+                            bAcadOpened2 = True
+                            If oAcadDwg2 IsNot Nothing Then
+                                Dim oAcadDb As Object = oAcadDwg2.ContainingDWGDocument
+                                If oAcadDb IsNot Nothing Then
+                                    Dim oLayouts As Object = Nothing
+                                    Try : oLayouts = oAcadDb.Layouts : Catch : End Try
+                                    If oLayouts IsNot Nothing Then
+                                        For Each oLayout As Object In oLayouts
+                                            Dim oBlkRec As Object = Nothing
+                                            Try : oBlkRec = oLayout.Block : Catch : Continue For : End Try
+                                            If oBlkRec Is Nothing Then Continue For
+                                            For Each oEnt As Object In oBlkRec
+                                                Dim sObjName As String = ""
+                                                Try : sObjName = CStr(oEnt.ObjectName) : Catch : End Try
+                                                If sObjName = "AcDbBlockReference" Then
+                                                    Dim oAtts As Object = Nothing
+                                                    Try : oAtts = oEnt.GetAttributes() : Catch : End Try
+                                                    If oAtts IsNot Nothing Then
+                                                        For Each oAtt As Object In oAtts
+                                                            Dim sTagC As String = ""
+                                                            Dim sValC As String = ""
+                                                            Try : sTagC = CStr(oAtt.TagString) : Catch : End Try
+                                                            Try : sValC = CStr(oAtt.TextString) : Catch : End Try
+                                                            sbDbTags.Append(sTagC & "='" & sValC & "'; ")
+                                                            If String.Compare(sTagC, "DRAWING_DESCRIPTION_2", True) = 0 _
+                                                               OrElse (sAcadDesc = "" AndAlso (sTagC.ToUpper().Contains("DESCRIPTION") OrElse sTagC.ToUpper().Contains("DRAWING"))) Then
+                                                                sAcadDesc = Trim(sValC)
+                                                            End If
+                                                        Next
+                                                    End If
+                                                End If
+                                            Next
+                                            If sAcadDesc <> "" Then Exit For
+                                        Next
                                     End If
-                                    sbBRA.Clear()
                                 End If
-                            Next iBB3
-                            If sbBRA.Length >= 4 Then
-                                Dim sBRunA2 As String = sbBRA.ToString()
-                                If fnIsTag(sBRunA2) Then oTagRunsA.Add(sBRunA2) Else oValRunsA.Add(sBRunA2)
                             End If
-                            Dim iTagStartA As Integer = Math.Max(0, oTagRunsA.Count - 50)
-                            Dim iValStartA As Integer = Math.Max(0, oValRunsA.Count - 50)
-                            Dim sbBTA As New System.Text.StringBuilder()
-                            For iTR As Integer = iTagStartA To oTagRunsA.Count - 1 : sbBTA.Append("[" & oTagRunsA(iTR) & "] ") : Next
-                            Dim sbBVA As New System.Text.StringBuilder()
-                            For iVR As Integer = iValStartA To oValRunsA.Count - 1 : sbBVA.Append("[" & oValRunsA(iVR) & "] ") : Next
-                            Try : System.IO.File.AppendAllText(sLogPath, "DWGLIST-AUTOCAD-BLINDTAGS-A: " & System.IO.Path.GetFileName(sDLCheck) & " total=" & oTagRunsA.Count.ToString() & " last50: " & sbBTA.ToString() & vbCrLf) : Catch : End Try
-                            Try : System.IO.File.AppendAllText(sLogPath, "DWGLIST-AUTOCAD-BLINDVALS-A: " & System.IO.Path.GetFileName(sDLCheck) & " total=" & oValRunsA.Count.ToString() & " last50: " & sbBVA.ToString() & vbCrLf) : Catch : End Try
-                        End If
-                        If iFound >= 0 Then
-                            ' Scan 2000 bytes before tag
-                            Dim iLimA As Integer = Math.Max(0, iFound - 2000)
-                            Dim oRunsA As New System.Collections.Generic.List(Of String)()
-                            Dim sbA As New System.Text.StringBuilder()
-                            For iBs As Integer = iLimA To iFound - 1
-                                Dim bByte As Byte = bAll(iBs)
-                                If bByte >= 32 AndAlso bByte <= 126 Then
-                                    sbA.Append(Chr(bByte))
-                                Else
-                                    If sbA.Length >= 3 Then oRunsA.Add(sbA.ToString())
-                                    sbA.Clear()
-                                End If
-                            Next iBs
-                            If sbA.Length >= 3 Then oRunsA.Add(sbA.ToString())
-                            ' Log all runs found
-                            Dim sRunLogA As String = ""
-                            For Each sR As String In oRunsA
-                                sRunLogA = sRunLogA & "[" & sR & "] "
-                            Next
-                            Try : System.IO.File.AppendAllText(sLogPath, "DWGLIST-AUTOCAD-RUNS-A: " & System.IO.Path.GetFileName(sDLCheck) & " " & sRunLogA & vbCrLf) : Catch : End Try
-                            ' Work backward: find last run that isn't a DWG internal name
-                            For iRun As Integer = oRunsA.Count - 1 To 0 Step -1
-                                Dim sCandA As String = Trim(oRunsA(iRun))
-                                If sCandA.Length >= 3 AndAlso Not fnIsTag(sCandA) Then
-                                    sAcadDesc = sCandA
-                                    Exit For
-                                End If
-                            Next iRun
-                            ' Fallback: last run
-                            If sAcadDesc = "" AndAlso oRunsA.Count > 0 Then
-                                sAcadDesc = Trim(oRunsA(oRunsA.Count - 1))
+                        Catch exDb As Exception
+                            Try : System.IO.File.AppendAllText(sLogPath, "DWGLIST-AUTOCAD-COM-FAIL: " & System.IO.Path.GetFileName(sDLCheck) & " " & exDb.Message & vbCrLf) : Catch : End Try
+                        Finally
+                            If bAcadOpened2 AndAlso oAcadDwg2 IsNot Nothing Then
+                                Try : oAcadDwg2.Close(False) : Catch : End Try
                             End If
+                        End Try
+                        If sbDbTags.Length > 0 Then
+                            Try : System.IO.File.AppendAllText(sLogPath, "DWGLIST-AUTOCAD-COM-TAGS: " & System.IO.Path.GetFileName(sDLCheck) & " : " & sbDbTags.ToString() & vbCrLf) : Catch : End Try
+                        Else
+                            Try : System.IO.File.AppendAllText(sLogPath, "DWGLIST-AUTOCAD-COM-TAGS: " & System.IO.Path.GetFileName(sDLCheck) & " : (no attributes via ContainingDWGDocument)" & vbCrLf) : Catch : End Try
                         End If
                     End If
                 Catch
