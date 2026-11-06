@@ -1,7 +1,7 @@
 ﻿'' =====================================================================
 '' SUPER_CLEAN_SWEEPER.iLogicVb
 '' Copy Design with full provenance architecture
-'' Version: 2.2.25 — 2026-11-06
+'' Version: 2.2.26 — 2026-11-06
 ''
 '' PURPOSE
 ''   Replicates Vault Copy Design outside of Vault.
@@ -441,7 +441,7 @@ Sub Main()
         System.Environment.SpecialFolder.Desktop)
     Dim sLogPath As String = System.IO.Path.Combine(sDesktop, _
         "SUPER_CLEAN_SWEEPER_" & Now.ToString("yyyyMMdd_HHmmss") & ".log")
-    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.24  —  " & Now.ToString() & vbCrLf & _
+    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.26  —  " & Now.ToString() & vbCrLf & _
                          "GA: " & sTopFull & vbCrLf
     Try : System.IO.File.WriteAllText(sLogPath, sLog) : Catch : End Try
     If sEntryLog <> "" Then
@@ -468,7 +468,7 @@ Sub Main()
     Dim sTargetFolder As String = oFbd.SelectedPath
     ThisApplication.SilentOperation = True
 
-    ' ── 3b. Run mode: Full sweep or Relink only (v2.2.24) ────────────────────
+    ' ── 3b. Run mode: Full sweep or Relink only (v2.2.26) ────────────────────
     Dim bRelinkOnly As Boolean = False
     ThisApplication.SilentOperation = bOrigSilent
     Dim oModeForm As New Form()
@@ -743,6 +743,102 @@ Sub Main()
         If Not bDLEntryFound Then oDwgFiles.Add(sDwgEntryPath)
         oDwgFiles.Sort(StringComparer.OrdinalIgnoreCase)
 
+        ' v2.2.26: Detect native AutoCAD DWG files by file header (first 2 bytes = "AC").
+        ' Inventor DWG files do NOT start with "AC".  Opening a native AutoCAD DWG
+        ' would hand it off to AutoCAD and stall the rule, so we detect and skip them.
+        ' Also reads the DRAWING_DESCRIPTION_2 block attribute from the DWG binary:
+        '   - R2000–R2004 (AC1015–AC1018): strings stored as ASCII bytes.
+        '   - R2007+ (AC1021+): strings stored as UTF-16LE.
+        '   In both formats the VALUE string precedes the TAG string in the ATTRIB
+        '   entity; we find the TAG bytes then read the last printable run before it.
+        Dim oAcadDwgs As New System.Collections.Generic.HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+        Dim oAcadDwgDescs As New System.Collections.Generic.Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase)
+        For Each sDLCheck As String In oDwgFiles
+            If Not String.Equals(System.IO.Path.GetExtension(sDLCheck), ".dwg", StringComparison.OrdinalIgnoreCase) Then Continue For
+            Try
+                Dim bHdr(5) As Byte
+                Using fsHdr As New System.IO.FileStream(sDLCheck, System.IO.FileMode.Open, System.IO.FileAccess.Read)
+                    fsHdr.Read(bHdr, 0, 6)
+                End Using
+                If bHdr(0) = 65 AndAlso bHdr(1) = 67 Then   ' "AC" = AutoCAD DWG file signature
+                    oAcadDwgs.Add(sDLCheck)
+                    ' Read DRAWING_DESCRIPTION_2 from the DWG binary.
+                    Dim sAcadDesc As String = ""
+                    Try
+                        Dim sVer As String = System.Text.Encoding.ASCII.GetString(bHdr, 0, 6) ' e.g. AC1015, AC1021
+                        ' R2007 and later (AC1021+) store strings as UTF-16LE; older formats use ASCII.
+                        Dim bUni As Boolean = (String.Compare(sVer, "AC1021", StringComparison.Ordinal) >= 0)
+                        Dim bAll As Byte() = System.IO.File.ReadAllBytes(sDLCheck)
+                        Dim iFound As Integer = -1
+                        If bUni Then
+                            ' UTF-16LE: search for the tag as Unicode bytes
+                            Dim bUTag As Byte() = System.Text.Encoding.Unicode.GetBytes("DRAWING_DESCRIPTION_2")
+                            For i As Integer = 0 To bAll.Length - bUTag.Length - 1
+                                Dim bOk As Boolean = True
+                                For j As Integer = 0 To bUTag.Length - 1
+                                    If bAll(i + j) <> bUTag(j) Then bOk = False : Exit For
+                                Next j
+                                If bOk Then iFound = i : Exit For
+                            Next i
+                            If iFound >= 0 Then
+                                ' Collect all UTF-16LE printable runs in the 400-byte window before the tag.
+                                ' The VALUE string is the last run; it immediately precedes the TAG in the entity.
+                                Dim iLim As Integer = Math.Max(0, iFound - 400)
+                                Dim oRuns As New System.Collections.Generic.List(Of String)()
+                                Dim sbU As New System.Text.StringBuilder()
+                                Dim iIdx As Integer = iLim
+                                Do While iIdx + 1 < iFound
+                                    Dim bLo As Byte = bAll(iIdx)
+                                    Dim bHi As Byte = bAll(iIdx + 1)
+                                    If bHi = 0 AndAlso bLo >= 32 AndAlso bLo <= 126 Then
+                                        sbU.Append(Chr(bLo))
+                                        iIdx += 2
+                                    Else
+                                        If sbU.Length >= 3 Then oRuns.Add(sbU.ToString())
+                                        sbU.Clear()
+                                        iIdx += 1
+                                    End If
+                                Loop
+                                If sbU.Length >= 3 Then oRuns.Add(sbU.ToString())
+                                If oRuns.Count > 0 Then sAcadDesc = Trim(oRuns(oRuns.Count - 1))
+                            End If
+                        Else
+                            ' ASCII: search for the tag as ASCII bytes
+                            Dim bATag As Byte() = System.Text.Encoding.ASCII.GetBytes("DRAWING_DESCRIPTION_2")
+                            For i As Integer = 0 To bAll.Length - bATag.Length - 1
+                                Dim bOk As Boolean = True
+                                For j As Integer = 0 To bATag.Length - 1
+                                    If bAll(i + j) <> bATag(j) Then bOk = False : Exit For
+                                Next j
+                                If bOk Then iFound = i : Exit For
+                            Next i
+                            If iFound >= 0 Then
+                                ' Collect ASCII runs in 200-byte window; take the last (= VALUE, closest to TAG).
+                                Dim iLim As Integer = Math.Max(0, iFound - 200)
+                                Dim sLastRun As String = ""
+                                Dim sbA As New System.Text.StringBuilder()
+                                For i As Integer = iLim To iFound - 1
+                                    Dim b As Byte = bAll(i)
+                                    If b >= 32 AndAlso b <= 126 Then
+                                        sbA.Append(Chr(b))
+                                    Else
+                                        If sbA.Length >= 3 Then sLastRun = sbA.ToString()
+                                        sbA.Clear()
+                                    End If
+                                Next i
+                                If sbA.Length >= 3 Then sLastRun = sbA.ToString()
+                                sAcadDesc = Trim(sLastRun)
+                            End If
+                        End If
+                    Catch
+                    End Try
+                    oAcadDwgDescs(sDLCheck) = sAcadDesc
+                    Try : System.IO.File.AppendAllText(sLogPath, "DWGLIST-AUTOCAD: " & System.IO.Path.GetFileName(sDLCheck) & If(sAcadDesc <> "", " [desc=" & sAcadDesc & "]", "") & vbCrLf) : Catch : End Try
+                End If
+            Catch
+            End Try
+        Next
+
         ' Scan each drawing for its referenced models
         Dim oDLDoc As Document
         Dim bDLOpenedHere As Boolean
@@ -755,8 +851,14 @@ Sub Main()
         Dim sDLExt As String
         Dim oDLRefs As System.Collections.Generic.List(Of String)
         Dim oDLRefSeen As System.Collections.Generic.HashSet(Of String)
+        ' Disable iLogic event-driven rules during document opens in the scan loop.
+        ' Event rules (e.g. "Working Drawing Stamp") fire DURING Documents.Open and
+        ' produce a blocking modal that sits behind other windows.
+        Try : ThisApplication.iLogicVb.EventRuleManager.DisableEventRules = True : Catch : End Try
         ThisApplication.SilentOperation = True
         For Each sDLFile In oDwgFiles
+            ' Skip native AutoCAD DWG files — cannot open via Inventor API.
+            If oAcadDwgs.Contains(sDLFile) Then Continue For
             oDLDoc = Nothing
             bDLOpenedHere = False
             Try
@@ -845,6 +947,8 @@ Sub Main()
                 Try : System.IO.File.AppendAllText(sLogPath, "DWGLIST: " & System.IO.Path.GetFileName(sDLFile) & " (" & oDLRefs.Count & " model(s))" & vbCrLf) : Catch : End Try
             End If
         Next
+        ' Restore event rules after scan loop — the form dialog shown next must not suppress them.
+        Try : ThisApplication.iLogicVb.EventRuleManager.DisableEventRules = False : Catch : End Try
 
         ' v2.2.23: same Traverse layout, but the new-name master is keyed by
         ' old-model basename (case-insensitive), not full path.  Always shown
@@ -1024,6 +1128,34 @@ Sub Main()
                 Next
                 iDLY = iDLY + iDMPanelH + 8
             Next
+
+            ' v2.2.26: Show native AutoCAD DWGs with informational label.
+            ' These files are detected but cannot be opened or relinked via Inventor.
+            If oAcadDwgs.Count > 0 Then
+                Dim oAcadHdrLbl As New System.Windows.Forms.Label()
+                oAcadHdrLbl.Text = "— AutoCAD drawings detected (not processable via Inventor API) —"
+                oAcadHdrLbl.Left = 4 : oAcadHdrLbl.Top = iDLY + 4 : oAcadHdrLbl.Width = 630 : oAcadHdrLbl.Height = 18
+                oDLPanel.Controls.Add(oAcadHdrLbl)
+                iDLY = iDLY + 26
+                Dim oAcadSorted As New System.Collections.Generic.List(Of String)(oAcadDwgs)
+                oAcadSorted.Sort(StringComparer.OrdinalIgnoreCase)
+                For Each sAcadEntry As String In oAcadSorted
+                    ' Row 1: filename
+                    Dim oAcadRowLbl As New System.Windows.Forms.Label()
+                    oAcadRowLbl.Text = "   " & System.IO.Path.GetFileName(sAcadEntry)
+                    oAcadRowLbl.Left = 4 : oAcadRowLbl.Top = iDLY : oAcadRowLbl.Width = 630 : oAcadRowLbl.Height = 18
+                    oDLPanel.Controls.Add(oAcadRowLbl)
+                    iDLY = iDLY + 20
+                    ' Row 2: DRAWING_DESCRIPTION_2 value (if found) + "not included" note
+                    Dim sAcadDescRow As String = ""
+                    If oAcadDwgDescs.ContainsKey(sAcadEntry) Then sAcadDescRow = Trim(oAcadDwgDescs(sAcadEntry))
+                    Dim oAcadDescLbl As New System.Windows.Forms.Label()
+                    oAcadDescLbl.Text = "        " & If(sAcadDescRow <> "", sAcadDescRow & " — not included in This Clean Sweep", "(AutoCAD — will not be opened or relinked)")
+                    oAcadDescLbl.Left = 4 : oAcadDescLbl.Top = iDLY : oAcadDescLbl.Width = 630 : oAcadDescLbl.Height = 18
+                    oDLPanel.Controls.Add(oAcadDescLbl)
+                    iDLY = iDLY + 20
+                Next
+            End If
 
             Dim oDMIncludeAll As New System.Windows.Forms.CheckBox()
             oDMIncludeAll.Text = "Include ALL drawings"
@@ -2163,7 +2295,7 @@ Sub Main()
     End If
 
 
-    ' ── Type B orphan copy (v2.2.24) ─────────────────────────────────────────
+    ' ── Type B orphan copy (v2.2.26) ─────────────────────────────────────────
     ' Models referenced by a drawing but not in the GA map are copied
     ' independently with the new prefix and added to oActualMap.
     Try : System.IO.File.AppendAllText(sLogPath, vbCrLf & "=== TYPE B ORPHANS ===" & vbCrLf) : Catch : End Try
@@ -2257,11 +2389,11 @@ Sub Main()
     ' are opened is unchanged.
     If bFromDwg AndAlso sDwgEntryPath <> "" Then
         Try : System.IO.File.AppendAllText(sLogPath, vbCrLf & "=== DRAWING RELINK ===" & vbCrLf) : Catch : End Try
-        ' Suppress iLogic event-driven rule popups that fire when drawings are opened.
-        ' SilentOperation was restored by F1 Finally after Phase 3 — re-enable it here.
+        ' Suppress iLogic event-driven rule popups and Inventor dialogs during drawing relink.
+        ' SilentOperation was restored by F1 Finally after Phase 3 — re-enable both here.
         Dim bRelinkSilent As Boolean = ThisApplication.SilentOperation
         ThisApplication.SilentOperation = True
-        Try : iLogicVb.EventRuleManager.DisableEventRules = True : Catch : End Try
+        Try : ThisApplication.iLogicVb.EventRuleManager.DisableEventRules = True : Catch : End Try
         Dim oRelinkDwgs As New System.Collections.Generic.List(Of String)(oDwgList)
         Dim bRelinkHasEntry As Boolean = False
         Dim sRelinkDwg As String
@@ -2300,7 +2432,6 @@ Sub Main()
                 If oDwgR Is Nothing Then
                     Try
                         oDwgR = ThisApplication.Documents.Open(sRelinkDwg, False)
-            Try : oDwgR.iLogicVb.EventRuleManager.DisableEventRules = True : Catch : End Try
                         bDwgOpenedHere = True
                         If oDwgR IsNot Nothing Then oProvRebuildOpened.Add(oDwgR)  ' FIX E: F1 Finally closes on failure
                     Catch exDwgOpen As Exception
@@ -2361,14 +2492,14 @@ Sub Main()
             End Try
         Next
         Try : System.IO.File.AppendAllText(sLogPath, "Drawing relink complete: " & oRelinkDwgs.Count & " drawing(s), " & iDwgTotal & " ref(s) replaced." & vbCrLf) : Catch : End Try
-        ' Restore SilentOperation and re-enable iLogic event rules
-        Try : iLogicVb.EventRuleManager.DisableEventRules = False : Catch : End Try
+        ' Restore SilentOperation and re-enable iLogic event rules.
+        Try : ThisApplication.iLogicVb.EventRuleManager.DisableEventRules = False : Catch : End Try
         ThisApplication.SilentOperation = bRelinkSilent
     End If
 
     ' ── 8. Final summary ──────────────────────────────────────────────────────
     Dim sSummary As String = _
-        "SUPER CLEAN SWEEPER v2.2.24 — COMPLETE" & vbCrLf & vbCrLf & _
+        "SUPER CLEAN SWEEPER v2.2.26 — COMPLETE" & vbCrLf & vbCrLf & _
         "Phase 1  Rename map built:   " & oRenameMap.Count & " file(s)" & vbCrLf & _
         "Phase 2  SaveAs + Provenance:" & vbCrLf & _
         "         Saved    : " & iSaved & vbCrLf & _
