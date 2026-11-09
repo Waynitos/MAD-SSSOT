@@ -1,7 +1,23 @@
-'' =====================================================================
+﻿'' =====================================================================
 '' SUPER_CLEAN_SWEEPER.iLogicVb
 '' Copy Design with full provenance architecture
-'' Version: 2.2.29 — 2026-11-06
+'' Version: 2.2.32 — 2026-11-09
+''
+'' V2.2.32
+''   - Recover SaveAs silent failures using safe non-overwriting File.Copy.
+''   - Phase 4 occurrence replacement: retry via file descriptor, verify result.
+''   - Log detailed failed replacement paths and HRESULTs.
+''   - Correct runtime log version labels.
+''
+'' V2.2.31
+''   - Main SaveAs fallback now handles all exceptions (including E_FAIL),
+''     verifies destination and never overwrites an existing file.
+''   - File.Copy assemblies defer opening/provenance until reference repair.
+''   - Orphan subtree copy has a matching fallback and writes provenance
+''     on the destination, not the source.
+''   - Orphan single-part copy also writes provenance on destination.
+''   - Distinct stage logging and path-depth ordering for orphan subtree.
+''   - Copy success is not treated as proof that references are resolved.
 ''
 '' PURPOSE
 ''   Replicates Vault Copy Design outside of Vault.
@@ -441,7 +457,7 @@ Sub Main()
         System.Environment.SpecialFolder.Desktop)
     Dim sLogPath As String = System.IO.Path.Combine(sDesktop, _
         "SUPER_CLEAN_SWEEPER_" & Now.ToString("yyyyMMdd_HHmmss") & ".log")
-    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.29  —  " & Now.ToString() & vbCrLf & _
+    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.32  —  " & Now.ToString() & vbCrLf & _
                          "GA: " & sTopFull & vbCrLf
     Try : System.IO.File.WriteAllText(sLogPath, sLog) : Catch : End Try
     If sEntryLog <> "" Then
@@ -1675,14 +1691,6 @@ Sub Main()
                 Continue For
             End If
 
-            ' ── Clear read-only on source ─────────────────────────────────────
-            Try
-                Dim oA As System.IO.FileAttributes = System.IO.File.GetAttributes(sOldFull2)
-                If (oA And System.IO.FileAttributes.ReadOnly) = System.IO.FileAttributes.ReadOnly Then
-                    System.IO.File.SetAttributes(sOldFull2, oA And Not System.IO.FileAttributes.ReadOnly)
-                End If
-            Catch : End Try
-
             ' ── Ensure destination directory exists ──────────────────────────
             Dim sDestDir2 As String = System.IO.Path.GetDirectoryName(sNewFull2)
             If Not System.IO.Directory.Exists(sDestDir2) Then
@@ -1781,34 +1789,61 @@ Sub Main()
                         " — SaveAs returned no exception but file not found on disk" & vbCrLf) : Catch : End Try
                 End If
             Catch exSA2 As Exception
-                ' Check for E_INVALIDARG (session-lock / Vault read-only)
-                Dim bIsLock2 As Boolean = False
-                Try
-                    If exSA2.HResult = &H80070057 OrElse _
-                       exSA2.Message.IndexOf("incorrect", StringComparison.OrdinalIgnoreCase) >= 0 Then
-                        bIsLock2 = True
-                    End If
-                Catch : End Try
-                If bIsLock2 Then
-                    ' ── Fallback: raw OS file copy ──────────────────────────
+                Try : System.IO.File.AppendAllText(sLogPath, _
+                    "SAVEAS-EXCEPTION: " & sOldName2 & _
+                    " HRESULT=0x" & exSA2.HResult.ToString("X8") & _
+                    " — " & exSA2.Message & vbCrLf) : Catch : End Try
+
+                ' Inventor can create the destination and still throw during SaveAs.
+                ' Never overwrite or silently claim an unrelated existing file.
+                If System.IO.File.Exists(sNewFull2) Then
+                    Try : System.IO.File.AppendAllText(sLogPath, _
+                        "SAVEAS-PARTIAL: " & sNewName2 & _
+                        " exists after exception; verify before accepting" & vbCrLf) : Catch : End Try
+                    bSaveAsOk2 = False
+                Else
                     Try
-                        System.IO.File.Copy(sOldFull2, sNewFull2, True)
+                        System.IO.File.Copy(sOldFull2, sNewFull2, False)
                         bSaveAsOk2 = System.IO.File.Exists(sNewFull2)
-                        bUsedFileCopy2 = True
+                        bUsedFileCopy2 = bSaveAsOk2
+                        If bSaveAsOk2 Then
+                            Try : System.IO.File.AppendAllText(sLogPath, _
+                                "SAVEAS-FALLBACK-COPY: " & sOldName2 & _
+                                " -> " & sNewName2 & _
+                                " [raw copy; references require validation]" & vbCrLf) : Catch : End Try
+                        End If
                     Catch exFC2 As Exception
                         Try : System.IO.File.AppendAllText(sLogPath, _
-                            "SAVEAS-FAIL: " & sOldName2 & " — " & exSA2.Message & _
-                            " [FileCopy also failed: " & exFC2.Message & "]" & vbCrLf) : Catch : End Try
+                            "FILECOPY-FAIL: " & sOldName2 & _
+                            " HRESULT=0x" & exFC2.HResult.ToString("X8") & _
+                            " — " & exFC2.Message & vbCrLf) : Catch : End Try
                     End Try
-                    If Not bSaveAsOk2 Then
-                        Try : System.IO.File.AppendAllText(sLogPath, _
-                            "SAVEAS-FAIL: " & sOldName2 & " — " & exSA2.Message & vbCrLf) : Catch : End Try
-                    End If
-                Else
+                End If
+                If Not bSaveAsOk2 Then
                     Try : System.IO.File.AppendAllText(sLogPath, _
                         "SAVEAS-FAIL: " & sOldName2 & " — " & exSA2.Message & vbCrLf) : Catch : End Try
                 End If
             End Try
+
+            ' A successful COM return is not proof that SaveAs created a file.
+            ' Use the same non-overwriting fallback for silent failures.
+            If Not bSaveAsOk2 AndAlso Not System.IO.File.Exists(sNewFull2) Then
+                Try
+                    System.IO.File.Copy(sOldFull2, sNewFull2, False)
+                    bSaveAsOk2 = System.IO.File.Exists(sNewFull2)
+                    bUsedFileCopy2 = bSaveAsOk2
+                    If bSaveAsOk2 Then
+                        Try : System.IO.File.AppendAllText(sLogPath, _
+                            "SAVEAS-SILENT-FALLBACK-COPY: " & sOldName2 & " -> " & sNewName2 & _
+                            " [raw copy; references require validation]" & vbCrLf) : Catch : End Try
+                    End If
+                Catch exSilentFC2 As Exception
+                    Try : System.IO.File.AppendAllText(sLogPath, _
+                        "SAVEAS-SILENT-FALLBACK-FAIL: " & sOldName2 & _
+                        " HRESULT=0x" & exSilentFC2.HResult.ToString("X8") & _
+                        " — " & exSilentFC2.Message & vbCrLf) : Catch : End Try
+                End Try
+            End If
 
             If bSaveAsOk2 Then
                 ' Clear RO on new file
@@ -2033,7 +2068,7 @@ Sub Main()
                         Dim sOldRef3 As String = ""
                         Try : sOldRef3 = oFD3.FullFileName : Catch : Continue For : End Try
                         If sOldRef3 = "" Then Continue For
-                        If sOldRef3.ToUpper().StartsWith(sTargetFolder.ToUpper()) Then Continue For
+                        If IsSameOrUnderDirectory(sOldRef3, sTargetFolder) Then Continue For
 
                         Dim sNewRef3 As String = ""
                         If oActualMap.ContainsKey(sOldRef3) Then
@@ -2097,7 +2132,7 @@ Sub Main()
                                 Try : sOccOld3 = oOcc3.ReferencedFileDescriptor.FullFileName : Catch : Continue For : End Try
                             End Try
                             If sOccOld3 = "" Then Continue For
-                            If sOccOld3.ToUpper().StartsWith(sTargetFolder.ToUpper()) Then Continue For
+                            If IsSameOrUnderDirectory(sOccOld3, sTargetFolder) Then Continue For
 
                             Dim sOccNew3 As String = ""
                             If oActualMap.ContainsKey(sOccOld3) Then
@@ -2147,8 +2182,38 @@ Sub Main()
                 "P3-ERROR: " & sNewName3 & " — " & exP3.Message & vbCrLf) : Catch : End Try
         End Try
 
+        ' v2.2.31: deferred provenance for raw-copied assemblies.
+        ' Write only to a new document from this run, never to its source.
+        Dim bProvChanged3 As Boolean = False
+        If sExtU3 = ".IAM" Then
+            Try
+                Dim sProvOld3 As String = ""
+                For Each oProvPair3 As System.Collections.Generic.KeyValuePair(Of String, String) In oActualMap
+                    If String.Equals(oProvPair3.Value, sNewPath3, StringComparison.OrdinalIgnoreCase) Then
+                        sProvOld3 = oProvPair3.Key
+                        Exit For
+                    End If
+                Next
+                If sProvOld3 <> "" Then
+                    Dim sExistingProv3 As String = ""
+                    Try : sExistingProv3 = CStr(oDoc3.PropertySets.Item("Inventor User Defined Properties").Item("CS_SourcePath").Value) : Catch : End Try
+                    If sExistingProv3 = "" Then
+                        SetSweeperCopyProperty(oDoc3, "CS_SourcePath", sProvOld3)
+                        SetSweeperCopyProperty(oDoc3, "CS_CopyProject", sNewPrefix)
+                        SetSweeperCopyProperty(oDoc3, "CS_CopyDate", Now.ToString("yyyy-MM-dd"))
+                        bProvChanged3 = True
+                        Try : System.IO.File.AppendAllText(sLogPath, _
+                            "P3-DEFERRED-PROV: " & sNewName3 & vbCrLf) : Catch : End Try
+                    End If
+                End If
+            Catch exProv3 As Exception
+                Try : System.IO.File.AppendAllText(sLogPath, _
+                    "P3-DEFERRED-PROV-FAIL: " & sNewName3 & " — " & exProv3.Message & vbCrLf) : Catch : End Try
+            End Try
+        End If
+
         ' Save if changed, then close if we opened it
-        If bChanged3 Then
+        If bChanged3 OrElse bProvChanged3 Then
             ' Clear RO before save
             Try
                 Dim oFA3 As System.IO.FileAttributes = System.IO.File.GetAttributes(sNewPath3)
@@ -2207,7 +2272,7 @@ Sub Main()
         Dim sNewGAPath As String = ""
         If oActualMap.ContainsKey(sTopFull) Then sNewGAPath = oActualMap(sTopFull)
         ' v2.2.5: on a rerun the active GA may already be the new GA in the target folder.
-        If sNewGAPath = "" AndAlso sTopFull.ToUpper().StartsWith(sTargetFolder.ToUpper()) Then sNewGAPath = sTopFull
+        If sNewGAPath = "" AndAlso IsSameOrUnderDirectory(sTopFull, sTargetFolder) Then sNewGAPath = sTopFull
         If sNewGAPath <> "" AndAlso System.IO.File.Exists(sNewGAPath) Then
             Dim oNewGA As AssemblyDocument = Nothing
             Dim bGAOpenedHere As Boolean = False
@@ -2266,7 +2331,7 @@ Sub Main()
         Dim sBRPath As String = sKeepOpenGA
         If sBRPath = "" Then
             If oActualMap.ContainsKey(sTopFull) Then sBRPath = oActualMap(sTopFull)
-            If sBRPath = "" AndAlso sTopFull.ToUpper().StartsWith(sTargetFolder.ToUpper()) Then sBRPath = sTopFull
+            If sBRPath = "" AndAlso IsSameOrUnderDirectory(sTopFull, sTargetFolder) Then sBRPath = sTopFull
         End If
         If sBRPath <> "" AndAlso System.IO.File.Exists(sBRPath) Then
             Dim oBRGA As AssemblyDocument = Nothing
@@ -2453,10 +2518,19 @@ Sub Main()
                 Else
                     ' Single-file part — simple SaveAs + provenance
                     oOrphDoc.SaveAs(sOrphNew, True)
-                    Try : oOrphDoc.PropertySets.Item("Inventor User Defined Properties").Add(sOrphModel, "CS_SourcePath") : Catch : End Try
-                    Try : oOrphDoc.PropertySets.Item("Inventor User Defined Properties").Add(sNewPrefix, "CS_CopyProject") : Catch : End Try
-                    Try : oOrphDoc.PropertySets.Item("Inventor User Defined Properties").Add(Now.ToString("yyyy-MM-dd"), "CS_CopyDate") : Catch : End Try
-                    oOrphDoc.Save2(False)
+                    If Not System.IO.File.Exists(sOrphNew) Then Throw New System.Exception("SaveAs did not create orphan part")
+                    Dim oOrphPartCopy As Document = Nothing
+                    Try
+                        oOrphPartCopy = ThisApplication.Documents.Open(sOrphNew, False)
+                        SetSweeperCopyProperty(oOrphPartCopy, "CS_SourcePath", sOrphModel)
+                        SetSweeperCopyProperty(oOrphPartCopy, "CS_CopyProject", sNewPrefix)
+                        SetSweeperCopyProperty(oOrphPartCopy, "CS_CopyDate", Now.ToString("yyyy-MM-dd"))
+                        oOrphPartCopy.Save2(False)
+                    Finally
+                        If oOrphPartCopy IsNot Nothing Then
+                            Try : oOrphPartCopy.Close(True) : Catch : End Try
+                        End If
+                    End Try
                     oActualMap(sOrphModel) = sOrphNew
                     iOrphCount += 1
                     Try : System.IO.File.AppendAllText(sLogPath, "ORPHAN-COPY: " & System.IO.Path.GetFileName(sOrphModel) & " -> " & System.IO.Path.GetFileName(sOrphNew) & vbCrLf) : Catch : End Try
@@ -2622,7 +2696,7 @@ Sub Main()
 
     ' ── 8. Final summary ──────────────────────────────────────────────────────
     Dim sSummary As String = _
-        "SUPER CLEAN SWEEPER v2.2.27 — COMPLETE" & vbCrLf & vbCrLf & _
+        "SUPER CLEAN SWEEPER v2.2.32 — COMPLETE" & vbCrLf & vbCrLf & _
         "Phase 1  Rename map built:   " & oRenameMap.Count & " file(s)" & vbCrLf & _
         "Phase 2  SaveAs + Provenance:" & vbCrLf & _
         "         Saved    : " & iSaved & vbCrLf & _
@@ -2885,14 +2959,66 @@ End Function
 ' Smart rename: strip any existing PJ-style "PJXXXXX-" prefix from basename
 ' before prepending sNewPrefix.  Non-prefixed files get prefix prepended.
 ' ─────────────────────────────────────────────────────────────────────────────
+Function IsSameOrUnderDirectory(sCandidatePath As String, sDirectoryPath As String) As Boolean
+    If String.IsNullOrWhiteSpace(sCandidatePath) OrElse String.IsNullOrWhiteSpace(sDirectoryPath) Then Return False
+    Try
+        If Not System.IO.Path.IsPathRooted(sCandidatePath) OrElse _
+           Not System.IO.Path.IsPathRooted(sDirectoryPath) Then Return False
+
+        Dim sCandidateFull As String = System.IO.Path.GetFullPath(sCandidatePath)
+        Dim sDirectoryFull As String = System.IO.Path.GetFullPath(sDirectoryPath)
+        Dim sCandidateRoot As String = System.IO.Path.GetPathRoot(sCandidateFull)
+        Dim sDirectoryRoot As String = System.IO.Path.GetPathRoot(sDirectoryFull)
+        While sCandidateFull.Length > sCandidateRoot.Length AndAlso _
+              (sCandidateFull.EndsWith(System.IO.Path.DirectorySeparatorChar.ToString(), StringComparison.Ordinal) OrElse _
+               sCandidateFull.EndsWith(System.IO.Path.AltDirectorySeparatorChar.ToString(), StringComparison.Ordinal))
+            sCandidateFull = sCandidateFull.Substring(0, sCandidateFull.Length - 1)
+        End While
+        While sDirectoryFull.Length > sDirectoryRoot.Length AndAlso _
+              (sDirectoryFull.EndsWith(System.IO.Path.DirectorySeparatorChar.ToString(), StringComparison.Ordinal) OrElse _
+               sDirectoryFull.EndsWith(System.IO.Path.AltDirectorySeparatorChar.ToString(), StringComparison.Ordinal))
+            sDirectoryFull = sDirectoryFull.Substring(0, sDirectoryFull.Length - 1)
+        End While
+
+        If String.Equals(sCandidateFull, sDirectoryFull, StringComparison.OrdinalIgnoreCase) Then Return True
+        Dim sDirectoryPrefix As String = sDirectoryFull
+        If Not sDirectoryPrefix.EndsWith(System.IO.Path.DirectorySeparatorChar.ToString(), StringComparison.Ordinal) AndAlso _
+           Not sDirectoryPrefix.EndsWith(System.IO.Path.AltDirectorySeparatorChar.ToString(), StringComparison.Ordinal) Then
+            sDirectoryPrefix &= System.IO.Path.DirectorySeparatorChar
+        End If
+        Return sCandidateFull.StartsWith(sDirectoryPrefix, StringComparison.OrdinalIgnoreCase)
+    Catch
+        Return False
+    End Try
+End Function
+
+' ─────────────────────────────────────────────────────────────────────────────
+' HELPER: CC guard — returns True only for parts in the TOP-LEVEL Vault
+' Content Center folder (not project-local CC subfolders).
+' A path like C:\Vault\Projects\PJ00193\Content Center Files\... is a
+' non-standard part saved in the project's own CC subfolder and must be COPIED.
+' A path like C:\Vault\Content Center Files\... is a true CC library part
+' and must be SKIPPED.
+' v2.2.35 — replaces the old sPath.Contains("CONTENT CENTER") guard.
+' ─────────────────────────────────────────────────────────────────────────────
+Function IsTopLevelContentCenter(sPath As String) As Boolean
+    Dim sUp As String = sPath.ToUpper()
+    Dim iCC As Integer = sUp.IndexOf("\CONTENT CENTER FILES\")
+    If iCC < 0 Then Return False
+    Dim iProj As Integer = sUp.IndexOf("\PROJECTS\")
+    If iProj >= 0 AndAlso iProj < iCC Then Return False
+    Return True
+End Function
+
 Function ComputeNewName(sOldFull As String, _
                          sOldProjectRoot As String, _
                          sNewPrefix As String, _
                          sTargetFolder As String) As String
-    ' Never copy Content Centre parts
-    If sOldFull.ToUpper().Contains("CONTENT CENTER") Then Return ""
+    ' Never copy parts that live in the top-level Vault Content Center folder.
+    ' Parts in a project-local Content Center subfolder ARE copied (non-std parts).
+    If IsTopLevelContentCenter(sOldFull) Then Return ""
     ' Skip files already in the target folder (already processed on a prior run)
-    If sOldFull.ToUpper().StartsWith(sTargetFolder.ToUpper()) Then Return ""
+    If IsSameOrUnderDirectory(sOldFull, sTargetFolder) Then Return ""
 
     Dim sBase As String = System.IO.Path.GetFileNameWithoutExtension(sOldFull)
     Dim sExt  As String = System.IO.Path.GetExtension(sOldFull)
@@ -3118,7 +3244,7 @@ Sub WalkTree(oDoc As Document, _
             Dim sRefExt As String = System.IO.Path.GetExtension(sRefPath).ToUpper()
             If sRefExt <> ".IAM" AndAlso sRefExt <> ".IPT" Then Continue For
             If Not System.IO.File.Exists(sRefPath) Then Continue For
-            If sRefPath.ToUpper().Contains("CONTENT CENTER") Then Continue For
+            If IsTopLevelContentCenter(sRefPath) Then Continue For
             If oSeen.Contains(sRefPath.ToUpper()) Then Continue For
 
             Dim oChild As Document = Nothing
@@ -3147,7 +3273,7 @@ Sub WalkTree(oDoc As Document, _
             Try
                 If oChild.DocumentType = DocumentTypeEnum.kPartDocumentObject AndAlso _
                    oChild.ComponentDefinition.IsContentMember AndAlso _
-                   sRefPath.ToUpper().Contains("CONTENT CENTER") Then
+                   IsTopLevelContentCenter(sRefPath) Then
                     Try
                         System.IO.File.AppendAllText(sLogPath, _
                             "WALK-CC-SKIP: " & System.IO.Path.GetFileName(sRefPath) & vbCrLf)
@@ -3253,7 +3379,7 @@ Sub Phase4_WalkOccs(oCompDef As ComponentDefinition, _
             End If
         Catch : End Try
 
-        If sOccPath.ToUpper().StartsWith(sTargetFolder.ToUpper()) Then Continue For
+        If IsSameOrUnderDirectory(sOccPath, sTargetFolder) Then Continue For
 
         Dim sNewPath As String = ""
         If oActualMap.ContainsKey(sOccPath) Then
@@ -3271,23 +3397,79 @@ Sub Phase4_WalkOccs(oCompDef As ComponentDefinition, _
         If bWasSuppressed Then
             Try : oOcc.Unsuppress() : Catch : End Try
         End If
+        Dim bP4Replaced As Boolean = False
+        Dim sP4Method As String = "Occurrence.Replace"
+        Dim sP4Error As String = ""
         Try
             oOcc.Replace(sNewPath, False)
+            bP4Replaced = True
+        Catch exRep As Exception
+            sP4Error = "Occurrence.Replace HRESULT=0x" & exRep.HResult.ToString("X8") & " " & exRep.Message
+            ' Descriptor fallback can succeed when Inventor rejects occurrence replacement.
+            Try
+                Dim oP4FD As FileDescriptor = oOcc.ReferencedFileDescriptor
+                If oP4FD IsNot Nothing Then
+                    oP4FD.ReplaceReference(sNewPath)
+                    bP4Replaced = True
+                    sP4Method = "Descriptor.ReplaceReference"
+                End If
+            Catch exP4FD As Exception
+                sP4Error &= " | Descriptor.ReplaceReference HRESULT=0x" & _
+                    exP4FD.HResult.ToString("X8") & " " & exP4FD.Message
+            End Try
+            ' Third fallback: File.ReferencedFileDescriptors on the parent doc.
+            ' Needed for FG frame assemblies whose occurrence FD does not expose
+            ' the FileDescriptor COM interface (0x80004002 E_NOINTERFACE).
+            If Not bP4Replaced Then
+                Try
+                    Dim oParentDoc As Document = oCompDef.Document
+                    If oParentDoc IsNot Nothing AndAlso oParentDoc.File IsNot Nothing Then
+                        For Each oFileFD As Object In oParentDoc.File.ReferencedFileDescriptors
+                            Dim sFileFDPath As String = ""
+                            Try : sFileFDPath = oFileFD.FullFileName : Catch : Continue For : End Try
+                            If String.Equals(sFileFDPath, sOccPath, StringComparison.OrdinalIgnoreCase) Then
+                                oFileFD.ReplaceReference(sNewPath)
+                                bP4Replaced = True
+                                sP4Method = "File.FD.ReplaceReference"
+                                Exit For
+                            End If
+                        Next
+                    End If
+                Catch exP4File As Exception
+                    sP4Error &= " | File.FD.ReplaceReference HRESULT=0x" & _
+                        exP4File.HResult.ToString("X8") & " " & exP4File.Message
+                End Try
+            End If
+        End Try
+        If bP4Replaced Then
+            Dim sP4Resolved As String = ""
+            Try : sP4Resolved = oOcc.ReferencedFileDescriptor.FullFileName : Catch : End Try
+            If sP4Resolved = "" Then
+                Try : sP4Resolved = oOcc.Definition.Document.FullFileName : Catch : End Try
+            End If
+            If Not String.Equals(sP4Resolved, sNewPath, StringComparison.OrdinalIgnoreCase) Then
+                bP4Replaced = False
+                sP4Error &= " | VERIFY-MISMATCH: actual=" & sP4Resolved & " expected=" & sNewPath
+            End If
+        End If
+        If bP4Replaced Then
             iFixed += 1
             Try : System.IO.File.AppendAllText(sLogPath, _
-                "P4-REPLACE: " & System.IO.Path.GetFileName(sOccPath) & " -> " & System.IO.Path.GetFileName(sNewPath) & vbCrLf) : Catch : End Try
-        Catch exRep As Exception
+                "P4-REPLACE: " & System.IO.Path.GetFileName(sOccPath) & " -> " & _
+                System.IO.Path.GetFileName(sNewPath) & " [" & sP4Method & "]" & vbCrLf) : Catch : End Try
+        Else
             iFailed += 1
             Try : System.IO.File.AppendAllText(sLogPath, _
-                "P4-REPLACE-FAIL: " & System.IO.Path.GetFileName(sOccPath) & " — " & exRep.Message & vbCrLf) : Catch : End Try
-        End Try
+                "P4-REPLACE-FAIL: " & sOccPath & " -> " & sNewPath & _
+                " [parent=" & sThisFull & "] " & sP4Error & vbCrLf) : Catch : End Try
+        End If
         If bWasSuppressed Then
             Try : oOcc.Suppress() : Catch : End Try
         End If
     Next
 
     ' Save this assembly if it is in the target folder
-    If sThisFull.ToUpper().StartsWith(sTargetFolder.ToUpper()) Then
+    If IsSameOrUnderDirectory(sThisFull, sTargetFolder) Then
         Try
             Dim oFA As System.IO.FileAttributes = System.IO.File.GetAttributes(sThisFull)
             If (oFA And System.IO.FileAttributes.ReadOnly) = System.IO.FileAttributes.ReadOnly Then
@@ -3324,7 +3506,6 @@ Sub BrowserRename_WalkOccs(oCompDef As ComponentDefinition, _
     If oVisited.Contains(sThisFull) Then Return
     oVisited.Add(sThisFull)
 
-    Dim sTargetU As String = sTargetFolder.ToUpper()
     Dim iRenamedHere As Integer = 0
 
     ' Snapshot occurrences
@@ -3352,7 +3533,7 @@ Sub BrowserRename_WalkOccs(oCompDef As ComponentDefinition, _
         Catch
         End Try
         If sOccPath = "" Then Continue For
-        If Not sOccPath.ToUpper().StartsWith(sTargetU) Then Continue For
+        If Not IsSameOrUnderDirectory(sOccPath, sTargetFolder) Then Continue For
 
         ' Recurse into target-folder sub-assemblies first
         Try
@@ -3617,14 +3798,17 @@ Sub ProcessOrphanSubTree(oOrphTopDoc As Document, _
     ' NOTE: oOrphOpened docs are kept open here — Phase 2 lite finds them via
     ' ItemByName so it doesn't need to re-open them. Close them AFTER Phase 3.
 
-    ' ── Phase 2 lite: SaveAs deepest-first, write 3 CS_ provenance props ─────
+    ' ── Phase 2 lite: copy deepest-first; provenance on destination ONLY ──
     Dim oOrphKeys As New System.Collections.Generic.List(Of String)(oOrphMap.Keys)
-    oOrphKeys.Sort(Function(a2, b2) b2.Length.CompareTo(a2.Length))
+    oOrphKeys.Sort(Function(a2, b2) SweeperPathDepth(b2).CompareTo(SweeperPathDepth(a2)))
 
-    Dim sOrphOld2  As String
-    Dim sOrphNew2  As String
-    Dim oOrphDoc2  As Document
-    Dim bOrphO2    As Boolean   ' opened here flag
+    Dim sOrphOld2 As String
+    Dim sOrphNew2 As String
+    Dim oOrphDoc2 As Document
+    Dim bOrphO2 As Boolean
+    Dim oOrphCopied As New System.Collections.Generic.HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+    Dim oOrphNeedsProv As New System.Collections.Generic.Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase)
+
     For Each sOrphOld2 In oOrphKeys
         sOrphNew2 = oOrphMap(sOrphOld2)
         If sOrphNew2 = "" Then Continue For
@@ -3635,41 +3819,103 @@ Sub ProcessOrphanSubTree(oOrphTopDoc As Document, _
                 " -> " & System.IO.Path.GetFileName(sOrphNew2) & vbCrLf) : Catch : End Try
             Continue For
         End If
+
         oOrphDoc2 = Nothing : bOrphO2 = False
+        Dim bOrphCopied2 As Boolean = False
+        Dim bOrphRaw2 As Boolean = False
         Try
             Try : oOrphDoc2 = ThisApplication.Documents.ItemByName(sOrphOld2) : Catch : End Try
             If oOrphDoc2 Is Nothing Then
                 oOrphDoc2 = ThisApplication.Documents.Open(sOrphOld2, False)
                 bOrphO2 = True
             End If
-            oOrphDoc2.SaveAs(sOrphNew2, True)
-            Try : oOrphDoc2.PropertySets.Item("Inventor User Defined Properties").Add(sOrphOld2, "CS_SourcePath") : Catch : End Try
-            Try : oOrphDoc2.PropertySets.Item("Inventor User Defined Properties").Add(sNewPrefix, "CS_CopyProject") : Catch : End Try
-            Try : oOrphDoc2.PropertySets.Item("Inventor User Defined Properties").Add(Now.ToString("yyyy-MM-dd"), "CS_CopyDate") : Catch : End Try
-            oOrphDoc2.Save2(False)
-            oActualMap(sOrphOld2) = sOrphNew2
-            Try : System.IO.File.AppendAllText(sLogPath, _
-                "ORPHAN-SUB-COPY: " & System.IO.Path.GetFileName(sOrphOld2) & _
-                " -> " & System.IO.Path.GetFileName(sOrphNew2) & vbCrLf) : Catch : End Try
+            Try
+                oOrphDoc2.SaveAs(sOrphNew2, True)
+                bOrphCopied2 = System.IO.File.Exists(sOrphNew2)
+                If Not bOrphCopied2 Then
+                    Try : System.IO.File.AppendAllText(sLogPath, _
+                        "ORPHAN-SAVEAS-SILENT-FAIL: " & System.IO.Path.GetFileName(sOrphOld2) & vbCrLf) : Catch : End Try
+                End If
+            Catch exOrphSA2 As Exception
+                Try : System.IO.File.AppendAllText(sLogPath, _
+                    "ORPHAN-SAVEAS-FAIL: " & System.IO.Path.GetFileName(sOrphOld2) & _
+                    " HRESULT=0x" & exOrphSA2.HResult.ToString("X8") & _
+                    " — " & exOrphSA2.Message & vbCrLf) : Catch : End Try
+                If Not System.IO.File.Exists(sOrphNew2) Then
+                    Try
+                        System.IO.File.Copy(sOrphOld2, sOrphNew2, False)
+                        bOrphCopied2 = System.IO.File.Exists(sOrphNew2)
+                        bOrphRaw2 = bOrphCopied2
+                        If bOrphRaw2 Then
+                            Try : System.IO.File.AppendAllText(sLogPath, _
+                                "ORPHAN-FALLBACK-COPY: " & System.IO.Path.GetFileName(sOrphOld2) & _
+                                " -> " & System.IO.Path.GetFileName(sOrphNew2) & vbCrLf) : Catch : End Try
+                        End If
+                    Catch exOrphFC2 As Exception
+                        Try : System.IO.File.AppendAllText(sLogPath, _
+                            "ORPHAN-FILECOPY-FAIL: " & System.IO.Path.GetFileName(sOrphOld2) & _
+                            " — " & exOrphFC2.Message & vbCrLf) : Catch : End Try
+                    End Try
+                Else
+                    Try : System.IO.File.AppendAllText(sLogPath, _
+                        "ORPHAN-SAVEAS-PARTIAL: " & System.IO.Path.GetFileName(sOrphNew2) & _
+                        " exists after exception; not accepted automatically" & vbCrLf) : Catch : End Try
+                End If
+            End Try
+
+            ' Inventor may return normally but create no destination file.
+            If Not bOrphCopied2 AndAlso Not System.IO.File.Exists(sOrphNew2) Then
+                Try
+                    System.IO.File.Copy(sOrphOld2, sOrphNew2, False)
+                    bOrphCopied2 = System.IO.File.Exists(sOrphNew2)
+                    bOrphRaw2 = bOrphCopied2
+                    If bOrphCopied2 Then
+                        Try : System.IO.File.AppendAllText(sLogPath, _
+                            "ORPHAN-SILENT-FALLBACK-COPY: " & System.IO.Path.GetFileName(sOrphOld2) & _
+                            " -> " & System.IO.Path.GetFileName(sOrphNew2) & vbCrLf) : Catch : End Try
+                    End If
+                Catch exOrphSilent2 As Exception
+                    Try : System.IO.File.AppendAllText(sLogPath, _
+                        "ORPHAN-SILENT-FALLBACK-FAIL: " & System.IO.Path.GetFileName(sOrphOld2) & _
+                        " HRESULT=0x" & exOrphSilent2.HResult.ToString("X8") & _
+                        " — " & exOrphSilent2.Message & vbCrLf) : Catch : End Try
+                End Try
+            End If
+
+            If bOrphCopied2 Then
+                oOrphCopied.Add(sOrphNew2)
+                oActualMap(sOrphOld2) = sOrphNew2
+                oOrphNeedsProv(sOrphNew2) = sOrphOld2
+                Try : System.IO.File.AppendAllText(sLogPath, _
+                    "ORPHAN-SUB-COPY: " & System.IO.Path.GetFileName(sOrphOld2) & _
+                    " -> " & System.IO.Path.GetFileName(sOrphNew2) & _
+                    If(bOrphRaw2, " [raw copy; ref repair pending]", " [SaveAs; ref repair pending]") & vbCrLf) : Catch : End Try
+            Else
+                Try : System.IO.File.AppendAllText(sLogPath, _
+                    "ORPHAN-SUB-FAIL: " & System.IO.Path.GetFileName(sOrphOld2) & _
+                    " — destination not created" & vbCrLf) : Catch : End Try
+            End If
         Catch exOrphSub As Exception
             Try : System.IO.File.AppendAllText(sLogPath, _
                 "ORPHAN-SUB-FAIL: " & System.IO.Path.GetFileName(sOrphOld2) & _
                 " — " & exOrphSub.Message & vbCrLf) : Catch : End Try
+        Finally
+            If bOrphO2 AndAlso oOrphDoc2 IsNot Nothing Then
+                Try : oOrphDoc2.Close(True) : Catch : End Try
+            End If
         End Try
-        If bOrphO2 AndAlso oOrphDoc2 IsNot Nothing Then
-            Try : oOrphDoc2.Close(True) : Catch : End Try
-        End If
     Next
 
     ' ── Phase 3 lite: fix refs inside each new .iam copy ─────────────────────
     ' Each new assembly still points at the OLD sub-part paths post-SaveAs.
     ' Walk shallowest-first (shortest path) so parent assemblies are fixed after
     ' their children are already saved and correct on disk.
-    oOrphKeys.Sort(Function(a2, b2) a2.Length.CompareTo(b2.Length))
+    oOrphKeys.Sort(Function(a2, b2) SweeperPathDepth(b2).CompareTo(SweeperPathDepth(a2)))
     For Each sOrphOld2 In oOrphKeys
         sOrphNew2 = oOrphMap(sOrphOld2)
         If sOrphNew2 = "" OrElse Not System.IO.File.Exists(sOrphNew2) Then Continue For
         If System.IO.Path.GetExtension(sOrphNew2).ToUpper() <> ".IAM" Then Continue For
+        If Not oOrphCopied.Contains(sOrphNew2) Then Continue For
         oOrphDoc2 = Nothing : bOrphO2 = False
         Try
             Try : oOrphDoc2 = ThisApplication.Documents.ItemByName(sOrphNew2) : Catch : End Try
@@ -3696,7 +3942,20 @@ Sub ProcessOrphanSubTree(oOrphTopDoc As Document, _
                         " — " & exOrphFD.Message & vbCrLf) : Catch : End Try
                 End Try
             Next
-            If iOrphFixed > 0 Then
+            If oOrphNeedsProv.ContainsKey(sOrphNew2) Then
+                Try
+                    SetSweeperCopyProperty(oOrphDoc2, "CS_SourcePath", oOrphNeedsProv(sOrphNew2))
+                    SetSweeperCopyProperty(oOrphDoc2, "CS_CopyProject", sNewPrefix)
+                    SetSweeperCopyProperty(oOrphDoc2, "CS_CopyDate", Now.ToString("yyyy-MM-dd"))
+                    Try : System.IO.File.AppendAllText(sLogPath, _
+                        "ORPHAN-PROV-SET: " & System.IO.Path.GetFileName(sOrphNew2) & vbCrLf) : Catch : End Try
+                Catch exOrphProv As Exception
+                    Try : System.IO.File.AppendAllText(sLogPath, _
+                        "ORPHAN-PROV-FAIL: " & System.IO.Path.GetFileName(sOrphNew2) & _
+                        " — " & exOrphProv.Message & vbCrLf) : Catch : End Try
+                End Try
+            End If
+            If iOrphFixed > 0 OrElse oOrphNeedsProv.ContainsKey(sOrphNew2) Then
                 oOrphDoc2.Save2(False)
                 Try : System.IO.File.AppendAllText(sLogPath, _
                     "ORPHAN-SUB-REFFIX: " & System.IO.Path.GetFileName(sOrphNew2) & _
@@ -3712,10 +3971,50 @@ Sub ProcessOrphanSubTree(oOrphTopDoc As Document, _
         End If
     Next
 
+    ' Write provenance to newly copied orphan parts (no child references).
+    For Each sOrphProvNew As String In oOrphNeedsProv.Keys
+        If System.IO.Path.GetExtension(sOrphProvNew).ToUpper() <> ".IPT" Then Continue For
+        Dim oOrphPartProv As Document = Nothing
+        Try
+            oOrphPartProv = ThisApplication.Documents.Open(sOrphProvNew, False)
+            SetSweeperCopyProperty(oOrphPartProv, "CS_SourcePath", oOrphNeedsProv(sOrphProvNew))
+            SetSweeperCopyProperty(oOrphPartProv, "CS_CopyProject", sNewPrefix)
+            SetSweeperCopyProperty(oOrphPartProv, "CS_CopyDate", Now.ToString("yyyy-MM-dd"))
+            oOrphPartProv.Save2(False)
+            Try : System.IO.File.AppendAllText(sLogPath, _
+                "ORPHAN-PROV-SAVED: " & System.IO.Path.GetFileName(sOrphProvNew) & vbCrLf) : Catch : End Try
+        Catch exOrphPartProv As Exception
+            Try : System.IO.File.AppendAllText(sLogPath, _
+                "ORPHAN-PROV-FAIL: " & System.IO.Path.GetFileName(sOrphProvNew) & _
+                " — " & exOrphPartProv.Message & vbCrLf) : Catch : End Try
+        Finally
+            If oOrphPartProv IsNot Nothing Then
+                Try : oOrphPartProv.Close(True) : Catch : End Try
+            End If
+        End Try
+    Next
+
     ' Close all documents that WalkTree opened (now safe — Phase 2 & 3 are done)
     For Each oWD As Document In oOrphOpened
         Try : oWD.Close(True) : Catch : End Try
     Next
     oOrphOpened.Clear()
 
+End Sub
+
+' ─────────────────────────────────────────────────────────────────────────────
+' v2.2.31 helpers — source-safe provenance and directory depth
+' ─────────────────────────────────────────────────────────────────────────────
+Function SweeperPathDepth(sPath As String) As Integer
+    If String.IsNullOrEmpty(sPath) Then Return 0
+    Return sPath.Replace("/"c, "\"c).Split("\"c).Length
+End Function
+
+Sub SetSweeperCopyProperty(oCopyDoc As Document, sPropName As String, sPropValue As String)
+    Dim oProps As PropertySet = oCopyDoc.PropertySets.Item("Inventor User Defined Properties")
+    Try
+        oProps.Item(sPropName).Value = sPropValue
+    Catch
+        oProps.Add(sPropValue, sPropName)
+    End Try
 End Sub
