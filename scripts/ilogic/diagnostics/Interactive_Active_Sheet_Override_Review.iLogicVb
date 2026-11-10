@@ -1,0 +1,189 @@
+' iLogic ASSASSIN — Interactive Active Sheet Override Review
+' Inventor 2025 | PROPOSED for runtime testing
+' WARNING: Restore actions change drawing dimensions. No automatic save.
+Sub Main()
+
+    Dim doc As Inventor.DrawingDocument = TryCast( _
+        ThisApplication.ActiveDocument, Inventor.DrawingDocument)
+    If doc Is Nothing Then
+        MessageBox.Show("Open an Inventor drawing first.", "ASSASSIN")
+        Exit Sub
+    End If
+
+    Dim sheet As Inventor.Sheet = doc.ActiveSheet
+    Dim matches As New System.Collections.Generic.List(Of Inventor.GeneralDimension)
+    Dim dimItem As Inventor.GeneralDimension = Nothing
+    Dim scanErrors As Integer = 0
+
+    Try
+        For Each dimItem In sheet.DrawingDimensions.GeneralDimensions
+            Try
+                If dimItem.ModelValueOverridden Then
+                    matches.Add(dimItem)
+                End If
+            Catch ex As Exception
+                scanErrors += 1
+            End Try
+        Next
+    Catch ex As Exception
+        MessageBox.Show("Scan failed: " & ex.Message, "ASSASSIN")
+        Exit Sub
+    End Try
+
+    If matches.Count = 0 Then
+        MessageBox.Show("No numeric overrides found on " & sheet.Name & _
+            "." & vbCrLf & "Inspection errors: " & scanErrors.ToString(), "ASSASSIN")
+        Exit Sub
+    End If
+
+    Dim startText As String = matches.Count.ToString() & _
+        " numeric overridden dimension(s) found on " & sheet.Name & "." & _
+        vbCrLf & vbCrLf & "YES = Inspect each (zoom + review)" & _
+        vbCrLf & "NO = Restore all (requires confirmation)" & _
+        vbCrLf & "CANCEL = Leave unchanged" & vbCrLf & vbCrLf & _
+        "Inspection errors: " & scanErrors.ToString() & vbCrLf & _
+        "The drawing will NOT be saved automatically."
+
+    Dim choice As System.Windows.Forms.DialogResult = _
+        System.Windows.Forms.MessageBox.Show(startText, "ASSASSIN - Override Review", _
+        System.Windows.Forms.MessageBoxButtons.YesNoCancel, _
+        System.Windows.Forms.MessageBoxIcon.Question, _
+        System.Windows.Forms.MessageBoxDefaultButton.Button3)
+
+    If choice = System.Windows.Forms.DialogResult.Cancel Then Exit Sub
+
+    Dim restored As Integer = 0
+    Dim leftAlone As Integer = 0
+    Dim failed As Integer = 0
+    Dim index As Integer = 0
+
+    If choice = System.Windows.Forms.DialogResult.No Then
+        Dim confirm As System.Windows.Forms.DialogResult = _
+            System.Windows.Forms.MessageBox.Show( _
+            "Restore all " & matches.Count.ToString() & _
+            " numeric overrides on " & sheet.Name & "?" & vbCrLf & _
+            "This changes the drawing in memory. It will NOT be saved automatically." & _
+            vbCrLf & "Use a disposable copy or authorised editable drawing.", _
+            "CONFIRM BULK RESTORATION", _
+            System.Windows.Forms.MessageBoxButtons.YesNo, _
+            System.Windows.Forms.MessageBoxIcon.Warning, _
+            System.Windows.Forms.MessageBoxDefaultButton.Button2)
+
+        If confirm <> System.Windows.Forms.DialogResult.Yes Then Exit Sub
+
+        For Each dimItem In matches
+            Try
+                If dimItem.ModelValueOverridden Then
+                    dimItem.ModelValueOverridden = False
+                End If
+                If dimItem.ModelValueOverridden Then
+                    failed += 1
+                Else
+                    restored += 1
+                End If
+            Catch ex As Exception
+                failed += 1
+            End Try
+        Next
+    Else
+        For Each dimItem In matches
+            index += 1
+            Try
+                If Not dimItem.ModelValueOverridden Then
+                    leftAlone += 1
+                    Continue For
+                End If
+
+                Dim zoomNote As String = ZoomToDimension(doc, dimItem)
+                Dim actualText As String = FormatDimensionValue(dimItem, False)
+                Dim overrideText As String = FormatDimensionValue(dimItem, True)
+                Dim shown As String = dimItem.Text.Text
+
+                Dim prompt As String = "Override " & index.ToString() & _
+                    " of " & matches.Count.ToString() & vbCrLf & _
+                    "Sheet: " & sheet.Name & vbCrLf & _
+                    "Actual: " & actualText & vbCrLf & _
+                    "Override: " & overrideText & vbCrLf & _
+                    "Displayed: " & shown & vbCrLf & _
+                    "Location: " & zoomNote & vbCrLf & vbCrLf & _
+                    "YES = Restore actual value" & vbCrLf & _
+                    "NO = Leave as is; next dimension" & vbCrLf & _
+                    "CANCEL = Stop reviewing" & vbCrLf & vbCrLf & _
+                    "No automatic save."
+
+                Dim answer As System.Windows.Forms.DialogResult = _
+                    System.Windows.Forms.MessageBox.Show(prompt, _
+                    "ASSASSIN - Dimension Review", _
+                    System.Windows.Forms.MessageBoxButtons.YesNoCancel, _
+                    System.Windows.Forms.MessageBoxIcon.Question, _
+                    System.Windows.Forms.MessageBoxDefaultButton.Button2)
+
+                If answer = System.Windows.Forms.DialogResult.Cancel Then Exit For
+
+                If answer = System.Windows.Forms.DialogResult.Yes Then
+                    dimItem.ModelValueOverridden = False
+                    If dimItem.ModelValueOverridden Then
+                        failed += 1
+                    Else
+                        restored += 1
+                    End If
+                Else
+                    leftAlone += 1
+                End If
+            Catch ex As Exception
+                failed += 1
+                MessageBox.Show("Dimension " & index.ToString() & _
+                    " could not be reviewed/restored: " & ex.Message, "ASSASSIN")
+            End Try
+        Next
+    End If
+
+    MessageBox.Show("ACTIVE SHEET REVIEW COMPLETE" & vbCrLf & _
+        "Sheet: " & sheet.Name & vbCrLf & _
+        "Found: " & matches.Count.ToString() & vbCrLf & _
+        "Restored: " & restored.ToString() & vbCrLf & _
+        "Left unchanged/skipped: " & leftAlone.ToString() & vbCrLf & _
+        "Errors: " & failed.ToString() & vbCrLf & _
+        "Scan errors: " & scanErrors.ToString() & vbCrLf & vbCrLf & _
+        "Drawing NOT saved automatically.", "ASSASSIN")
+
+End Sub
+
+Function FormatDimensionValue(ByVal dimItem As Inventor.GeneralDimension, _
+                              ByVal useOverride As Boolean) As String
+    Dim value As Double = dimItem.ModelValue
+    If useOverride Then value = dimItem.OverrideModelValue
+
+    If TypeOf dimItem Is Inventor.AngularGeneralDimension Then
+        Return (value * 180.0 / System.Math.PI).ToString("0.#", _
+            System.Globalization.CultureInfo.InvariantCulture) & " deg"
+    End If
+
+    Return (value * 10.0).ToString("0.#", _
+        System.Globalization.CultureInfo.InvariantCulture) & " mm"
+End Function
+
+Function ZoomToDimension(ByVal doc As Inventor.DrawingDocument, _
+                         ByVal dimItem As Inventor.GeneralDimension) As String
+    Try
+        Dim origin As Inventor.Point2d = dimItem.Text.Origin
+        Dim camera As Inventor.Camera = ThisApplication.ActiveView.Camera
+        Dim geometry As Inventor.TransientGeometry = ThisApplication.TransientGeometry
+
+        camera.Target = geometry.CreatePoint(origin.X, origin.Y, 0)
+        camera.Eye = geometry.CreatePoint(origin.X, origin.Y, 1)
+        camera.SetExtents(12, 8)
+        camera.ApplyWithoutTransition()
+
+        Try
+            doc.SelectSet.Clear()
+            doc.SelectSet.Select(dimItem)
+        Catch ex As Exception
+            Return "Zoomed; selection unavailable: " & ex.Message
+        End Try
+
+        Return "Zoomed and selected"
+    Catch ex As Exception
+        Return "Zoom unavailable: " & ex.Message
+    End Try
+End Function
