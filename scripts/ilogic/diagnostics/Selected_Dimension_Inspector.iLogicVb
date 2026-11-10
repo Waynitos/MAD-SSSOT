@@ -1,0 +1,101 @@
+' iLogic ASSASSIN — Selected Drawing Dimension Inspector
+' Read-only. Inventor 2025. Status: IMPLEMENTED, not runtime-tested.
+Sub Main()
+    Dim doc As Inventor.DrawingDocument = TryCast(ThisApplication.ActiveDocument, Inventor.DrawingDocument)
+    If doc Is Nothing Then
+        MessageBox.Show("Open an Inventor drawing first.", "Dimension Inspector")
+        Exit Sub
+    End If
+
+    Dim picked As Object = Nothing
+    Try
+        picked = ThisApplication.CommandManager.Pick( _
+            Inventor.SelectionFilterEnum.kDrawingDimensionFilter, _
+            "Select a drawing dimension to inspect (ESC to cancel)")
+    Catch ex As Exception
+        MessageBox.Show("Selection cancelled or failed: " & ex.Message, "Dimension Inspector")
+        Exit Sub
+    End Try
+
+    If picked Is Nothing Then Exit Sub
+
+    Dim sb As New System.Text.StringBuilder()
+    sb.AppendLine("iLOGIC ASSASSIN — DIMENSION INSPECTOR")
+    sb.AppendLine("Document: " & doc.DisplayName)
+    sb.AppendLine("Object class: " & picked.GetType().FullName)
+    sb.AppendLine("Sheet: " & ReadParentSheet(picked))
+    sb.AppendLine()
+
+    Dim properties As String() = { _
+        "Type", "GeneralDimensionType", "ModelValue", _
+        "ModelValueOverridden", "OverrideModelValue", _
+        "Precision", "TolerancePrecision", "HideValue", _
+        "Attached", "Retrieved", "IsInspectionDimension" }
+
+    Dim propertyName As String = ""
+    For Each propertyName In properties
+        sb.AppendLine(propertyName & ": " & ReadValue(picked, propertyName))
+    Next
+
+    Dim dimText As Object = ReadObject(picked, "Text")
+    sb.AppendLine()
+    sb.AppendLine("Dimension Text")
+    sb.AppendLine("Text: " & ReadValue(dimText, "Text"))
+    sb.AppendLine("FormattedText: " & ReadValue(dimText, "FormattedText"))
+
+    Dim tol As Object = ReadObject(picked, "Tolerance")
+    sb.AppendLine()
+    sb.AppendLine("Tolerance")
+    sb.AppendLine("ToleranceType: " & ReadValue(tol, "ToleranceType"))
+    sb.AppendLine("Upper: " & ReadValue(tol, "Upper"))
+    sb.AppendLine("Lower: " & ReadValue(tol, "Lower"))
+
+    sb.AppendLine()
+    sb.AppendLine("Note: ModelValue is in Inventor database units.")
+    sb.AppendLine("FormattedText may contain a DimensionValue token.")
+    sb.AppendLine("No properties were modified.")
+
+    Dim frm As New System.Windows.Forms.Form()
+    frm.Text = "ASSASSIN — Selected Dimension Inspector"
+    frm.Width = 800
+    frm.Height = 640
+    frm.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen
+
+    Dim output As New System.Windows.Forms.TextBox()
+    output.Multiline = True
+    output.ReadOnly = True
+    output.ScrollBars = System.Windows.Forms.ScrollBars.Both
+    output.WordWrap = False
+    output.Dock = System.Windows.Forms.DockStyle.Fill
+    output.Text = sb.ToString()
+    frm.Controls.Add(output)
+    frm.ShowDialog()
+    frm.Dispose()
+End Sub
+
+Function ReadObject(ByVal obj As Object, ByVal name As String) As Object
+    If obj Is Nothing Then Return Nothing
+    Try
+        Return Microsoft.VisualBasic.Interaction.CallByName( _
+            obj, name, Microsoft.VisualBasic.CallType.Get)
+    Catch ex As Exception
+        Return Nothing
+    End Try
+End Function
+
+Function ReadValue(ByVal obj As Object, ByVal name As String) As String
+    If obj Is Nothing Then Return "(not available)"
+    Try
+        Dim value As Object = Microsoft.VisualBasic.Interaction.CallByName( _
+            obj, name, Microsoft.VisualBasic.CallType.Get)
+        If value Is Nothing Then Return "(Nothing)"
+        Return Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture)
+    Catch ex As Exception
+        Return "(unavailable: " & ex.Message & ")"
+    End Try
+End Function
+
+Function ReadParentSheet(ByVal obj As Object) As String
+    Dim parent As Object = ReadObject(obj, "Parent")
+    Return ReadValue(parent, "Name")
+End Function
