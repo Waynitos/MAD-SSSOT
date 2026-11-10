@@ -181,10 +181,18 @@ Function ChooseAction(ByVal heading As String, _
                       ByVal optionTwo As String, _
                       ByVal optionThree As String) As Integer
 
+    ' Size each dialog according to its heading text.
+    ' Avoid System.Drawing Font/Size APIs blocked by the iLogic host.
+    Dim lineCount As Integer = heading.Split( _
+        New String() {vbCrLf}, System.StringSplitOptions.None).Length
+    Dim headingHeight As Integer = System.Math.Max(26, lineCount * 17 + 8)
+    Dim firstOptionTop As Integer = 16 + headingHeight + 8
+    Dim buttonTop As Integer = firstOptionTop + 102
+
     Dim frm As New System.Windows.Forms.Form()
     frm.Text = "iLogic ASSASSIN - Choose Action"
     frm.Width = 390
-    frm.Height = 345
+    frm.Height = buttonTop + 86
     frm.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen
     frm.FormBorderStyle = System.Windows.Forms.FormBorderStyle.FixedDialog
     frm.MaximizeBox = False
@@ -192,41 +200,41 @@ Function ChooseAction(ByVal heading As String, _
 
     Dim lbl As New System.Windows.Forms.Label()
     lbl.Left = 18
-    lbl.Top = 12
+    lbl.Top = 16
     lbl.Width = 345
-    lbl.Height = 115
+    lbl.Height = headingHeight
     lbl.Text = heading
 
     Dim rb1 As New System.Windows.Forms.RadioButton()
     rb1.Left = 20
-    rb1.Top = 137
+    rb1.Top = firstOptionTop
     rb1.Width = 345
     rb1.Text = optionOne
     rb1.Checked = True
 
     Dim rb2 As New System.Windows.Forms.RadioButton()
     rb2.Left = 20
-    rb2.Top = 168
+    rb2.Top = firstOptionTop + 30
     rb2.Width = 345
     rb2.Text = optionTwo
 
     Dim rb3 As New System.Windows.Forms.RadioButton()
     rb3.Left = 20
-    rb3.Top = 199
+    rb3.Top = firstOptionTop + 60
     rb3.Width = 345
     rb3.Text = optionThree
 
     Dim btnContinue As New System.Windows.Forms.Button()
     btnContinue.Text = "Continue"
     btnContinue.Left = 98
-    btnContinue.Top = 249
+    btnContinue.Top = buttonTop
     btnContinue.Width = 90
     btnContinue.DialogResult = System.Windows.Forms.DialogResult.OK
 
     Dim btnCancel As New System.Windows.Forms.Button()
     btnCancel.Text = "Cancel"
     btnCancel.Left = 198
-    btnCancel.Top = 249
+    btnCancel.Top = buttonTop
     btnCancel.Width = 90
     btnCancel.DialogResult = System.Windows.Forms.DialogResult.Cancel
 
