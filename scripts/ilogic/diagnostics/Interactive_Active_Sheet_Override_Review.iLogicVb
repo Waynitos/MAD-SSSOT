@@ -36,28 +36,21 @@ Sub Main()
         Exit Sub
     End If
 
-    Dim startText As String = matches.Count.ToString() & _
-        " numeric overridden dimension(s) found on " & sheet.Name & "." & _
-        vbCrLf & vbCrLf & "YES = Inspect each (zoom + review)" & _
-        vbCrLf & "NO = Restore all (requires confirmation)" & _
-        vbCrLf & "CANCEL = Leave unchanged" & vbCrLf & vbCrLf & _
-        "Inspection errors: " & scanErrors.ToString() & vbCrLf & _
-        "The drawing will NOT be saved automatically."
+    Dim choice As Integer = ChooseAction( _
+        "Found " & matches.Count.ToString() & " numeric overrides on " & sheet.Name & _
+        ". Inspection errors: " & scanErrors.ToString(), _
+        "Inspect each dimension (zoom and review)", _
+        "Restore all overrides (confirmation required)", _
+        "Leave unchanged")
 
-    Dim choice As System.Windows.Forms.DialogResult = _
-        System.Windows.Forms.MessageBox.Show(startText, "ASSASSIN - Override Review", _
-        System.Windows.Forms.MessageBoxButtons.YesNoCancel, _
-        System.Windows.Forms.MessageBoxIcon.Question, _
-        System.Windows.Forms.MessageBoxDefaultButton.Button3)
-
-    If choice = System.Windows.Forms.DialogResult.Cancel Then Exit Sub
+    If choice = 0 Or choice = 3 Then Exit Sub
 
     Dim restored As Integer = 0
     Dim leftAlone As Integer = 0
     Dim failed As Integer = 0
     Dim index As Integer = 0
 
-    If choice = System.Windows.Forms.DialogResult.No Then
+    If choice = 2 Then
         Dim confirm As System.Windows.Forms.DialogResult = _
             System.Windows.Forms.MessageBox.Show( _
             "Restore all " & matches.Count.ToString() & _
@@ -105,22 +98,17 @@ Sub Main()
                     "Actual: " & actualText & vbCrLf & _
                     "Override: " & overrideText & vbCrLf & _
                     "Displayed: " & shown & vbCrLf & _
-                    "Location: " & zoomNote & vbCrLf & vbCrLf & _
-                    "YES = Restore actual value" & vbCrLf & _
-                    "NO = Leave as is; next dimension" & vbCrLf & _
-                    "CANCEL = Stop reviewing" & vbCrLf & vbCrLf & _
-                    "No automatic save."
+                    "Location: " & zoomNote & vbCrLf & _
+                    "Drawing will not be saved automatically."
 
-                Dim answer As System.Windows.Forms.DialogResult = _
-                    System.Windows.Forms.MessageBox.Show(prompt, _
-                    "ASSASSIN - Dimension Review", _
-                    System.Windows.Forms.MessageBoxButtons.YesNoCancel, _
-                    System.Windows.Forms.MessageBoxIcon.Question, _
-                    System.Windows.Forms.MessageBoxDefaultButton.Button2)
+                Dim answer As Integer = ChooseAction(prompt, _
+                    "Leave as is; next dimension", _
+                    "Restore actual model value", _
+                    "Stop reviewing")
 
-                If answer = System.Windows.Forms.DialogResult.Cancel Then Exit For
+                If answer = 0 Or answer = 3 Then Exit For
 
-                If answer = System.Windows.Forms.DialogResult.Yes Then
+                If answer = 2 Then
                     dimItem.ModelValueOverridden = False
                     If dimItem.ModelValueOverridden Then
                         failed += 1
@@ -186,4 +174,81 @@ Function ZoomToDimension(ByVal doc As Inventor.DrawingDocument, _
     Catch ex As Exception
         Return "Zoom unavailable: " & ex.Message
     End Try
+End Function
+
+Function ChooseAction(ByVal heading As String, _
+                      ByVal optionOne As String, _
+                      ByVal optionTwo As String, _
+                      ByVal optionThree As String) As Integer
+
+    Dim frm As New System.Windows.Forms.Form()
+    frm.Text = "iLogic ASSASSIN - Choose Action"
+    frm.Width = 520
+    frm.Height = 320
+    frm.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen
+    frm.FormBorderStyle = System.Windows.Forms.FormBorderStyle.FixedDialog
+    frm.MaximizeBox = False
+    frm.MinimizeBox = False
+
+    Dim lbl As New System.Windows.Forms.Label()
+    lbl.Left = 16
+    lbl.Top = 14
+    lbl.Width = 475
+    lbl.Height = 100
+    lbl.Text = heading
+
+    Dim rb1 As New System.Windows.Forms.RadioButton()
+    rb1.Left = 20
+    rb1.Top = 120
+    rb1.Width = 460
+    rb1.Text = optionOne
+    rb1.Checked = True
+
+    Dim rb2 As New System.Windows.Forms.RadioButton()
+    rb2.Left = 20
+    rb2.Top = 150
+    rb2.Width = 460
+    rb2.Text = optionTwo
+
+    Dim rb3 As New System.Windows.Forms.RadioButton()
+    rb3.Left = 20
+    rb3.Top = 180
+    rb3.Width = 460
+    rb3.Text = optionThree
+
+    Dim btnContinue As New System.Windows.Forms.Button()
+    btnContinue.Text = "Continue"
+    btnContinue.Left = 290
+    btnContinue.Top = 220
+    btnContinue.Width = 90
+    btnContinue.DialogResult = System.Windows.Forms.DialogResult.OK
+
+    Dim btnCancel As New System.Windows.Forms.Button()
+    btnCancel.Text = "Cancel"
+    btnCancel.Left = 390
+    btnCancel.Top = 220
+    btnCancel.Width = 90
+    btnCancel.DialogResult = System.Windows.Forms.DialogResult.Cancel
+
+    frm.Controls.Add(lbl)
+    frm.Controls.Add(rb1)
+    frm.Controls.Add(rb2)
+    frm.Controls.Add(rb3)
+    frm.Controls.Add(btnContinue)
+    frm.Controls.Add(btnCancel)
+    frm.AcceptButton = btnContinue
+    frm.CancelButton = btnCancel
+
+    Dim result As System.Windows.Forms.DialogResult = frm.ShowDialog()
+    Dim selection As Integer = 0
+
+    If result = System.Windows.Forms.DialogResult.OK Then
+        If rb1.Checked Then selection = 1
+        If rb2.Checked Then selection = 2
+        If rb3.Checked Then selection = 3
+    End If
+
+    frm.Dispose()
+    Return selection
+
 End Function
