@@ -1,0 +1,101 @@
+' iLogic ASSASSIN — Active Sheet Dimension Override Scanner
+' Read-only diagnostic. Inventor 2025; awaiting compile/runtime verification.
+Sub Main()
+
+    Dim oDoc As Inventor.DrawingDocument = TryCast( _
+        ThisApplication.ActiveDocument, Inventor.DrawingDocument)
+
+    If oDoc Is Nothing Then
+        MessageBox.Show("Open an Inventor drawing first.", "ASSASSIN")
+        Exit Sub
+    End If
+
+    Dim oSheet As Inventor.Sheet = oDoc.ActiveSheet
+    Dim report As New System.Text.StringBuilder()
+    Dim inspected As Integer = 0
+    Dim overridden As Integer = 0
+    Dim failed As Integer = 0
+    Dim oDim As Inventor.GeneralDimension = Nothing
+
+    report.AppendLine("iLOGIC ASSASSIN — ACTIVE SHEET OVERRIDE SCAN")
+    report.AppendLine("Drawing: " & oDoc.DisplayName)
+    report.AppendLine("Sheet: " & oSheet.Name)
+    report.AppendLine("========================================")
+    report.AppendLine()
+
+    Try
+        For Each oDim In oSheet.DrawingDimensions.GeneralDimensions
+
+            inspected += 1
+
+            Try
+                If oDim.ModelValueOverridden Then
+
+                    overridden += 1
+                    report.AppendLine("OVERRIDE #" & overridden.ToString())
+                    report.AppendLine("Dimension index: " & inspected.ToString())
+                    report.AppendLine("Dimension type: " & oDim.Type.ToString())
+
+                    If TypeOf oDim Is Inventor.AngularGeneralDimension Then
+                        report.AppendLine("Model value (radians): " & _
+                            FormatNumber(oDim.ModelValue))
+                        report.AppendLine("Override value (radians): " & _
+                            FormatNumber(oDim.OverrideModelValue))
+                    Else
+                        report.AppendLine("Model value: " & _
+                            FormatNumber(oDim.ModelValue * 10) & " mm")
+                        report.AppendLine("Override value: " & _
+                            FormatNumber(oDim.OverrideModelValue * 10) & " mm")
+                    End If
+
+                    report.AppendLine("Displayed text: " & oDim.Text.Text)
+                    report.AppendLine("----------------------------------------")
+
+                End If
+
+            Catch ex As Exception
+                failed += 1
+                report.AppendLine("Inspection error at dimension index " & _
+                    inspected.ToString() & ": " & ex.Message)
+            End Try
+
+        Next
+
+    Catch ex As Exception
+        report.AppendLine("SCAN ERROR: " & ex.Message)
+    End Try
+
+    report.AppendLine()
+    report.AppendLine("SUMMARY")
+    report.AppendLine("Dimensions inspected: " & inspected.ToString())
+    report.AppendLine("Numeric overrides found: " & overridden.ToString())
+    report.AppendLine("Inspection errors: " & failed.ToString())
+    report.AppendLine()
+    report.AppendLine("Read-only scan. No changes or saves performed.")
+    report.AppendLine("Text-only overrides are not reliably detected here.")
+    report.AppendLine("Dimension index is the scan order, not a persistent ID.")
+
+    Dim frm As New System.Windows.Forms.Form()
+    frm.Text = "ASSASSIN — Active Sheet Override Scan"
+    frm.Width = 820
+    frm.Height = 650
+    frm.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen
+
+    Dim txt As New System.Windows.Forms.TextBox()
+    txt.Multiline = True
+    txt.ReadOnly = True
+    txt.ScrollBars = System.Windows.Forms.ScrollBars.Both
+    txt.WordWrap = False
+    txt.Dock = System.Windows.Forms.DockStyle.Fill
+    txt.Text = report.ToString()
+
+    frm.Controls.Add(txt)
+    frm.ShowDialog()
+    frm.Dispose()
+
+End Sub
+
+Function FormatNumber(ByVal value As Double) As String
+    Return value.ToString("0.#", _
+        System.Globalization.CultureInfo.InvariantCulture)
+End Function
