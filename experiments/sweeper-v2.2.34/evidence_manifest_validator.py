@@ -93,6 +93,20 @@ def validate(manifest):
     if windows_key(ga) not in paths:
         errors.append("TOP_GA_NOT_IN_DOCUMENTS")
     known = set(identities)
+    # Frame Generator evidence is not optional when records are supplied.
+    # Structural references alone never establish Inventor-side integrity.
+    if isinstance(frames, list):
+        for index, frame in enumerate(frames):
+            if not isinstance(frame, dict):
+                errors.append(f"INVALID_FRAME_RECORD:{index}")
+                continue
+            required = ("frame_assembly_identity", "skeleton_identity",
+                        "member_identity")
+            if any(not isinstance(frame.get(field), str) or
+                   frame[field] not in known for field in required):
+                errors.append(f"UNRESOLVED_FRAME_RELATION:{index}")
+            if frame.get("external_reference") is not False:
+                errors.append(f"FRAME_EXTERNAL_REFERENCE_UNVERIFIED:{index}")
     for index, edge in enumerate(edges):
         if not isinstance(edge, dict) or edge.get("parent_identity") not in known or edge.get("child_identity") not in known:
             errors.append(f"UNRESOLVED_EDGE:{index}")
@@ -101,6 +115,11 @@ def validate(manifest):
     discovery = manifest.get("discovery")
     if not isinstance(discovery, dict) or discovery.get("complete") is not True or discovery.get("errors") != []:
         errors.append("DISCOVERY_INCOMPLETE")
+    profiler = manifest.get("profiler")
+    if (not isinstance(profiler, dict)
+            or profiler.get("baseline") != "v2.2.33"
+            or not isinstance(profiler.get("checkpoints"), list)):
+        errors.append("PROFILER_EVIDENCE_MISSING")
     vault = manifest.get("vault")
     if not isinstance(vault, dict) or vault.get("clearance") != "verified" or not vault.get("identity"):
         errors.append("VAULT_UNVERIFIED")
