@@ -97,6 +97,9 @@ def preview(inventory):
         destinations[key(dst)].append(src)
         if not under_root(dst, root):
             blockers.append("DESTINATION_OUTSIDE_ROOT:" + dst)
+        if src != dst and key(src) == key(dst):
+            # Case-only renames need a separately designed Windows/Inventor lifecycle.
+            blockers.append("CASE_ONLY_RENAME_UNSUPPORTED:" + src)
         if key(src) != key(dst):
             names = directory_entries.get(key(os.path.dirname(dst)))
             if names is None:
