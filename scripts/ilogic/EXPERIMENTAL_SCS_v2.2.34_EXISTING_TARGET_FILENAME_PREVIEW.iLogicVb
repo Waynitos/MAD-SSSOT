@@ -1,0 +1,52 @@
+' SUPER CLEAN SWEEPER v2.2.34 — EXISTING TARGET REPAIR PREVIEW ONLY
+' Independent experimental iLogic rule. NO rename, SaveAs, reference replacement or document save.
+' This is NOT the complete repair mode. Test only on an isolated target copy.
+Sub Main()
+    Dim root As String = ""
+    Using dlg As New System.Windows.Forms.FolderBrowserDialog()
+        dlg.Description = "Select COPIED TARGET ROOT (read-only filename preview)"
+        If dlg.ShowDialog() <> System.Windows.Forms.DialogResult.OK Then Return
+        root = System.IO.Path.GetFullPath(dlg.SelectedPath).TrimEnd(System.IO.Path.DirectorySeparatorChar)
+    End Using
+    Dim finds As New System.Collections.Generic.List(Of String)
+    Dim repls As New System.Collections.Generic.List(Of String)
+    For i As Integer = 1 To 5
+        Dim f As String = Microsoft.VisualBasic.Interaction.InputBox("Find segment " & i & " (blank to finish)", "Repair preview")
+        If f = "" Then Exit For
+        Dim r As String = Microsoft.VisualBasic.Interaction.InputBox("Replace " & f & " with:", "Repair preview")
+        finds.Add(f) : repls.Add(r)
+    Next
+    Dim log As New System.Text.StringBuilder()
+    log.AppendLine("READ-ONLY PREVIEW — NO FILE OR INVENTOR MUTATION")
+    log.AppendLine("Target root: " & root)
+    log.AppendLine("WARNING: Filesystem discovery does not establish Inventor reference ownership.")
+    Dim files As String() = System.IO.Directory.GetFiles(root, "*.*", System.IO.SearchOption.AllDirectories)
+    Dim destinations As New System.Collections.Generic.Dictionary(Of String, String)(System.StringComparer.OrdinalIgnoreCase)
+    Dim count As Integer = 0, blocked As Integer = 0
+    For Each src As String In files
+        Dim ext As String = System.IO.Path.GetExtension(src).ToLowerInvariant()
+        If ext <> ".iam" AndAlso ext <> ".ipt" AndAlso ext <> ".idw" AndAlso ext <> ".dwg" AndAlso ext <> ".ipn" Then Continue For
+        Dim name As String = System.IO.Path.GetFileNameWithoutExtension(src)
+        Dim updated As String = name
+        For i As Integer = 0 To finds.Count - 1
+            If finds(i) = "" Then Continue For
+            updated = System.Text.RegularExpressions.Regex.Replace(updated, System.Text.RegularExpressions.Regex.Escape(finds(i)), Function(m) repls(i), System.Text.RegularExpressions.RegexOptions.IgnoreCase)
+        Next
+        If updated = name Then Continue For
+        count += 1
+        Dim dest As String = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(src), updated & ext)
+        Dim reason As String = ""
+        If updated = "" OrElse updated.EndsWith(".") OrElse updated.EndsWith(" ") OrElse updated.IndexOfAny(System.IO.Path.GetInvalidFileNameChars()) >= 0 Then reason = "INVALID NAME"
+        If System.IO.File.Exists(dest) AndAlso Not String.Equals(src, dest, System.StringComparison.OrdinalIgnoreCase) Then reason = "DESTINATION EXISTS"
+        If destinations.ContainsKey(dest) Then reason = "DUPLICATE DESTINATION"
+        If (System.IO.File.GetAttributes(src) And System.IO.FileAttributes.ReadOnly) <> 0 Then reason = "READ ONLY"
+        If reason <> "" Then blocked += 1
+        destinations(dest) = src
+        log.AppendLine(If(reason = "", "PROPOSED", "BLOCKED " & reason) & " | " & src & " -> " & dest)
+    Next
+    log.AppendLine("Proposed: " & count & " | blocked: " & blocked)
+    log.AppendLine("UNVERIFIED: Inventor references, Frame Generator skeleton links, Vault ownership, external dependencies, collisions in case-only renames, and drawings.")
+    Dim report As String = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "SCS_REPAIR_PREVIEW_" & DateTime.Now.ToString("yyyyMMdd_HHmmss") & ".txt")
+    System.IO.File.WriteAllText(report, log.ToString())
+    System.Windows.Forms.MessageBox.Show("Read-only filename preview saved:" & vbCrLf & report & vbCrLf & "Proposed: " & count & "; blocked: " & blocked & vbCrLf & "NOT SAFE TO APPLY.", "SCS v2.2.34 PREVIEW")
+End Sub
