@@ -51,6 +51,18 @@ def preview(inventory):
         blockers.append("VAULT_CLEARANCE_NOT_VERIFIED")
     if inventory.get("profiling_available") is not True:
         blockers.append("PROFILING_NOT_AVAILABLE")
+    # Snapshot directory entries using Windows-style case-insensitive keys, even
+    # when this offline preview is executed on a case-sensitive host.
+    # A failed scan is a blocker, never evidence that the directory is empty.
+    directory_entries = {}
+    directories = {os.path.dirname(os.path.abspath(item["path"])) for item in entries}
+    for directory in directories:
+        try:
+            directory_entries[key(directory)] = {
+                name.casefold(): name for name in os.listdir(directory)
+            }
+        except OSError:
+            blockers.append("DESTINATION_DIRECTORY_UNREADABLE:" + directory)
     destinations = defaultdict(list)
     seen = set()
     for item in entries:
@@ -85,8 +97,14 @@ def preview(inventory):
         destinations[key(dst)].append(src)
         if not under_root(dst, root):
             blockers.append("DESTINATION_OUTSIDE_ROOT:" + dst)
-        if key(src) != key(dst) and os.path.lexists(dst):
-            blockers.append("DESTINATION_EXISTS:" + dst)
+        if key(src) != key(dst):
+            names = directory_entries.get(key(os.path.dirname(dst)))
+            if names is None:
+                blockers.append("DESTINATION_DIRECTORY_UNREADABLE:" + os.path.dirname(dst))
+            elif os.path.basename(dst).casefold() in names:
+                blockers.append("DESTINATION_EXISTS:" + dst)
+            elif os.path.lexists(dst):
+                blockers.append("DESTINATION_EXISTS:" + dst)
         if key(src) != key(dst) and key(dst) in {key(os.path.abspath(e["path"])) for e in entries}:
             blockers.append("DESTINATION_IS_SOURCE:" + dst)
         planned.append({"source": src, "destination": dst, "changed": src != dst})
