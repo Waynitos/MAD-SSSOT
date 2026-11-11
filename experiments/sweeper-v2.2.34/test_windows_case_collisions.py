@@ -34,6 +34,14 @@ class WindowsCaseCollisionTests(unittest.TestCase):
             "profiling_available": True,
         }
 
+    def test_case_only_rename_is_explicitly_blocked(self):
+        inv = self.inventory()
+        inv["substitutions"] = [["OLD", "old"]]
+        result = gate.preview(inv)
+        self.assertIn("CASE_ONLY_RENAME_UNSUPPORTED:" + str(self.source),
+                      result["preflight_blockers"])
+        self.assertFalse(result["approved_for_mutation"])
+
     def test_case_variant_occupied_destination_is_blocked(self):
         occupied = self.root / "new.IPT"
         occupied.write_bytes(b"occupied")
