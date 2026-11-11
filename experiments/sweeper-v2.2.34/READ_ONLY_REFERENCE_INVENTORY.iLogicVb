@@ -1,0 +1,67 @@
+' SUPER CLEAN SWEEPER v2.2.34 — dependency inventory experiment
+' ISOLATED READ-ONLY DIAGNOSTIC. Not a repair engine.
+' Run on a copied GA opened in Inventor; never run on production without review.
+' Inventor/iLogic compilation and execution NOT validated.
+Sub Main()
+    Dim doc As Inventor.Document = ThisApplication.ActiveDocument
+    If doc Is Nothing OrElse doc.DocumentType <> Inventor.DocumentTypeEnum.kAssemblyDocumentObject Then
+        System.Windows.Forms.MessageBox.Show("Open the COPIED target assembly first.")
+        Return
+    End If
+    Dim root As String = System.IO.Path.GetDirectoryName(doc.FullFileName)
+    If String.IsNullOrEmpty(root) Then Return
+    Dim report As New System.Text.StringBuilder()
+    report.AppendLine("READ-ONLY REFERENCE INVENTORY | " & DateTime.Now.ToString("s"))
+    report.AppendLine("GA|" & doc.FullFileName)
+    report.AppendLine("ROOT|" & root)
+    Dim seen As New System.Collections.Generic.HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+    Dim pending As New System.Collections.Generic.Queue(Of Inventor.Document)
+    pending.Enqueue(doc)
+    Dim blocked As Integer = 0
+    While pending.Count > 0
+        Dim current As Inventor.Document = pending.Dequeue()
+        Dim currentPath As String = ""
+        Try
+            currentPath = current.FullFileName
+            If String.IsNullOrEmpty(currentPath) OrElse Not seen.Add(currentPath) Then Continue While
+            report.AppendLine("DOC|" & currentPath)
+            For Each descriptor As Inventor.DocumentDescriptor In current.ReferencedDocumentDescriptors
+                Try
+                    Dim rawPath As String = descriptor.FullDocumentName
+                    Dim refPath As String = rawPath
+                    Dim tagPos As Integer = refPath.IndexOf("<"c)
+                    If tagPos >= 0 Then refPath = refPath.Substring(0, tagPos)
+                    Dim normalized As String = System.IO.Path.GetFullPath(refPath)
+                    Dim inRoot As Boolean = normalized.StartsWith(root.TrimEnd(System.IO.Path.DirectorySeparatorChar) & System.IO.Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                    Dim exists As Boolean = System.IO.File.Exists(normalized)
+                    Dim state As String = If(Not exists, "MISSING", If(Not inRoot, "EXTERNAL", "IN_ROOT"))
+                    report.AppendLine("REF|" & currentPath & "|" & normalized & "|" & state)
+                    If Not exists OrElse Not inRoot Then blocked += 1
+                    If exists AndAlso inRoot Then
+                        Try
+                            Dim child As Inventor.Document = descriptor.ReferencedDocument
+                            If child IsNot Nothing AndAlso (child.DocumentType = Inventor.DocumentTypeEnum.kAssemblyDocumentObject OrElse child.DocumentType = Inventor.DocumentTypeEnum.kPartDocumentObject) Then
+                                pending.Enqueue(child)
+                            End If
+                        Catch ex As Exception
+                            blocked += 1
+                            report.AppendLine("UNRESOLVED_DOC|" & normalized & "|" & ex.Message)
+                        End Try
+                    End If
+                Catch ex As Exception
+                    blocked += 1
+                    report.AppendLine("UNRESOLVED_REF|" & currentPath & "|" & ex.Message)
+                End Try
+            Next
+        Catch ex As Exception
+            blocked += 1
+            report.AppendLine("UNRESOLVED_PARENT|" & currentPath & "|" & ex.Message)
+        End Try
+    End While
+    report.AppendLine("TOTAL_DOCS|" & seen.Count.ToString())
+    report.AppendLine("BLOCKING_FINDINGS|" & blocked.ToString())
+    report.AppendLine("NO FILES MODIFIED; NO REPAIR PERFORMED")
+    Dim reportPath As String = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "SCS_Repair_ReferenceInventory_" & DateTime.Now.ToString("yyyyMMdd_HHmmss") & ".txt")
+    System.IO.File.WriteAllText(reportPath, report.ToString())
+    System.Windows.Forms.MessageBox.Show("Inventory written to: " & reportPath & vbCrLf & "Blocking findings: " & blocked.ToString())
+End Sub
