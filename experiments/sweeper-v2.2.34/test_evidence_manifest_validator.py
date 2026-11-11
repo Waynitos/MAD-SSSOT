@@ -38,6 +38,22 @@ class ManifestTests(unittest.TestCase):
         self.assertIn("DOCUMENT_OUTSIDE_TARGET:0", blockers)
         self.assertIn("UNRESOLVED_EDGE:0", blockers)
 
+    def test_malformed_edge_identifiers_fail_closed_without_crashing(self):
+        for malformed in ([], {}, 7, None):
+            with self.subTest(malformed=malformed):
+                m = sample()
+                m["edges"] = [{"parent_identity": malformed, "child_identity": "ga",
+                               "resolved": True, "discovery_api": "Inventor"}]
+                self.assertIn("UNRESOLVED_EDGE:0", validate(m))
+
+    def test_discovery_api_requires_nonempty_string(self):
+        for malformed in ([], {}, "   "):
+            with self.subTest(malformed=malformed):
+                m = sample()
+                m["edges"] = [{"parent_identity": "ga", "child_identity": "ga",
+                               "resolved": True, "discovery_api": malformed}]
+                self.assertIn("UNCERTIFIED_EDGE:0", validate(m))
+
     def test_invalid_evidence(self):
         m = sample()
         m["documents"][0]["sha256"] = "bad"
