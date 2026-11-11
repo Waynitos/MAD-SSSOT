@@ -108,9 +108,15 @@ def validate(manifest):
             if frame.get("external_reference") is not False:
                 errors.append(f"FRAME_EXTERNAL_REFERENCE_UNVERIFIED:{index}")
     for index, edge in enumerate(edges):
-        if not isinstance(edge, dict) or edge.get("parent_identity") not in known or edge.get("child_identity") not in known:
+        if (not isinstance(edge, dict)
+                or not isinstance(edge.get("parent_identity"), str)
+                or not isinstance(edge.get("child_identity"), str)
+                or edge["parent_identity"] not in known
+                or edge["child_identity"] not in known):
             errors.append(f"UNRESOLVED_EDGE:{index}")
-        elif edge.get("resolved") is not True or not edge.get("discovery_api"):
+        elif (edge.get("resolved") is not True
+              or not isinstance(edge.get("discovery_api"), str)
+              or not edge["discovery_api"].strip()):
             errors.append(f"UNCERTIFIED_EDGE:{index}")
     discovery = manifest.get("discovery")
     if not isinstance(discovery, dict) or discovery.get("complete") is not True or discovery.get("errors") != []:
