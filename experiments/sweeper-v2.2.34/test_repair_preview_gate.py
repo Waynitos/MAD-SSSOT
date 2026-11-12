@@ -73,6 +73,26 @@ class PreviewGateTests(unittest.TestCase):
     def test_empty_inventory_blocks(self):
         self.assertIn("EMPTY_INVENTORY", gate.preview(self.inventory(files=[]))["preflight_blockers"])
 
+    def test_malformed_inventory_rejected_before_filesystem_scan(self):
+        bad = [
+            None, [], {},
+            self.inventory(files="not-an-array"),
+            self.inventory(files=[None]),
+            self.inventory(files=[{"path": ""}]),
+            self.inventory(files=[{"path": "relative.ipt"}]),
+            self.inventory(substitutions=None, target_root=""),
+        ]
+        for item in bad:
+            with self.subTest(item=repr(item)):
+                with self.assertRaises((ValueError, TypeError)):
+                    gate.preview(item)
+
+    def test_relative_root_rejected(self):
+        inventory = self.inventory()
+        inventory["target_root"] = "relative/root"
+        with self.assertRaises(ValueError):
+            gate.preview(inventory)
+
     def test_more_than_five_substitutions_rejected(self):
         with self.assertRaises(ValueError):
             gate.preview(self.inventory(substitutions=[["x", "y"]] * 6))
