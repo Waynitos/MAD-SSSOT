@@ -1,4 +1,8 @@
 # PROJECT-LAUNCH-Plus v1.6
+## BEEXCITED HIVE MIND — CROSS-PROJECT SYNC (2026-11-12)
+For BEEXCITED project starts, session resumes and material architecture decisions, read [architecture/BEEXCITED-HIVE-MIND-SYNC.md](architecture/BEEXCITED-HIVE-MIND-SYNC.md) together with this launch protocol and the specific project's SSSOT. It contains current MU-directed principles, PWTP/flight-leg planning, Path-Aligned Autonomy, HR/agent roster proposals, evidence statuses and a lightweight session-sync protocol. This is a **working design record**, not a claim that autonomous propagation, agent recruitment or project orchestration are implemented. Reconcile conflicts with existing protocols and verified project baselines; do not silently overwrite them.
+
+
 ## CHANGELOG
 - 2026-10-28 v1.6: Added PLU-session-protocol (NEWTHREAD proactive trigger + handoff template) and PLU-presearch-protocol (PRESEARCH research-first rule for non-trivial coding tasks)
 - 2026-10-25 v1.5: PLU-bootstrap.md created — single-URL instruction block pattern; trigger glossary, ordered fetch sequence, and fallback rules moved from pasted text into GitHub; PLU-wizard.md updated to generate new one-line instruction block; MAD run: plu-bootstrap-sync
