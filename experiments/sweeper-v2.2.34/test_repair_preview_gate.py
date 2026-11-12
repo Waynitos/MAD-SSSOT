@@ -67,6 +67,19 @@ class PreviewGateTests(unittest.TestCase):
                  for p in (self.src, other)]
         self.assertTrue(any(x.startswith("DESTINATION_COLLISION:") for x in gate.preview(self.inventory(files=files))["preflight_blockers"]))
 
+    def test_ambiguous_windows_casefold_directory_blocks(self):
+        # A case-sensitive host can contain names that collide on Windows.
+        upper = self.root / "DUP.ipt"
+        lower = self.root / "dup.ipt"
+        upper.write_bytes(b"one")
+        lower.write_bytes(b"two")
+        if len([p for p in self.root.iterdir() if p.name.casefold() == "dup.ipt"]) < 2:
+            self.skipTest("Host filesystem does not support case-distinct siblings")
+        result = gate.preview(self.inventory())
+        self.assertTrue(any(x.startswith("AMBIGUOUS_WINDOWS_DIRECTORY_ENTRY:")
+                            for x in result["preflight_blockers"]))
+        self.assertFalse(result["approved_for_mutation"])
+
     def test_invalid_target_name_blocks(self):
         self.assertTrue(any(x.startswith("INVALID_TARGET_NAME:") for x in gate.preview(self.inventory(substitutions=[["OLD", "BAD?"]]))["preflight_blockers"]))
 
