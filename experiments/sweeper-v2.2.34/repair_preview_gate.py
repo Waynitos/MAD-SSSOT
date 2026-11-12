@@ -78,9 +78,14 @@ def preview(inventory):
     directories = {os.path.dirname(os.path.abspath(item["path"])) for item in entries}
     for directory in directories:
         try:
-            directory_entries[key(directory)] = {
-                name.casefold(): name for name in os.listdir(directory)
-            }
+            names = os.listdir(directory)
+            folded = {}
+            for name in names:
+                folded.setdefault(name.casefold(), []).append(name)
+            for collisions in folded.values():
+                if len(collisions) > 1:
+                    blockers.append("AMBIGUOUS_WINDOWS_DIRECTORY_ENTRY:" + directory + ":" + " | ".join(sorted(collisions)))
+            directory_entries[key(directory)] = folded
         except OSError:
             blockers.append("DESTINATION_DIRECTORY_UNREADABLE:" + directory)
     destinations = defaultdict(list)
