@@ -5,7 +5,7 @@ Consumes a JSON snapshot exported by a future read-only Inventor collector.
 This is a *preflight* only; passing cannot authorize mutation.
 """
 import json
-import os
+import ntpath
 import sys
 from collections import Counter
 
@@ -20,7 +20,7 @@ BLOCKERS = {
 def canonical(path):
     if not isinstance(path, str) or not path.strip():
         return ""
-    return os.path.normcase(os.path.normpath(path.strip())).casefold()
+    return ntpath.normcase(ntpath.normpath(path.strip())).casefold()
 
 def validate(plan):
     errors = []
@@ -37,6 +37,9 @@ def validate(plan):
     if not isinstance(plan["occurrences"], list) or not isinstance(plan["documents"], list):
         return errors + ["BLOCK_INVALID_COLLECTION"]
     paths = []
+    # Windows path comparisons must not depend on the host running the offline gate.
+    if not ntpath.isabs(target) or not ntpath.isabs(source):
+        errors.append("BLOCK_NONABSOLUTE_ROOT")
     for i, doc in enumerate(plan["documents"]):
         if not isinstance(doc, dict):
             errors.append("BLOCK_DOCUMENT_SCHEMA:" + str(i))
@@ -45,6 +48,8 @@ def validate(plan):
         if not path:
             errors.append("BLOCK_DOCUMENT_PATH:" + str(i))
         paths.append(path)
+        if path and not ntpath.isabs(path):
+            errors.append("BLOCK_NONABSOLUTE_DOCUMENT:" + str(i))
         for field in ("provenance", "vault_state", "read_only", "dirty", "exists", "frame_state", "backup_verified"):
             if field not in doc:
                 errors.append("BLOCK_UNKNOWN_" + field.upper() + ":" + str(i))
@@ -76,6 +81,8 @@ def validate(plan):
         parent, current, proposed = (canonical(occ.get(k)) for k in ("parent", "current", "proposed"))
         if not parent or not current or not proposed or parent not in known or proposed not in known:
             errors.append("BLOCK_OCCURRENCE_REFERENCE:" + str(i))
+        if any(p and not ntpath.isabs(p) for p in (parent, current, proposed)):
+            errors.append("BLOCK_NONABSOLUTE_OCCURRENCE:" + str(i))
         if occ.get("identity_verified") is not True or occ.get("descriptor_verified") is not True:
             errors.append("BLOCK_REFERENCE_IDENTITY:" + str(i))
     if not plan.get("rollback_journal_verified"):
