@@ -71,6 +71,8 @@ def validate(plan):
         if count > 1:
             errors.append("BLOCK_DUPLICATE_DOCUMENT:" + path)
     known = set(paths)
+    provenance = {canonical(d.get("path")): canonical(d.get("provenance")) for d in plan["documents"] if isinstance(d, dict)}
+    occurrence_keys = set()
     if target not in known:
         errors.append("BLOCK_TARGET_NOT_IN_DOCUMENTS")
     if not plan["occurrences"]:
@@ -87,6 +89,14 @@ def validate(plan):
             errors.append("BLOCK_OCCURRENCE_REFERENCE:" + str(i))
         if any(p and not ntpath.isabs(p) for p in (parent, current, proposed)):
             errors.append("BLOCK_NONABSOLUTE_OCCURRENCE:" + str(i))
+        if current not in known and current not in set(provenance.values()):
+            errors.append("BLOCK_CURRENT_NOT_IN_INVENTORY_OR_PROVENANCE:" + str(i))
+        if proposed in provenance and provenance[proposed] != current:
+            errors.append("BLOCK_PROVENANCE_MISMATCH:" + str(i))
+        occurrence_key = (parent, current, proposed)
+        if occurrence_key in occurrence_keys:
+            errors.append("BLOCK_DUPLICATE_OCCURRENCE:" + str(i))
+        occurrence_keys.add(occurrence_key)
         if current == proposed and current:
             errors.append("BLOCK_NOOP_OCCURRENCE:" + str(i))
         if parent == proposed and parent:
