@@ -1,0 +1,113 @@
+' PWTP-ETR-01 — Existing Target Repair PREVIEW ONLY
+' Separate experimental iLogic rule; never calls Save/SaveAs/Replace/Update,
+' changes file attributes, or writes to Vault-managed model locations.
+' Produces a deterministic tab-separated candidate inventory in %TEMP%.
+' This is NOT a mutation executor and NOT a complete v2.2.34 candidate.
+Sub Main()
+    Dim active As Inventor.Document = ThisApplication.ActiveDocument
+    If active Is Nothing OrElse active.DocumentType <> Inventor.DocumentTypeEnum.kAssemblyDocumentObject Then
+        MessageBox.Show("Open the already-copied target assembly first.", "ETR Preview")
+        Return
+    End If
+    Dim targetRoot As String = ""
+    Try : targetRoot = System.IO.Path.GetFullPath(active.FullFileName) : Catch : End Try
+    If String.IsNullOrWhiteSpace(targetRoot) OrElse Not System.IO.File.Exists(targetRoot) Then
+        MessageBox.Show("Target assembly must exist on disk. No operations performed.", "ETR Preview")
+        Return
+    End If
+
+    Dim folder As String = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "SCS_ETR_Preview")
+    System.IO.Directory.CreateDirectory(folder)
+    Dim logFile As String = System.IO.Path.Combine(folder, "etr_preview_" & DateTime.Now.ToString("yyyyMMdd_HHmmss_fff") & ".tsv")
+    Dim rows As New System.Collections.Generic.List(Of String)
+    rows.Add("record" & vbTab & "depth" & vbTab & "parent" & vbTab & "path" & vbTab & "internal_name" & vbTab & "dirty" & vbTab & "readonly" & vbTab & "status" & vbTab & "reason")
+    Dim seen As New System.Collections.Generic.HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+    Dim rootFolder As String = System.IO.Path.GetDirectoryName(targetRoot)
+    Scan(active, 0, "", rootFolder, seen, rows)
+    System.IO.File.WriteAllLines(logFile, rows.ToArray())
+    MessageBox.Show("Preview only — no Inventor file changed." & vbCrLf & "Entries: " & (rows.Count - 1) & vbCrLf & logFile, "ETR Preview")
+End Sub
+
+Sub Scan(doc As Inventor.Document, depth As Integer, parent As String, rootFolder As String, seen As System.Collections.Generic.HashSet(Of String), rows As System.Collections.Generic.List(Of String))
+    If depth > 100 Then
+        AddRow(rows, "ERROR", depth, parent, "", "", "", "", "BLOCKED", "Depth limit exceeded")
+        Return
+    End If
+    Dim path As String = ""
+    Try : path = System.IO.Path.GetFullPath(doc.FullFileName) : Catch : End Try
+    If String.IsNullOrWhiteSpace(path) Then
+        AddRow(rows, "DOCUMENT", depth, parent, "", "", "", "", "BLOCKED", "Unsaved or invalid document path")
+        Return
+    End If
+    Dim identity As String = ""
+    Try : identity = doc.InternalName : Catch : identity = "UNAVAILABLE" : End Try
+    Dim dirty As String = ""
+    Try : dirty = CStr(doc.Dirty) : Catch : dirty = "UNKNOWN" : End Try
+    Dim readOnly As String = "UNKNOWN"
+    Dim reason As String = ""
+    Dim status As String = "REVIEW"
+    Try
+        If Not System.IO.File.Exists(path) Then
+            reason = "Missing file"
+            status = "BLOCKED"
+        Else
+            readOnly = CStr((System.IO.File.GetAttributes(path) And System.IO.FileAttributes.ReadOnly) <> 0)
+            If readOnly = "True" Then
+                reason = "Read-only file: no automatic attribute change"
+                status = "BLOCKED"
+            ElseIf Not IsWithin(path, rootFolder) Then
+                reason = "Outside target root: do not mutate"
+                status = "EXTERNAL"
+            Else
+                reason = "Writable attribute only; Vault checkout and provenance NOT verified"
+                status = "BLOCKED"
+            End If
+        End If
+    Catch ex As Exception
+        reason = "Filesystem preflight error: " & ex.Message
+        status = "BLOCKED"
+    End Try
+    Dim frameHint As Boolean = False
+    Try
+        If doc.DocumentType = Inventor.DocumentTypeEnum.kAssemblyDocumentObject Then
+            Dim asm As Inventor.AssemblyDocument = CType(doc, Inventor.AssemblyDocument)
+            For Each occ As Inventor.ComponentOccurrence In asm.ComponentDefinition.Occurrences
+                Dim name As String = ""
+                Try : name = occ.Name : Catch : End Try
+                If name.IndexOf("Frame Reference Model", StringComparison.OrdinalIgnoreCase) >= 0 Then frameHint = True
+            Next
+        End If
+    Catch ex As Exception
+        reason &= "; frame hint scan failed: " & ex.Message
+    End Try
+    If frameHint Then reason &= "; FRAME-CANDIDATE (name heuristic only; verify skeleton/member metadata)"
+    AddRow(rows, "DOCUMENT", depth, parent, path, identity, dirty, readOnly, status, reason)
+    If seen.Contains(path) Then Return
+    seen.Add(path)
+    Try
+        For Each child As Inventor.Document In doc.ReferencedDocuments
+            Scan(child, depth + 1, path, rootFolder, seen, rows)
+        Next
+    Catch ex As Exception
+        AddRow(rows, "ERROR", depth, path, "", "", "", "", "BLOCKED", "Reference enumeration failed: " & ex.Message)
+    End Try
+End Sub
+
+Function IsWithin(path As String, folder As String) As Boolean
+    Try
+        Dim root As String = System.IO.Path.GetFullPath(folder).TrimEnd(System.IO.Path.DirectorySeparatorChar) & System.IO.Path.DirectorySeparatorChar
+        Dim candidate As String = System.IO.Path.GetFullPath(path)
+        Return candidate.StartsWith(root, StringComparison.OrdinalIgnoreCase)
+    Catch
+        Return False
+    End Try
+End Function
+
+Sub AddRow(rows As System.Collections.Generic.List(Of String), kind As String, depth As Integer, parent As String, path As String, identity As String, dirty As String, ro As String, status As String, reason As String)
+    rows.Add(String.Join(vbTab, New String() {Clean(kind), CStr(depth), Clean(parent), Clean(path), Clean(identity), Clean(dirty), Clean(ro), Clean(status), Clean(reason)}))
+End Sub
+
+Function Clean(s As String) As String
+    If s Is Nothing Then Return ""
+    Return s.Replace(vbTab, " ").Replace(vbCr, " ").Replace(vbLf, " ")
+End Function
