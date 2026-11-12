@@ -71,6 +71,10 @@ def validate(plan):
         if count > 1:
             errors.append("BLOCK_DUPLICATE_DOCUMENT:" + path)
     known = set(paths)
+    if target not in known:
+        errors.append("BLOCK_TARGET_NOT_IN_DOCUMENTS")
+    if not plan["occurrences"]:
+        errors.append("BLOCK_NO_REPAIR_OCCURRENCES")
     for i, occ in enumerate(plan["occurrences"]):
         if not isinstance(occ, dict):
             errors.append("BLOCK_OCCURRENCE_SCHEMA:" + str(i))
@@ -83,6 +87,10 @@ def validate(plan):
             errors.append("BLOCK_OCCURRENCE_REFERENCE:" + str(i))
         if any(p and not ntpath.isabs(p) for p in (parent, current, proposed)):
             errors.append("BLOCK_NONABSOLUTE_OCCURRENCE:" + str(i))
+        if current == proposed and current:
+            errors.append("BLOCK_NOOP_OCCURRENCE:" + str(i))
+        if parent == proposed and parent:
+            errors.append("BLOCK_SELF_REFERENCE:" + str(i))
         if occ.get("identity_verified") is not True or occ.get("descriptor_verified") is not True:
             errors.append("BLOCK_REFERENCE_IDENTITY:" + str(i))
     if not plan.get("rollback_journal_verified"):
