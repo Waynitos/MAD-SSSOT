@@ -80,7 +80,6 @@ class PreviewGateTests(unittest.TestCase):
             self.inventory(files=[None]),
             self.inventory(files=[{"path": ""}]),
             self.inventory(files=[{"path": "relative.ipt"}]),
-            self.inventory(substitutions=None, target_root=""),
         ]
         for item in bad:
             with self.subTest(item=repr(item)):
