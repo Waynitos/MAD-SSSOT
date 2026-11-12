@@ -103,6 +103,30 @@ def validate(plan):
             errors.append("BLOCK_SELF_REFERENCE:" + str(i))
         if occ.get("identity_verified") is not True or occ.get("descriptor_verified") is not True:
             errors.append("BLOCK_REFERENCE_IDENTITY:" + str(i))
+    # Proposed parent->child edges must never introduce an assembly dependency cycle.
+    # Fail closed even when all individual descriptors and file paths look valid.
+    graph = {}
+    for occ in plan["occurrences"]:
+        if not isinstance(occ, dict):
+            continue
+        parent, proposed = canonical(occ.get("parent")), canonical(occ.get("proposed"))
+        if parent and proposed and parent in known and proposed in known:
+            graph.setdefault(parent, set()).add(proposed)
+    visited, active = set(), set()
+    def has_cycle(node):
+        if node in active:
+            return True
+        if node in visited:
+            return False
+        active.add(node)
+        for child in graph.get(node, ()):
+            if has_cycle(child):
+                return True
+        active.remove(node)
+        visited.add(node)
+        return False
+    if any(has_cycle(node) for node in graph if node not in visited):
+        errors.append("BLOCK_PROPOSED_REFERENCE_CYCLE")
     if not plan.get("rollback_journal_verified"):
         errors.append("BLOCK_ROLLBACK_JOURNAL")
     if not plan.get("profiling_retained"):
