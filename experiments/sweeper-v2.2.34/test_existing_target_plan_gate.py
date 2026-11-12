@@ -8,8 +8,12 @@ def sample():
         "documents": [{"path": "C:/new/ga.iam", "provenance": "C:/old/ga.iam",
                        "vault_state": "checked_out_to_current_user",
                        "read_only": False, "dirty": False, "exists": True,
-                       "frame_state": "not_frame", "backup_verified": True}],
-        "occurrences": [], "rollback_journal_verified": True, "profiling_retained": True,
+                       "frame_state": "not_frame", "backup_verified": True},
+                      {"path": "C:/new/part.ipt", "provenance": "C:/old/part.ipt",
+                       "vault_state": "checked_out_to_current_user", "read_only": False,
+                       "dirty": False, "exists": True, "frame_state": "not_frame",
+                       "backup_verified": True}],
+        "occurrences": [{"parent": "C:/new/ga.iam", "current": "C:/old/part.ipt", "proposed": "C:/new/part.ipt", "identity_verified": True, "descriptor_verified": True}], "rollback_journal_verified": True, "profiling_retained": True,
     }
 
 class GateTests(unittest.TestCase):
@@ -51,3 +55,17 @@ class GateTests(unittest.TestCase):
         p = sample()
         p["target"] = r"..\\new\\ga.iam"
         self.assertIn("BLOCK_NONABSOLUTE_ROOT", validate(p))
+
+class RepairCompletenessTests(unittest.TestCase):
+    def test_empty_repair_is_blocked(self):
+        p = sample(); p["occurrences"] = []
+        self.assertIn("BLOCK_NO_REPAIR_OCCURRENCES", validate(p))
+    def test_target_must_be_in_inventory(self):
+        p = sample(); p["target"] = "C:/new/missing.iam"
+        self.assertIn("BLOCK_TARGET_NOT_IN_DOCUMENTS", validate(p))
+    def test_noop_replacement_blocked(self):
+        p = sample(); p["occurrences"][0]["current"] = "C:/new/part.ipt"
+        self.assertIn("BLOCK_NOOP_OCCURRENCE:0", validate(p))
+    def test_self_reference_blocked(self):
+        p = sample(); p["occurrences"][0]["proposed"] = "C:/new/ga.iam"
+        self.assertIn("BLOCK_SELF_REFERENCE:0", validate(p))
