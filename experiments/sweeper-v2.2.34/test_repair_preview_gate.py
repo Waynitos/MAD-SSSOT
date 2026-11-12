@@ -34,10 +34,19 @@ class PreviewGateTests(unittest.TestCase):
         result = gate.preview(self.inventory())
         self.assertFalse(result["approved_for_mutation"])
         self.assertTrue(result["preview_only"])
-        self.assertEqual(result["preflight_blockers"], [])
+        self.assertEqual(result["preflight_blockers"], ["EVIDENCE_MANIFEST_MISSING"])
         self.assertEqual(result["plan"][0]["destination"], str(self.root / "NEW.ipt"))
         self.assertTrue(self.src.exists())
         self.assertFalse((self.root / "NEW.ipt").exists())
+
+    def test_untrusted_manifest_is_structurally_checked_and_never_approves(self):
+        inventory = self.inventory(evidence_manifest={"schema": "invalid", "documents": []})
+        result = gate.preview(inventory)
+        self.assertIn("UNSUPPORTED_SCHEMA", result["preflight_blockers"])
+        self.assertIn("INVENTOR_READBACK_REQUIRED", result["preflight_blockers"])
+        self.assertIn("EXECUTION_PREFLIGHT_REQUIRED", result["preflight_blockers"])
+        self.assertNotIn("EVIDENCE_MANIFEST_MISSING", result["preflight_blockers"])
+        self.assertFalse(result["approved_for_mutation"])
 
     def test_uncertified_discovery_blocks(self):
         result = gate.preview(self.inventory(discovery_complete=False))
