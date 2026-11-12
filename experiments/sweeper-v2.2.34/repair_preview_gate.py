@@ -84,6 +84,7 @@ def preview(inventory):
         except OSError:
             blockers.append("DESTINATION_DIRECTORY_UNREADABLE:" + directory)
     destinations = defaultdict(list)
+    source_keys = {key(os.path.abspath(e["path"])) for e in entries}
     seen = set()
     for item in entries:
         src = os.path.abspath(item["path"])
@@ -128,12 +129,14 @@ def preview(inventory):
                 blockers.append("DESTINATION_EXISTS:" + dst)
             elif os.path.lexists(dst):
                 blockers.append("DESTINATION_EXISTS:" + dst)
-        if key(src) != key(dst) and key(dst) in {key(os.path.abspath(e["path"])) for e in entries}:
+        if key(src) != key(dst) and key(dst) in source_keys:
             blockers.append("DESTINATION_IS_SOURCE:" + dst)
         planned.append({"source": src, "destination": dst, "changed": src != dst})
     for sources in destinations.values():
         if len(sources) > 1:
             blockers.append("DESTINATION_COLLISION:" + " | ".join(sources))
+    if planned and not any(item["changed"] for item in planned):
+        blockers.append("NO_EFFECTIVE_RENAMES")
     # Even with no blockers this is preview-only. No mutation entry point exists.
     return {"approved_for_mutation": False, "preview_only": True,
             "preflight_blockers": sorted(set(blockers)), "plan": planned}
