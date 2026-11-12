@@ -31,8 +31,23 @@ def under_root(path, root):
         return False
 
 def preview(inventory):
-    root = os.path.abspath(inventory["target_root"])
-    substitutions = inventory["substitutions"]
+    if not isinstance(inventory, dict):
+        raise ValueError("Inventory must be an object")
+    target_root = inventory.get("target_root")
+    if not isinstance(target_root, str) or not target_root.strip():
+        raise ValueError("target_root must be a nonempty string")
+    if not os.path.isabs(target_root):
+        raise ValueError("target_root must be absolute")
+    entries = inventory.get("files")
+    if not isinstance(entries, list):
+        raise ValueError("files must be an array")
+    for index, item in enumerate(entries):
+        if not isinstance(item, dict) or not isinstance(item.get("path"), str) or not item["path"].strip():
+            raise ValueError("Invalid file record at index " + str(index))
+        if not os.path.isabs(item["path"]):
+            raise ValueError("File path must be absolute at index " + str(index))
+    root = os.path.abspath(target_root)
+    substitutions = inventory.get("substitutions")
     if not isinstance(substitutions, list) or len(substitutions) > 5:
         raise ValueError("Expected at most five substitutions")
     if any(not isinstance(x, list) or len(x) != 2 or not all(isinstance(y, str) for y in x) or not x[0] for x in substitutions):
