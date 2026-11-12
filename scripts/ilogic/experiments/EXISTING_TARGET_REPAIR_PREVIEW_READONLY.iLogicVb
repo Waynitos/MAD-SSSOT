@@ -1,0 +1,68 @@
+' SCS v2.2.34 Existing Target Repair — PREVIEW ONLY, no mutation.
+' Run with the already-copied target assembly active. Inventor 2025 iLogic.
+' Never saves, replaces, checks out, clears attributes, or opens source files.
+' The preview is diagnostic evidence, NOT approval to perform repair.
+Sub Main()
+    Dim root As Inventor.Document = ThisApplication.ActiveDocument
+    If root Is Nothing OrElse root.DocumentType <> Inventor.DocumentTypeEnum.kAssemblyDocumentObject Then
+        MessageBox.Show("Open the EXISTING TARGET assembly first.", "SCS Repair Preview")
+        Return
+    End If
+    Dim rootPath As String = root.FullFileName
+    If String.IsNullOrWhiteSpace(rootPath) OrElse Not System.IO.File.Exists(rootPath) Then
+        MessageBox.Show("Target must be saved on disk. No action taken.", "SCS Repair Preview")
+        Return
+    End If
+    Dim outDir As String = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "SCS_Repair_Previews")
+    System.IO.Directory.CreateDirectory(outDir)
+    Dim outFile As String = System.IO.Path.Combine(outDir, "repair_preview_" & DateTime.Now.ToString("yyyyMMdd_HHmmss_fff") & ".tsv")
+    Dim rows As New System.Collections.Generic.List(Of String)
+    rows.Add("kind" & vbTab & "depth" & vbTab & "path" & vbTab & "parent" & vbTab & "read_only" & vbTab & "dirty" & vbTab & "provenance" & vbTab & "decision")
+    Dim seen As New System.Collections.Generic.HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+    WalkPreview(root, "", 0, seen, rows)
+    System.IO.File.WriteAllLines(outFile, rows.ToArray())
+    MessageBox.Show("Preview only. No files changed." & vbCrLf & "Rows: " & rows.Count & vbCrLf & outFile, "SCS Repair Preview")
+End Sub
+
+Sub WalkPreview(doc As Inventor.Document, parent As String, depth As Integer, seen As System.Collections.Generic.HashSet(Of String), rows As System.Collections.Generic.List(Of String))
+    If depth > 100 Then
+        rows.Add("ERROR" & vbTab & depth & vbTab & SafeField(doc.DisplayName) & vbTab & SafeField(parent) & vbTab & "" & vbTab & "" & vbTab & "" & vbTab & "BLOCK_DEPTH")
+        Return
+    End If
+    Dim path As String = doc.FullFileName
+    Dim decision As String = "PREVIEW_ONLY"
+    Dim ro As String = "UNKNOWN"
+    If String.IsNullOrWhiteSpace(path) OrElse Not System.IO.File.Exists(path) Then
+        decision = "BLOCK_MISSING_FILE"
+    Else
+        Try
+            ro = CStr((System.IO.File.GetAttributes(path) And System.IO.FileAttributes.ReadOnly) <> 0)
+            If ro = "True" Then decision = "BLOCK_READONLY"
+        Catch
+            decision = "BLOCK_ATTRIBUTES_UNKNOWN"
+        End Try
+    End If
+    Dim provenance As String = "UNAVAILABLE"
+    Try
+        Dim props As Inventor.PropertySet = doc.PropertySets.Item("Inventor User Defined Properties")
+        provenance = CStr(props.Item("CS_SourcePath").Value)
+    Catch
+        If decision = "PREVIEW_ONLY" Then decision = "BLOCK_PROVENANCE_UNKNOWN"
+    End Try
+    If doc.Dirty AndAlso decision = "PREVIEW_ONLY" Then decision = "BLOCK_DIRTY"
+    rows.Add("DOCUMENT" & vbTab & depth & vbTab & SafeField(path) & vbTab & SafeField(parent) & vbTab & ro & vbTab & CStr(doc.Dirty) & vbTab & SafeField(provenance) & vbTab & decision)
+    If String.IsNullOrWhiteSpace(path) OrElse seen.Contains(path) Then Return
+    seen.Add(path)
+    Try
+        For Each child As Inventor.Document In doc.ReferencedDocuments
+            WalkPreview(child, path, depth + 1, seen, rows)
+        Next
+    Catch ex As Exception
+        rows.Add("ERROR" & vbTab & depth & vbTab & SafeField(path) & vbTab & "" & vbTab & "" & vbTab & "" & vbTab & SafeField(ex.Message) & vbTab & "BLOCK_REFERENCE_ENUMERATION")
+    End Try
+End Sub
+
+Function SafeField(value As String) As String
+    If value Is Nothing Then Return ""
+    Return value.Replace(vbTab, " ").Replace(vbCr, " ").Replace(vbLf, " ")
+End Function
