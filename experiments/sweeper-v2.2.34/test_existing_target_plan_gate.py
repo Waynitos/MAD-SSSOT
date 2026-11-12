@@ -69,3 +69,25 @@ class RepairCompletenessTests(unittest.TestCase):
     def test_self_reference_blocked(self):
         p = sample(); p["occurrences"][0]["proposed"] = "C:/new/ga.iam"
         self.assertIn("BLOCK_SELF_REFERENCE:0", validate(p))
+
+
+class ProvenanceIntegrityTests(unittest.TestCase):
+    def test_mismatched_target_provenance_blocked(self):
+        p = sample()
+        p["documents"][1]["provenance"] = "C:/old/different.ipt"
+        self.assertIn("BLOCK_PROVENANCE_MISMATCH:0", validate(p))
+
+    def test_unknown_current_reference_blocked(self):
+        p = sample()
+        p["occurrences"][0]["current"] = "C:/old/unlisted.ipt"
+        self.assertIn("BLOCK_CURRENT_NOT_IN_INVENTORY_OR_PROVENANCE:0", validate(p))
+
+    def test_duplicate_occurrence_blocked(self):
+        p = sample()
+        p["occurrences"].append(dict(p["occurrences"][0]))
+        self.assertIn("BLOCK_DUPLICATE_OCCURRENCE:1", validate(p))
+
+    def test_case_insensitive_provenance_accepted(self):
+        p = sample()
+        p["occurrences"][0]["current"] = r"c:\\OLD\\PART.IPT"
+        self.assertEqual(validate(p), [])
