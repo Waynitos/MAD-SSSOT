@@ -36,3 +36,18 @@ class GateTests(unittest.TestCase):
     def test_same_source_target_blocked(self):
         p = sample(); p["source"] = "c:/new/ga.iam"
         self.assertIn("BLOCK_TARGET_SOURCE_IDENTITY", validate(p))
+
+    def test_windows_slash_case_duplicate_blocked(self):
+        p = sample()
+        p["documents"].append(dict(p["documents"][0], path=r"c:\\NEW\\GA.IAM"))
+        self.assertTrue(any("DUPLICATE" in x for x in validate(p)))
+
+    def test_relative_document_blocked(self):
+        p = sample()
+        p["documents"][0]["path"] = r"..\\new\\ga.iam"
+        self.assertTrue(any("NONABSOLUTE_DOCUMENT" in x for x in validate(p)))
+
+    def test_relative_roots_blocked(self):
+        p = sample()
+        p["target"] = r"..\\new\\ga.iam"
+        self.assertIn("BLOCK_NONABSOLUTE_ROOT", validate(p))
