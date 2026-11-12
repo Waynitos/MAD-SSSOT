@@ -8,6 +8,7 @@ import sys
 import re
 from collections import defaultdict
 from pathlib import Path
+from evidence_manifest_validator import validate as validate_evidence_manifest
 
 EXTENSIONS = {".iam", ".ipt", ".idw", ".dwg", ".ipn"}
 RESERVED = re.compile(r'^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\..*)?$', re.I)
@@ -36,7 +37,11 @@ def preview(inventory):
         raise ValueError("Expected at most five substitutions")
     if any(not isinstance(x, list) or len(x) != 2 or not all(isinstance(y, str) for y in x) or not x[0] for x in substitutions):
         raise ValueError("Each substitution must be [nonempty search, replacement]")
-    blockers = []
+    # Untrusted manifest assertions are validated structurally and never grant approval.
+    # The preview is still usable without one, but explicitly reports missing evidence.
+    manifest = inventory.get("evidence_manifest")
+    blockers = (validate_evidence_manifest(manifest) if manifest is not None
+                else ["EVIDENCE_MANIFEST_MISSING"])
     planned = []
     entries = inventory["files"]
     if not entries:
