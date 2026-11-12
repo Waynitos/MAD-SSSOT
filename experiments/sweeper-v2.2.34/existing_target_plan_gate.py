@@ -112,20 +112,32 @@ def validate(plan):
         parent, proposed = canonical(occ.get("parent")), canonical(occ.get("proposed"))
         if parent and proposed and parent in known and proposed in known:
             graph.setdefault(parent, set()).add(proposed)
-    visited, active = set(), set()
-    def has_cycle(node):
-        if node in active:
-            return True
-        if node in visited:
-            return False
-        active.add(node)
-        for child in graph.get(node, ()):
-            if has_cycle(child):
-                return True
-        active.remove(node)
-        visited.add(node)
-        return False
-    if any(has_cycle(node) for node in graph if node not in visited):
+    # Iterative DFS avoids Python recursion limits on large assembly graphs.
+    # 0 = unseen, 1 = active, 2 = complete.
+    states = {}
+    cyclic = False
+    for root_node in graph:
+        if states.get(root_node, 0):
+            continue
+        states[root_node] = 1
+        stack = [(root_node, iter(graph.get(root_node, ())))]
+        while stack:
+            node, children = stack[-1]
+            child = next(children, None)
+            if child is None:
+                states[node] = 2
+                stack.pop()
+                continue
+            state = states.get(child, 0)
+            if state == 1:
+                cyclic = True
+                break
+            if state == 0:
+                states[child] = 1
+                stack.append((child, iter(graph.get(child, ()))))
+        if cyclic:
+            break
+    if cyclic:
         errors.append("BLOCK_PROPOSED_REFERENCE_CYCLE")
     if not plan.get("rollback_journal_verified"):
         errors.append("BLOCK_ROLLBACK_JOURNAL")
