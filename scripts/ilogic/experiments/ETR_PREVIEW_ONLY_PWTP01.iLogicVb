@@ -1,0 +1,62 @@
+' PWTP-ETR-01 — Existing Target Repair PREVIEW ONLY (Inventor 2025 iLogic)
+' No Save, SaveAs, ReplaceReference, Replace, Update, attribute edits or Vault operations.
+' Run from a copied TARGET assembly. This diagnostic does not authorise repair.
+' Reports the actual referenced document paths and target file read-only flags.
+' It deliberately does not infer Vault checkout from file attributes.
+Sub Main()
+    Dim d As Inventor.Document = ThisApplication.ActiveDocument
+    If d Is Nothing Then
+        MessageBox.Show("No active document.", "ETR Preview")
+        Return
+    End If
+    If d.DocumentType <> Inventor.DocumentTypeEnum.kAssemblyDocumentObject Then
+        MessageBox.Show("Open a TARGET assembly before preview.", "ETR Preview")
+        Return
+    End If
+    Dim dir As String = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "SCS_ETR_Preview")
+    System.IO.Directory.CreateDirectory(dir)
+    Dim output As String = System.IO.Path.Combine(dir, "etr_" & DateTime.Now.ToString("yyyyMMdd_HHmmss_fff") & ".tsv")
+    Dim rows As New System.Collections.Generic.List(Of String)
+    rows.Add("status" & vbTab & "depth" & vbTab & "parent" & vbTab & "reference" & vbTab & "readonly" & vbTab & "detail")
+    rows.Add("PREVIEW_ONLY" & vbTab & "0" & vbTab & Esc(d.FullFileName) & vbTab & "" & vbTab & "" & vbTab & "No changes permitted; Vault status not checked")
+    Dim seen As New System.Collections.Generic.HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+    Scan(d, 0, seen, rows)
+    System.IO.File.WriteAllLines(output, rows.ToArray())
+    MessageBox.Show("Preview only: " & (rows.Count - 2).ToString() & " reference records." & vbCrLf & output, "ETR Preview")
+End Sub
+
+Sub Scan(parent As Inventor.Document, depth As Integer, seen As System.Collections.Generic.HashSet(Of String), rows As System.Collections.Generic.List(Of String))
+    If depth >= 100 Then
+        rows.Add("DEPTH_LIMIT" & vbTab & depth & vbTab & Esc(parent.FullFileName) & vbTab & "" & vbTab & "" & vbTab & "Inspection stopped")
+        Return
+    End If
+    Dim identity As String = parent.FullFileName
+    If String.IsNullOrEmpty(identity) Then identity = parent.DisplayName
+    If seen.Contains(identity) Then Return
+    seen.Add(identity)
+    Try
+        For Each child As Inventor.Document In parent.ReferencedDocuments
+            Dim p As String = child.FullFileName
+            Dim exists As Boolean = Not String.IsNullOrEmpty(p) AndAlso System.IO.File.Exists(p)
+            Dim ro As String = "UNKNOWN"
+            If exists Then
+                Try
+                    ro = CStr((System.IO.File.GetAttributes(p) And System.IO.FileAttributes.ReadOnly) <> 0)
+                Catch exAttr As Exception
+                    ro = "ERROR: " & exAttr.Message
+                End Try
+            End If
+            Dim state As String = If(exists, "REFERENCE_PRESENT", "REFERENCE_MISSING")
+            Dim details As String = "type=" & child.DocumentType.ToString() & "; Vault checkout=UNKNOWN; frame classification=UNVERIFIED"
+            rows.Add(state & vbTab & (depth + 1).ToString() & vbTab & Esc(identity) & vbTab & Esc(p) & vbTab & Esc(ro) & vbTab & Esc(details))
+            Scan(child, depth + 1, seen, rows)
+        Next
+    Catch ex As Exception
+        rows.Add("INSPECTION_ERROR" & vbTab & depth & vbTab & Esc(identity) & vbTab & "" & vbTab & "" & vbTab & Esc(ex.Message))
+    End Try
+End Sub
+
+Function Esc(s As String) As String
+    If s Is Nothing Then Return ""
+    Return s.Replace(vbTab, " ").Replace(vbCr, " ").Replace(vbLf, " ")
+End Function
