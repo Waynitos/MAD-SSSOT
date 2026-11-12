@@ -91,3 +91,22 @@ class ProvenanceIntegrityTests(unittest.TestCase):
         p = sample()
         p["occurrences"][0]["current"] = r"c:\\OLD\\PART.IPT"
         self.assertEqual(validate(p), [])
+
+class ProposedCycleTests(unittest.TestCase):
+    def test_two_assembly_cycle_blocked(self):
+        p = sample()
+        p["documents"].append({"path": "C:/new/sub.iam", "provenance": "C:/old/sub.iam",
+            "vault_state": "checked_out_to_current_user", "read_only": False,
+            "dirty": False, "exists": True, "frame_state": "not_frame",
+            "backup_verified": True})
+        p["occurrences"] = [
+            {"parent": "C:/new/ga.iam", "current": "C:/old/sub.iam",
+             "proposed": "C:/new/sub.iam", "identity_verified": True,
+             "descriptor_verified": True},
+            {"parent": "C:/new/sub.iam", "current": "C:/old/ga.iam",
+             "proposed": "C:/new/ga.iam", "identity_verified": True,
+             "descriptor_verified": True}]
+        self.assertIn("BLOCK_PROPOSED_REFERENCE_CYCLE", validate(p))
+
+    def test_noncyclic_repair_remains_structurally_valid(self):
+        self.assertEqual(validate(sample()), [])
