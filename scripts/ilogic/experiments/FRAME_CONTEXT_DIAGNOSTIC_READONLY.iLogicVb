@@ -1,0 +1,63 @@
+' FRAME_CONTEXT_DIAGNOSTIC_READONLY.iLogicVb
+' Standalone Inventor 2025 iLogic diagnostic. NO Save, Replace, Update, Copy or Vault writes.
+' Open the frame directly, then repeat from its parent and GA.
+' Run on an assembly document. Logs under %TEMP%\SCS_Frame_Diagnostics.
+Sub Main()
+    Dim doc As Inventor.Document = ThisApplication.ActiveDocument
+    If doc Is Nothing OrElse doc.DocumentType <> Inventor.DocumentTypeEnum.kAssemblyDocumentObject Then
+        MessageBox.Show("Open a frame, parent, or GA assembly first.", "SCS Diagnostic")
+        Return
+    End If
+    Dim folder As String = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "SCS_Frame_Diagnostics")
+    System.IO.Directory.CreateDirectory(folder)
+    Dim stamp As String = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff")
+    Dim path As String = System.IO.Path.Combine(folder, "frame_context_" & stamp & ".tsv")
+    Dim lines As New System.Collections.Generic.List(Of String)
+    lines.Add("kind" & vbTab & "depth" & vbTab & "document" & vbTab & "internal_name" & vbTab & "dirty" & vbTab & "readonly" & vbTab & "detail")
+    lines.Add("RUN" & vbTab & "0" & vbTab & Clean(doc.FullFileName) & vbTab & Clean(SafeInternalName(doc)) & vbTab & CStr(doc.Dirty) & vbTab & CStr(SafeReadOnly(doc.FullFileName)) & vbTab & Clean("active=" & doc.DisplayName & "; time=" & DateTime.Now.ToString("o")))
+    Dim visited As New System.Collections.Generic.HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+    Walk(doc, 0, visited, lines)
+    System.IO.File.WriteAllLines(path, lines.ToArray())
+    MessageBox.Show("Read-only diagnostic completed." & vbCrLf & "Records: " & lines.Count & vbCrLf & path, "SCS Diagnostic")
+End Sub
+
+Sub Walk(doc As Inventor.Document, depth As Integer, visited As System.Collections.Generic.HashSet(Of String), lines As System.Collections.Generic.List(Of String))
+    If depth > 100 Then Return
+    Dim key As String = doc.FullFileName
+    If String.IsNullOrEmpty(key) Then key = doc.DisplayName
+    If visited.Contains(key) Then Return
+    visited.Add(key)
+    Dim refs As Inventor.DocumentsEnumerator = Nothing
+    Try
+        refs = doc.ReferencedDocuments
+    Catch ex As Exception
+        lines.Add("ERROR" & vbTab & depth & vbTab & Clean(key) & vbTab & "" & vbTab & "" & vbTab & "" & vbTab & Clean(ex.Message))
+        Return
+    End Try
+    For Each child As Inventor.Document In refs
+        Dim info As String = "parent=" & key & "; type=" & child.DocumentType.ToString()
+        lines.Add("REFERENCE" & vbTab & (depth + 1) & vbTab & Clean(child.FullFileName) & vbTab & Clean(SafeInternalName(child)) & vbTab & CStr(child.Dirty) & vbTab & CStr(SafeReadOnly(child.FullFileName)) & vbTab & Clean(info))
+        Walk(child, depth + 1, visited, lines)
+    Next
+End Sub
+
+Function SafeInternalName(doc As Inventor.Document) As String
+    Try
+        Return doc.InternalName
+    Catch ex As Exception
+        Return "UNAVAILABLE: " & ex.Message
+    End Try
+End Function
+
+Function SafeReadOnly(path As String) As Boolean
+    Try
+        Return System.IO.File.Exists(path) AndAlso (System.IO.File.GetAttributes(path) And System.IO.FileAttributes.ReadOnly) <> 0
+    Catch
+        Return False
+    End Try
+End Function
+
+Function Clean(value As String) As String
+    If value Is Nothing Then Return ""
+    Return value.Replace(vbTab, " ").Replace(vbCr, " ").Replace(vbLf, " ")
+End Function
