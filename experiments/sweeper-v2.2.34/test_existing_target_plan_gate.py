@@ -110,3 +110,51 @@ class ProposedCycleTests(unittest.TestCase):
 
     def test_noncyclic_repair_remains_structurally_valid(self):
         self.assertEqual(validate(sample()), [])
+
+    def test_deep_acyclic_graph_does_not_hit_recursion_limit(self):
+        p = sample()
+        p["documents"] = []
+        p["occurrences"] = []
+        depth = 1200
+        for i in range(depth + 1):
+            p["documents"].append({
+                "path": f"C:/new/node{i}.iam",
+                "provenance": f"C:/old/node{i}.iam",
+                "vault_state": "checked_out_to_current_user",
+                "read_only": False, "dirty": False, "exists": True,
+                "frame_state": "not_frame", "backup_verified": True,
+            })
+            if i:
+                p["occurrences"].append({
+                    "parent": f"C:/new/node{i-1}.iam",
+                    "current": f"C:/old/node{i}.iam",
+                    "proposed": f"C:/new/node{i}.iam",
+                    "identity_verified": True, "descriptor_verified": True,
+                })
+        p["target"] = "C:/new/node0.iam"
+        p["source"] = "C:/old/node0.iam"
+        self.assertEqual(validate(p), [])
+
+    def test_deep_cycle_is_detected_without_recursion(self):
+        p = sample()
+        p["documents"] = []
+        p["occurrences"] = []
+        depth = 1200
+        for i in range(depth):
+            p["documents"].append({
+                "path": f"C:/new/node{i}.iam",
+                "provenance": f"C:/old/node{i}.iam",
+                "vault_state": "checked_out_to_current_user",
+                "read_only": False, "dirty": False, "exists": True,
+                "frame_state": "not_frame", "backup_verified": True,
+            })
+            j = (i + 1) % depth
+            p["occurrences"].append({
+                "parent": f"C:/new/node{i}.iam",
+                "current": f"C:/old/node{j}.iam",
+                "proposed": f"C:/new/node{j}.iam",
+                "identity_verified": True, "descriptor_verified": True,
+            })
+        p["target"] = "C:/new/node0.iam"
+        p["source"] = "C:/old/node0.iam"
+        self.assertIn("BLOCK_PROPOSED_REFERENCE_CYCLE", validate(p))
