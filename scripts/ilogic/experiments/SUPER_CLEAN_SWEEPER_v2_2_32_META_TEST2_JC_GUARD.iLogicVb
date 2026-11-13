@@ -4238,9 +4238,9 @@ End Sub
 
 Function ReplacePrefixToken(sValue As String, sOld As String, sNew As String) As String
     If String.IsNullOrEmpty(sValue) OrElse String.IsNullOrEmpty(sOld) Then Return sValue
-    Return System.Text.RegularExpressions.Regex.Replace(sValue, _
-        "(?<![A-Za-z0-9])" & System.Text.RegularExpressions.Regex.Escape(sOld) & "(?![A-Za-z0-9])", _
-        System.Text.RegularExpressions.MatchEvaluator(Function(m) sNew), _
+    Dim sPattern As String = "(?<![A-Za-z0-9])" & _
+        System.Text.RegularExpressions.Regex.Escape(sOld) & "(?![A-Za-z0-9])"
+    Return System.Text.RegularExpressions.Regex.Replace(sValue, sPattern, sNew, _
         System.Text.RegularExpressions.RegexOptions.IgnoreCase)
 End Function
 
