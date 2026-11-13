@@ -50,3 +50,8 @@ alerts-fired: —
 tools-used: Agent (fork ×2), Write, Bash, git push
 ai-apps-active: Claude (primary)
 notes: First RMAD test in Spanish. Full MAD cycle completed — AA + DA parallel forks, SSA inline synthesis. Committed to runs/cobre-en-el-agua/. RMAD trigger confirmed working end-to-end. MAD pipeline language-agnostic — no issues with Spanish input.
+
+## OBSERVATION 2026-11-13
+- Patterns flagged: Claude Design artifact unused across all sessions; Artifact capabilities (db/sharing) consistently unused; Morning brief skill never triggered; Manual project setup still requires human paste step
+- Wins noted: Full FTCA architecture built and shipped in first sessions; PLU v1.2 with three-layer MAD routing live; RMAD trigger confirmed working end-to-end including Spanish-language query; Scheduled Tasks activated — weekly digest confirmed functional
+- Recommendation issued: Trigger PHONICSPlus + Claude Design artifact together next week to exercise two consistently unused features in one task and produce a reusable branded template
