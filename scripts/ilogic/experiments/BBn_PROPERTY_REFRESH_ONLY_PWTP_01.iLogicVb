@@ -1,0 +1,125 @@
+' BEEXCITED BBn | PROPERTY REFRESH ONLY | PWTP-PROP-01
+' Standalone iLogic rule. NO Copy Design, SaveAs, rename, GUID or reference operations.
+' DEFAULT: DRY RUN. Run only on a disposable checked-out target copy.
+' Scope: target folder top-level IAM/IPT and target drawings top-level.
+' JC / Content Center / library candidates are SKIPPED; no automatic Vault checkout.
+Sub Main()
+    Dim root As String = InputBox("TARGET Models folder (existing copied project only):", "Property Refresh - target", "")
+    If String.IsNullOrWhiteSpace(root) OrElse Not System.IO.Directory.Exists(root) Then Return
+    root = System.IO.Path.GetFullPath(root).TrimEnd(System.IO.Path.DirectorySeparatorChar)
+    Dim pj As String = InputBox("NEW project code (e.g. PJ00183):", "Property Refresh - project", "")
+    pj = pj.Trim().ToUpperInvariant()
+    If Not System.Text.RegularExpressions.Regex.IsMatch(pj, "^PJ[0-9]{5}$") Then
+        MessageBox.Show("Invalid project code; nothing changed.") : Return
+    End If
+    Dim mode As String = InputBox("Type APPLY to write changes. Any other input = DRY RUN.", "Property Refresh - safety", "DRY RUN")
+    Dim apply As Boolean = String.Equals(mode.Trim(), "APPLY", StringComparison.Ordinal)
+    Dim logPath As String = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "BBn_PROPERTY_REFRESH_" & Now.ToString("yyyyMMdd_HHmmss") & ".log")
+    Dim scanned As Integer = 0, changed As Integer = 0, skipped As Integer = 0, failed As Integer = 0
+    System.IO.File.AppendAllText(logPath, "PROPERTY REFRESH " & If(apply, "APPLY", "DRY RUN") & " " & root & " " & pj & vbCrLf)
+    For Each pattern As String In New String() {"*.iam", "*.ipt", "*.idw", "*.dwg"}
+        For Each file As String In System.IO.Directory.GetFiles(root, pattern, System.IO.SearchOption.TopDirectoryOnly)
+            Dim name As String = System.IO.Path.GetFileNameWithoutExtension(file)
+            If System.Text.RegularExpressions.Regex.IsMatch(name, "^(PJ[0-9]{5}-)?JC[0-9]+$", System.Text.RegularExpressions.RegexOptions.IgnoreCase) OrElse _
+                file.ToUpperInvariant().Contains("CONTENT CENTER") OrElse file.ToUpperInvariant().Contains("\\LIBRARY\\") Then
+                skipped += 1 : WriteLog(logPath, "SKIP-LIBRARY " & file) : Continue For
+            End If
+            If (System.IO.File.GetAttributes(file) And System.IO.FileAttributes.ReadOnly) <> 0 Then
+                skipped += 1 : WriteLog(logPath, "SKIP-READONLY " & file) : Continue For
+            End If
+            Dim doc As Inventor.Document = Nothing, opened As Boolean = False
+            Try
+                scanned += 1
+                Try : doc = ThisApplication.Documents.ItemByName(file) : Catch : End Try
+                If doc Is Nothing Then
+                    doc = ThisApplication.Documents.Open(file, False)
+                    opened = True
+                End If
+                Dim custom As Inventor.PropertySet = doc.PropertySets.Item("Inventor User Defined Properties")
+                Dim design As Inventor.PropertySet = doc.PropertySets.Item("Design Tracking Properties")
+                Dim n As Integer = 0
+                Dim isDrawing As Boolean = pattern = "*.idw" OrElse pattern = "*.dwg"
+                If isDrawing Then
+                    ' Do not alter CS_* provenance fields or unrelated custom fields.
+                    n += UpdateProp(custom, "DRAWING_NUMBER", name, file, logPath, apply)
+                    n += UpdateProp(custom, "REVISION", "A", file, logPath, apply)
+                    n += UpdateProp(design, "Revision Number", "A", file, logPath, apply)
+                    n += UpdateProp(custom, "DRAWN", "XX", file, logPath, apply)
+                    n += UpdateProp(custom, "1st REV", "A", file, logPath, apply)
+                    n += UpdateProp(custom, "1st REV BY", "XX", file, logPath, apply)
+                    n += UpdateProp(custom, "1st REV DESCRIPTION", "PRELIMINARY ISSUE", file, logPath, apply)
+                    ' Other approved drawing reset fields will be added after field-source verification.
+                Else
+                    ' Require positive project provenance before modifying a model.
+                    Dim provenance As String = ReadProp(custom, "CS_CopyProject")
+                    If Not String.Equals(provenance, pj, StringComparison.OrdinalIgnoreCase) Then
+                        skipped += 1 : WriteLog(logPath, "SKIP-NO-TARGET-PROVENANCE " & file & " [" & provenance & "]")
+                        Continue For
+                    End If
+                    n += UpdateLeadingPJ(custom, "SPECIFICATION", pj, file, logPath, apply)
+                    n += UpdateLeadingPJ(design, "Part Number", pj, file, logPath, apply)
+                    n += UpdatePropIfPopulated(custom, "PROJECT NUMBER", pj, file, logPath, apply)
+                    n += PadFive(custom, "DRAWING REF", file, logPath, apply)
+                    n += PadFive(custom, "ITEM NUMBER", file, logPath, apply)
+                End If
+                If n > 0 Then
+                    changed += 1
+                    If apply Then doc.Save2(False)
+                End If
+                WriteLog(logPath, "FILE " & file & " changes=" & n)
+            Catch ex As Exception
+                failed += 1 : WriteLog(logPath, "FAIL " & file & " " & ex.Message)
+            Finally
+                If opened AndAlso doc IsNot Nothing Then
+                    Try : If Not doc.Dirty Then doc.Close(True)
+                    Catch
+                    End Try
+                End If
+            End Try
+        Next
+    Next
+    WriteLog(logPath, "SUMMARY scanned=" & scanned & " changed=" & changed & " skipped=" & skipped & " failed=" & failed)
+    MessageBox.Show(If(apply, "APPLY", "DRY RUN") & " complete." & vbCrLf & "Scanned " & scanned & ", change candidates " & changed & ", skipped " & skipped & ", failed " & failed & vbCrLf & logPath)
+End Sub
+
+Sub WriteLog(path As String, line As String)
+    System.IO.File.AppendAllText(path, line & vbCrLf)
+End Sub
+
+Function ReadProp(setObj As Inventor.PropertySet, name As String) As String
+    Try : Return Convert.ToString(setObj.Item(name).Value)
+    Catch : Return ""
+    End Try
+End Function
+
+Function UpdateProp(setObj As Inventor.PropertySet, name As String, value As String, file As String, logPath As String, apply As Boolean) As Integer
+    Try
+        Dim p As Inventor.Property = setObj.Item(name)
+        Dim old As String = Convert.ToString(p.Value)
+        If String.Equals(old, value, StringComparison.Ordinal) Then Return 0
+        WriteLog(logPath, "PROP " & file & " [" & name & "] " & old & " -> " & value)
+        If apply Then p.Value = value
+        Return 1
+    Catch
+        WriteLog(logPath, "MISSING-OR-UNWRITABLE " & file & " [" & name & "]")
+        Return 0
+    End Try
+End Function
+
+Function UpdatePropIfPopulated(setObj As Inventor.PropertySet, name As String, value As String, file As String, logPath As String, apply As Boolean) As Integer
+    If String.IsNullOrWhiteSpace(ReadProp(setObj, name)) Then Return 0
+    Return UpdateProp(setObj, name, value, file, logPath, apply)
+End Function
+
+Function UpdateLeadingPJ(setObj As Inventor.PropertySet, name As String, pj As String, file As String, logPath As String, apply As Boolean) As Integer
+    Dim old As String = ReadProp(setObj, name)
+    If Not System.Text.RegularExpressions.Regex.IsMatch(old, "^PJ[0-9]{5}(?=-)", System.Text.RegularExpressions.RegexOptions.IgnoreCase) Then Return 0
+    Dim value As String = System.Text.RegularExpressions.Regex.Replace(old, "^PJ[0-9]{5}(?=-)", pj, System.Text.RegularExpressions.RegexOptions.IgnoreCase)
+    Return UpdateProp(setObj, name, value, file, logPath, apply)
+End Function
+
+Function PadFive(setObj As Inventor.PropertySet, name As String, file As String, logPath As String, apply As Boolean) As Integer
+    Dim old As String = ReadProp(setObj, name)
+    If Not System.Text.RegularExpressions.Regex.IsMatch(old, "^[0-9]{5}$") Then Return 0
+    Return UpdateProp(setObj, name, "0" & old, file, logPath, apply)
+End Function
