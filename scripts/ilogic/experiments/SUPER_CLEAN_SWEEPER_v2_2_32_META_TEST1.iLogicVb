@@ -4094,8 +4094,14 @@ Sub RunCopiedProjectMetadataPass(sTargetFolder As String, sOldPrefix As String, 
         Next
 
         If bFromDwg Then
-            Dim oDrawings As New System.Collections.Generic.HashSet(Of String)(oDwgList, StringComparer.OrdinalIgnoreCase)
-            If sDwgEntryPath <> "" Then oDrawings.Add(sDwgEntryPath)
+            Dim oDrawings As New System.Collections.Generic.HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+            ' Metadata applies to TARGET drawing copies only, never the original list.
+            For Each sPattern As String In New String() {"*.idw", "*.dwg"}
+                For Each sCandidate As String In System.IO.Directory.GetFiles(sTargetFolder, sPattern, System.IO.SearchOption.TopDirectoryOnly)
+                    oDrawings.Add(sCandidate)
+                Next
+            Next
+            Try : System.IO.File.AppendAllText(sLogPath, "META-DWG-TARGET-COUNT: " & oDrawings.Count & vbCrLf) : Catch : End Try
             For Each sDrawing As String In oDrawings
                 ' Only drawings in target folder: never change original drawing.
                 If Not IsSameOrUnderDirectory(sDrawing, sTargetFolder) Then
