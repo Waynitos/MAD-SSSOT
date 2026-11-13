@@ -85,8 +85,21 @@ Sub Main()
                 ' Conservative verified subset only: DRAWING_NUMBER, when property already exists.
                 ' Do NOT reset revisions, author, dates, or drawing issue fields.
                 Dim oldName As String = System.IO.Path.GetFileNameWithoutExtension(path)
-                Dim newName As String = ReplaceLeadingProject(oldName, pj)
-                QueueChange(doc, "Inventor User Defined Properties", "DRAWING_NUMBER", newName, changes, log, path)
+                ' Fail closed: never derive a replacement value from a non-project filename.
+                ' Preserve the existing DRAWING_NUMBER suffix; do not overwrite it with filename formatting.
+                Dim existingNumber As String = ""
+                Try
+                    existingNumber = Convert.ToString(doc.PropertySets.Item("Inventor User Defined Properties").Item("DRAWING_NUMBER").Value)
+                Catch ex As Exception
+                    WriteLine(log, "SKIP DRAWING-NUMBER-MISSING | " & path & " | " & ex.Message)
+                    Continue For
+                End Try
+                Dim proposedNumber As String = PlanDrawingNumber(oldName, existingNumber, pj)
+                If proposedNumber = "" Then
+                    WriteLine(log, "SKIP DRAWING-IDENTITY-UNVERIFIED | " & path)
+                    Continue For
+                End If
+                QueueChange(doc, "Inventor User Defined Properties", "DRAWING_NUMBER", proposedNumber, changes, log, path)
             Else
                 Dim custom As String = "Inventor User Defined Properties"
                 Dim design As String = "Design Tracking Properties"
@@ -142,6 +155,21 @@ Function EligibilityReason(path As String, root As String) As String
     If Not full.StartsWith(basePath, StringComparison.OrdinalIgnoreCase) Then Return "OUTSIDE-GA-FOLDER-TREE"
     If (System.IO.File.GetAttributes(full) And System.IO.FileAttributes.ReadOnly) <> 0 Then Return "READONLY"
     Return ""
+End Function
+
+' PURE PLANNER: only change a drawing property if both filename and existing value
+' have matching old PJ#####- identities. Preserve the property's complete suffix.
+' Empty result means no safe change is proposed; no document mutation here.
+Function PlanDrawingNumber(filenameStem As String, existingNumber As String, targetPrefix As String) As String
+    Dim rx As String = "^PJ[0-9]{5}(?=-)"
+    If Not System.Text.RegularExpressions.Regex.IsMatch(targetPrefix, "^PJ[0-9]{5}$") Then Return ""
+    Dim fileMatch As System.Text.RegularExpressions.Match = System.Text.RegularExpressions.Regex.Match(If(filenameStem, ""), rx, System.Text.RegularExpressions.RegexOptions.IgnoreCase)
+    Dim propertyMatch As System.Text.RegularExpressions.Match = System.Text.RegularExpressions.Regex.Match(If(existingNumber, ""), rx, System.Text.RegularExpressions.RegexOptions.IgnoreCase)
+    If Not fileMatch.Success OrElse Not propertyMatch.Success Then Return ""
+    If Not String.Equals(fileMatch.Value, propertyMatch.Value, StringComparison.OrdinalIgnoreCase) Then Return ""
+    Dim proposed As String = ReplaceLeadingProject(existingNumber, targetPrefix)
+    If String.Equals(proposed, existingNumber, StringComparison.Ordinal) Then Return ""
+    Return proposed
 End Function
 
 ' CORE: replace project prefix only when followed by hyphen; preserve entire suffix.
