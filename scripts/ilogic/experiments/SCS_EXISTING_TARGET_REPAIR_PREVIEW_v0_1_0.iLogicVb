@@ -37,8 +37,8 @@ Sub Main()
         Dim count As Integer = 0
         Dim blocked As Integer = 0
         Dim candidate As Integer = 0
-        Dim descriptors As Inventor.DocumentDescriptorsEnumerator = CType(doc, Inventor.AssemblyDocument).ReferencedDocumentDescriptors
-        For Each dd As Inventor.DocumentDescriptor In descriptors
+        Dim descriptors As Object = CType(doc, Inventor.AssemblyDocument).ReferencedDocumentDescriptors
+        For Each dd As Object In descriptors
             count += 1
             Dim src As String = ""
             Try
@@ -57,7 +57,7 @@ Sub Main()
                 dstFile = newPrefix & srcFile.Substring(oldPrefix.Length)
                 dest = System.IO.Path.Combine(targetFolder, dstFile)
                 If System.IO.File.Exists(dest) Then
-                    If System.IO.File.GetAttributes(dest) And System.IO.FileAttributes.ReadOnly Then
+                    If (System.IO.File.GetAttributes(dest) And System.IO.FileAttributes.ReadOnly) <> 0 Then
                         status = "BLOCKED_READONLY"
                         blocked += 1
                     Else
