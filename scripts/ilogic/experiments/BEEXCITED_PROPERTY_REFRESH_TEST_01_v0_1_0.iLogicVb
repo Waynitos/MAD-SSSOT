@@ -20,6 +20,10 @@ Sub Main()
     If Not System.Text.RegularExpressions.Regex.IsMatch(pj, "^PJ[0-9]{5}$") Then Return
     Dim mode As String = InputBox("Type APPLY to modify eligible files; anything else is DRY RUN.", "Safety confirmation", "DRY RUN")
     Dim apply As Boolean = String.Equals(mode.Trim(), "APPLY", StringComparison.Ordinal)
+    If apply Then
+        MessageBox.Show("APPLY BLOCKED in v0.1.0: Vault checkout ownership, persisted-file verification and partial-write recovery are not yet implemented. Run DRY RUN only on disposable test files.")
+        Return
+    End If
     Dim root As String = System.IO.Path.GetDirectoryName(active.FullFileName)
     Dim log As String = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "BEEXCITED_PROP_TEST01_" & Now.ToString("yyyyMMdd_HHmmss_fff") & ".log")
     Dim scanned As Integer = 0, modified As Integer = 0, skipped As Integer = 0, failed As Integer = 0
@@ -136,7 +140,7 @@ Function EligibilityReason(path As String, root As String) As String
     Dim full As String = System.IO.Path.GetFullPath(path)
     Dim basePath As String = System.IO.Path.GetFullPath(root).TrimEnd(System.IO.Path.DirectorySeparatorChar) & System.IO.Path.DirectorySeparatorChar
     If Not full.StartsWith(basePath, StringComparison.OrdinalIgnoreCase) Then Return "OUTSIDE-GA-FOLDER-TREE"
-    If (System.IO.File.GetAttributes(full) And System.IO.FileAttributes.ReadOnly) <> 0 Then Return "READONLY-OR-NOT-CHECKED-OUT"
+    If (System.IO.File.GetAttributes(full) And System.IO.FileAttributes.ReadOnly) <> 0 Then Return "READONLY"
     Return ""
 End Function
 
