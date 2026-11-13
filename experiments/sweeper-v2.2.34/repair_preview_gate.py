@@ -33,7 +33,11 @@ def under_root(path, root):
 def preview(inventory):
     if not isinstance(inventory, dict):
         raise ValueError("Inventory must be an object")
-    # os.path semantics and filesystem checks must match the Windows Inventor host.\n    # Refuse to evaluate Windows paths on POSIX, where abspath/commonpath differ.\n    if os.name != "nt":\n        raise RuntimeError("WINDOWS_HOST_REQUIRED: preview filesystem checks require Windows")\n    target_root = inventory.get("target_root")
+    # os.path semantics and filesystem checks must match the Windows Inventor host.
+    # Refuse to evaluate Windows paths on POSIX, where abspath/commonpath differ.
+    if os.name != "nt":
+        raise RuntimeError("WINDOWS_HOST_REQUIRED: preview filesystem checks require Windows")
+    target_root = inventory.get("target_root")
     if not isinstance(target_root, str) or not target_root.strip():
         raise ValueError("target_root must be a nonempty string")
     if not os.path.isabs(target_root):
