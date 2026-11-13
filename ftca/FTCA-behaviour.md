@@ -55,3 +55,12 @@ notes: First RMAD test in Spanish. Full MAD cycle completed — AA + DA parallel
 - Patterns flagged: Claude Design artifact unused across all sessions; Artifact capabilities (db/sharing) consistently unused; Morning brief skill never triggered; Manual project setup still requires human paste step
 - Wins noted: Full FTCA architecture built and shipped in first sessions; PLU v1.2 with three-layer MAD routing live; RMAD trigger confirmed working end-to-end including Spanish-language query; Scheduled Tasks activated — weekly digest confirmed functional
 - Recommendation issued: Trigger PHONICSPlus + Claude Design artifact together next week to exercise two consistently unused features in one task and produce a reusable branded template
+
+## 2026-11-13 | Project: FTCAgent PROJECT (FTCA) | Session: Weekly FTCA Digest (auto — Scheduled Task)
+features-used: GitHub file read (mcp__github__get_file_contents), WebSearch (AI advancement news), Artifact (HTML digest publish), Scheduled Tasks (session triggered by schedule)
+features-observed-unused: Claude Design artifact, Artifact database (db), Claude in Chrome, Morning brief skill, Sheets artifact, Artifact sharing/publish
+patterns-flagged: Claude Design artifact unused across all 4 logged sessions (3+ weeks); Artifact database capability never used (3+ weeks); Manual project setup step still unautomated; Morning brief skill never triggered (3+ weeks)
+alerts-fired: GAP/Claude Design artifact (3+ weeks, HIGH relevance); GAP/Morning brief skill (3+ weeks, HIGH relevance); GAP/Artifact database capability (3+ weeks, MEDIUM relevance)
+tools-used: mcp__github__get_file_contents, WebSearch, Artifact (HTML publish), mcp__github__push_files
+ai-apps-active: Claude (primary)
+notes: Weekly digest auto-fired by Scheduled Task. Digest artifact published at https://claude.ai/artifact/CAbLdkavhreijsdZTLiBZV using PLU branding tokens. Champion calls: FTCA+PLU shipped in one session; first RMAD in Spanish confirmed language-agnostic pipeline; Scheduled Tasks confirmed live (this session is proof). Enhancement recommendations: PHONICSPlus + Design artifact together next session; automate project setup paste step; Sheets artifact for MAD verdict tables. AI advancements sourced this week: Claude Meetings (launched Nov 10 2026), Claude shared spreadsheets/whiteboards (office suite expansion), AI CAD agents for Autodesk parametric design. Push notification sent to Waynito.
