@@ -22,10 +22,10 @@ checks = {
     "drawing number update": '"DRAWING_NUMBER"' in source,
     "post-save in-memory readback": "Post-save in-memory property readback failed" in source,
     "per-file log": "WriteLine(log," in source,
-    "no automatic Vault checkout": not re.search(r"\\bCheckOut\\s*\\(", source, re.I),
-    "no SaveAs": not re.search(r"\\bSaveAs\\s*\\(", source, re.I),
-    "no component replace": not re.search(r"\\bReplace\\s*\\(", source, re.I),
-    "no revision reset": not re.search(r'QueueChange\\([^\\n]*"(?:REVISION|1st REV|Revision Number)"', source, re.I),
+    "no automatic Vault checkout": not re.search(r"\bCheckOut\s*\(", source, re.I),
+    "no SaveAs": not re.search(r"\bSaveAs\s*\(", source, re.I),
+    "no component replace": not re.search(r"\bReplace\s*\(", source, re.I),
+    "no revision reset": not re.search(r'QueueChange\([^\n]*"(?:REVISION|1st REV|Revision Number)"', source, re.I),
 }
 for label, ok in checks.items():
     print(f"{'PASS' if ok else 'FAIL'}: {label}")
