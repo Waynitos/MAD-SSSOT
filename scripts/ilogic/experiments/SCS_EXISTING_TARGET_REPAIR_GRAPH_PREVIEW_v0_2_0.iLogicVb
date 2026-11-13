@@ -1,0 +1,101 @@
+' SCS_EXISTING_TARGET_REPAIR_GRAPH_PREVIEW_v0_2_0.iLogicVb
+' Read-only PWTP diagnostic; Inventor 2025 compilation/runtime not tested.
+Sub Main()
+ Dim timer As System.Diagnostics.Stopwatch = System.Diagnostics.Stopwatch.StartNew()
+ Dim lines As New System.Collections.Generic.List(Of String)
+ Dim path As String = ""
+ Dim stage As String = "START"
+ Try
+  Dim doc As Inventor.Document = ThisApplication.ActiveDocument
+  If doc Is Nothing OrElse doc.DocumentType <> Inventor.DocumentTypeEnum.kAssemblyDocumentObject Then
+   MessageBox.Show("Open a copied target assembly.", "SCS v0.2.0")
+   Return
+  End If
+  Dim oldP As String = InputBox("Old PJ#####:", "SCS Preview").Trim()
+  Dim newP As String = InputBox("New PJ#####:", "SCS Preview").Trim()
+  If Not Valid(oldP) OrElse Not Valid(newP) OrElse String.Equals(oldP,newP,StringComparison.OrdinalIgnoreCase) Then Return
+  Dim root As String = System.IO.Path.GetDirectoryName(doc.FullFileName)
+  If String.IsNullOrEmpty(root) Then Throw New Exception("Unsaved target")
+  Dim dir As String = System.IO.Path.Combine(System.IO.Path.GetTempPath(),"SCS_Repair_Previews")
+  System.IO.Directory.CreateDirectory(dir)
+  path = System.IO.Path.Combine(dir,"graph_preview_" & DateTime.Now.ToString("yyyyMMdd_HHmmss_fff") & ".tsv")
+  lines.Add("version" & vbTab & "kind" & vbTab & "depth" & vbTab & "source" & vbTab & "target" & vbTab & "status" & vbTab & "elapsed_ms" & vbTab & "detail")
+  Add(lines,"RUN",0,doc.FullFileName,"","PREVIEW_ONLY",timer.ElapsedMilliseconds,"old=" & oldP & ";new=" & newP)
+  Dim seen As New System.Collections.Generic.HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+  Dim mapped As New System.Collections.Generic.Dictionary(Of String,String)(StringComparer.OrdinalIgnoreCase)
+  stage = "GRAPH_SCAN"
+  Scan(CType(doc,Inventor.AssemblyDocument),0,root,oldP,newP,seen,mapped,lines,timer)
+  Add(lines,"SUMMARY",0,"","","NOT_EXECUTABLE",timer.ElapsedMilliseconds,"assemblies=" & seen.Count & ";vault=UNKNOWN;frame_associativity=UNVERIFIED;rollback=NOT_APPLICABLE")
+  stage = "LOG_WRITE"
+  System.IO.File.WriteAllLines(path,lines.ToArray())
+  MessageBox.Show("Read-only preview v0.2.0" & vbCrLf & "Total: " & timer.ElapsedMilliseconds & " ms" & vbCrLf & "Rows: " & lines.Count & vbCrLf & path & vbCrLf & "No repairs authorised.", "SCS Preview")
+ Catch ex As Exception
+  Add(lines,"ERROR",0,"","","BLOCKED",timer.ElapsedMilliseconds,"stage=" & stage & ";" & ex.Message)
+  If path <> "" Then
+   Try
+    System.IO.File.WriteAllLines(path,lines.ToArray())
+   Catch
+   End Try
+  End If
+  MessageBox.Show("Preview failed at " & stage & " after " & timer.ElapsedMilliseconds & " ms" & vbCrLf & ex.Message & vbCrLf & path,"SCS Preview")
+ End Try
+End Sub
+
+Sub Scan(asm As Inventor.AssemblyDocument, depth As Integer, root As String, oldP As String, newP As String, seen As System.Collections.Generic.HashSet(Of String), mapped As System.Collections.Generic.Dictionary(Of String,String), lines As System.Collections.Generic.List(Of String), total As System.Diagnostics.Stopwatch)
+ If depth > 64 Then
+  Add(lines,"ERROR",depth,asm.FullFileName,"","BLOCKED_DEPTH",total.ElapsedMilliseconds,"")
+  Return
+ End If
+ If Not seen.Add(asm.FullFileName) Then Return
+ Dim stageTimer As System.Diagnostics.Stopwatch = System.Diagnostics.Stopwatch.StartNew()
+ Try
+  For Each dd As Inventor.DocumentDescriptor In asm.ReferencedDocumentDescriptors
+   Dim src As String = ""
+   Try
+    src = dd.FullDocumentName
+    Dim name As String = System.IO.Path.GetFileName(src)
+    If Not name.StartsWith(oldP,StringComparison.OrdinalIgnoreCase) Then Continue For
+    Dim dst As String = System.IO.Path.GetFullPath(System.IO.Path.Combine(root,newP & name.Substring(oldP.Length)))
+    Dim status As String = "CANDIDATE_UNVERIFIED"
+    Dim detail As String = "parent=" & asm.FullFileName & ";mapping=INFERRED;vault=UNKNOWN"
+    If Not System.IO.File.Exists(dst) Then
+     status = "BLOCKED_MISSING"
+    ElseIf String.Equals(src,dst,StringComparison.OrdinalIgnoreCase) Then
+     status = "BLOCKED_SELF_REFERENCE"
+    ElseIf (System.IO.File.GetAttributes(dst) And System.IO.FileAttributes.ReadOnly) <> 0 Then
+     status = "BLOCKED_READONLY"
+    ElseIf mapped.ContainsKey(dst) AndAlso Not String.Equals(mapped(dst),src,StringComparison.OrdinalIgnoreCase) Then
+     status = "BLOCKED_COLLISION"
+     detail &= ";previous_source=" & mapped(dst)
+    Else
+     mapped(dst) = src
+    End If
+    If name.IndexOf("-F.",StringComparison.OrdinalIgnoreCase) >= 0 OrElse name.IndexOf("SKELETON",StringComparison.OrdinalIgnoreCase) >= 0 Then detail &= ";FRAME_SUSPECT=YES;associativity=UNVERIFIED"
+    Add(lines,"REFERENCE",depth+1,src,dst,status,total.ElapsedMilliseconds,detail)
+   Catch ex As Exception
+    Add(lines,"ERROR",depth+1,src,"","BLOCKED_DESCRIPTOR",total.ElapsedMilliseconds,ex.Message)
+   End Try
+  Next
+  For Each child As Inventor.Document In asm.ReferencedDocuments
+   If child.DocumentType = Inventor.DocumentTypeEnum.kAssemblyDocumentObject Then
+    Scan(CType(child,Inventor.AssemblyDocument),depth+1,root,oldP,newP,seen,mapped,lines,total)
+   End If
+  Next
+ Catch ex As Exception
+  Add(lines,"ERROR",depth,asm.FullFileName,"","BLOCKED_SCAN",total.ElapsedMilliseconds,ex.Message)
+ End Try
+ Add(lines,"STAGE",depth,asm.FullFileName,"","ASSEMBLY_SCAN",stageTimer.ElapsedMilliseconds,"")
+End Sub
+
+Function Valid(value As String) As Boolean
+ Return System.Text.RegularExpressions.Regex.IsMatch(value,"^PJ[0-9]{5}$",System.Text.RegularExpressions.RegexOptions.IgnoreCase)
+End Function
+
+Sub Add(lines As System.Collections.Generic.List(Of String), kind As String, depth As Integer, src As String, dst As String, status As String, ms As Long, detail As String)
+ lines.Add("0.2.0" & vbTab & kind & vbTab & depth.ToString() & vbTab & Clean(src) & vbTab & Clean(dst) & vbTab & status & vbTab & ms.ToString() & vbTab & Clean(detail))
+End Sub
+
+Function Clean(s As String) As String
+ If s Is Nothing Then Return ""
+ Return s.Replace(vbTab," ").Replace(vbCr," ").Replace(vbLf," ")
+End Function
