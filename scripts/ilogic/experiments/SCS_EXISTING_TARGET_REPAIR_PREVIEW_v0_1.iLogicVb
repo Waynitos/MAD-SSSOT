@@ -1,0 +1,80 @@
+' PWTP-ETR-01 | v0.1.0 | READ-ONLY. No Save, Replace, Copy, Vault or attribute writes.
+Sub Main()
+    Dim timer As System.Diagnostics.Stopwatch = System.Diagnostics.Stopwatch.StartNew()
+    Dim doc As Inventor.Document = ThisApplication.ActiveDocument
+    If doc Is Nothing OrElse doc.DocumentType <> Inventor.DocumentTypeEnum.kAssemblyDocumentObject Then
+        MessageBox.Show("Open the existing target assembly.", "ETR Preview 0.1.0")
+        Return
+    End If
+    Dim folder As String = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "SCS_ETR_Preview")
+    System.IO.Directory.CreateDirectory(folder)
+    Dim path As String = System.IO.Path.Combine(folder, "etr_" & DateTime.Now.ToString("yyyyMMdd_HHmmss_fff") & ".tsv")
+    Dim rows As New System.Collections.Generic.List(Of String)
+    rows.Add("kind" & vbTab & "depth" & vbTab & "path" & vbTab & "reference" & vbTab & "status" & vbTab & "elapsed_ms" & vbTab & "detail")
+    Dim visited As New System.Collections.Generic.HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+    Dim failures As Integer = 0
+    Try
+        Walk(doc, 0, visited, rows, failures, timer)
+    Catch ex As Exception
+        failures += 1
+        rows.Add(Entry("FATAL", 0, doc.FullFileName, "", "BLOCKED", timer.ElapsedMilliseconds, ex.ToString()))
+    Finally
+        timer.Stop()
+        rows.Add(Entry("SUMMARY", 0, doc.FullFileName, "", "MUTATION_BLOCKED", timer.ElapsedMilliseconds, "version=0.1.0; documents=" & visited.Count & "; failures=" & failures & "; FG associations, Vault state, occurrence identities and reverse references unverified"))
+        System.IO.File.WriteAllLines(path, rows.ToArray())
+        MessageBox.Show("READ-ONLY preview" & vbCrLf & "Total: " & timer.ElapsedMilliseconds & " ms" & vbCrLf & "Documents: " & visited.Count & vbCrLf & "Failures: " & failures & vbCrLf & "Mutation: BLOCKED" & vbCrLf & path, "ETR Preview 0.1.0")
+    End Try
+End Sub
+
+Sub Walk(doc As Inventor.Document, depth As Integer, visited As System.Collections.Generic.HashSet(Of String), rows As System.Collections.Generic.List(Of String), ByRef failures As Integer, timer As System.Diagnostics.Stopwatch)
+    If depth > 100 Then
+        failures += 1
+        rows.Add(Entry("DEPTH_LIMIT", depth, "", "", "BLOCKED", timer.ElapsedMilliseconds, "depth exceeded"))
+        Return
+    End If
+    Dim key As String = doc.FullFileName
+    If String.IsNullOrWhiteSpace(key) Then
+        failures += 1
+        rows.Add(Entry("UNSAVED", depth, doc.DisplayName, "", "BLOCKED", timer.ElapsedMilliseconds, "missing path"))
+        Return
+    End If
+    If Not visited.Add(key) Then Return
+    Dim status As String = "OBSERVED"
+    Dim details As String = "type=" & doc.DocumentType.ToString() & "; dirty=" & doc.Dirty.ToString()
+    Try
+        If Not System.IO.File.Exists(key) Then
+            status = "BLOCKED_MISSING"
+            failures += 1
+        Else
+            Dim attr As System.IO.FileAttributes = System.IO.File.GetAttributes(key)
+            If (attr And System.IO.FileAttributes.ReadOnly) <> 0 Then
+                status = "BLOCKED_READONLY"
+                failures += 1
+            End If
+            details &= "; bytes=" & (New System.IO.FileInfo(key)).Length
+        End If
+    Catch ex As Exception
+        failures += 1
+        status = "BLOCKED_ATTRIBUTES"
+        details &= "; error=" & ex.Message
+    End Try
+    rows.Add(Entry("DOCUMENT", depth, key, "", status, timer.ElapsedMilliseconds, details))
+    Try
+        For Each child As Inventor.Document In doc.ReferencedDocuments
+            rows.Add(Entry("EDGE", depth + 1, key, child.FullFileName, "UNVERIFIED", timer.ElapsedMilliseconds, "document reference only"))
+            Walk(child, depth + 1, visited, rows, failures, timer)
+        Next
+    Catch ex As Exception
+        failures += 1
+        rows.Add(Entry("REFERENCE_ERROR", depth, key, "", "BLOCKED", timer.ElapsedMilliseconds, ex.ToString()))
+    End Try
+End Sub
+
+Function Entry(kind As String, depth As Integer, path As String, ref As String, status As String, elapsed As Long, detail As String) As String
+    Return Clean(kind) & vbTab & depth & vbTab & Clean(path) & vbTab & Clean(ref) & vbTab & Clean(status) & vbTab & elapsed & vbTab & Clean(detail)
+End Function
+
+Function Clean(value As String) As String
+    If value Is Nothing Then Return ""
+    Return value.Replace(vbTab, " ").Replace(vbCr, " ").Replace(vbLf, " ")
+End Function
