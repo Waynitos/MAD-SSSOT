@@ -22,6 +22,7 @@ Sub Main()
     Dim logPath As String = System.IO.Path.Combine(desktop, "BBn_PROPERTY_REFRESH_PWTP02_" & Now.ToString("yyyyMMdd_HHmmss") & ".log")
     Dim maxFiles As Integer = 5
     Dim attempted As Integer = 0
+    Dim nameFilter As String = InputBox("Optional filename substring to target a small group (blank = first five eligible filenames):", "Property Refresh - pilot filter", "3450-6-V0-0")
     Dim scanned As Integer = 0, changed As Integer = 0, skipped As Integer = 0, failed As Integer = 0
     System.IO.File.AppendAllText(logPath, "PROPERTY REFRESH " & If(apply, "APPLY", "DRY RUN") & " " & root & " " & pj & vbCrLf)
     For Each pattern As String In New String() {"*.iam", "*.ipt", "*.idw", "*.dwg"}
@@ -29,8 +30,8 @@ Sub Main()
         System.Array.Sort(files, System.StringComparer.OrdinalIgnoreCase)
         For Each file As String In files
             If attempted >= maxFiles Then Exit For
-            attempted += 1
             Dim name As String = System.IO.Path.GetFileNameWithoutExtension(file)
+            If Not String.IsNullOrWhiteSpace(nameFilter) AndAlso name.IndexOf(nameFilter, StringComparison.OrdinalIgnoreCase) < 0 Then Continue For
             If System.Text.RegularExpressions.Regex.IsMatch(name, "^(PJ[0-9]{5}-)?JC[0-9]+(?:$|[-_ ].*)", System.Text.RegularExpressions.RegexOptions.IgnoreCase) OrElse _
                 file.ToUpperInvariant().Contains("CONTENT CENTER") OrElse file.ToUpperInvariant().Contains("\\LIBRARY\\") Then
                 skipped += 1 : WriteLog(logPath, "SKIP-LIBRARY " & file) : Continue For
@@ -38,7 +39,8 @@ Sub Main()
             If (System.IO.File.GetAttributes(file) And System.IO.FileAttributes.ReadOnly) <> 0 Then
                 skipped += 1 : WriteLog(logPath, "SKIP-READONLY " & file) : Continue For
             End If
-            Dim doc As Inventor.Document = Nothing, opened As Boolean = False, saved As Boolean = False
+            attempted += 1
+            Dim doc As Inventor.Document = Nothing, opened As Boolean = False
             Try
                 scanned += 1
                 WriteLog(logPath, "BEGIN " & file)
@@ -87,7 +89,6 @@ Sub Main()
                     If apply Then
                         WriteLog(logPath, "SAVE-BEGIN " & file)
                         doc.Save2(False)
-                        saved = True
                         WriteLog(logPath, "SAVE-END " & file & " dirty=" & doc.Dirty.ToString())
                     End If
                 End If
