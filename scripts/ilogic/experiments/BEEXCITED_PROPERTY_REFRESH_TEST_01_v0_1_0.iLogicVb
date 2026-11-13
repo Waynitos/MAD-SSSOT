@@ -1,0 +1,172 @@
+' BEEXCITED PROPERTY REFRESH TEST 01 — standalone candidate v0.1.0
+' Run on a DISPOSABLE, CHECKED-OUT project copy in Inventor 2025.
+' No Copy Design, SaveAs, rename, reference repair, or automatic Vault checkout.
+' Entry: active GA assembly (.iam), or active GA drawing (.idw/.dwg).
+' DRY RUN by default. APPLY requires typing APPLY.
+' Core functions are independent of prompts; future integration must call the SAME functions.
+Sub Main()
+    Dim active As Inventor.Document = ThisApplication.ActiveDocument
+    If active Is Nothing OrElse String.IsNullOrEmpty(active.FullFileName) Then
+        MessageBox.Show("Open a saved GA assembly or GA drawing first.") : Return
+    End If
+    Dim ext As String = System.IO.Path.GetExtension(active.FullFileName).ToLowerInvariant()
+    If ext <> ".iam" AndAlso ext <> ".idw" AndAlso ext <> ".dwg" Then
+        MessageBox.Show("Supported active documents: .iam, .idw, .dwg.") : Return
+    End If
+    If active.Dirty Then
+        MessageBox.Show("Active document has unsaved edits. Save/close edits before running; nothing changed.") : Return
+    End If
+    Dim pj As String = InputBox("New project prefix (PJ#####):", "BEEXCITED Property Refresh Test 01", "").Trim().ToUpperInvariant()
+    If Not System.Text.RegularExpressions.Regex.IsMatch(pj, "^PJ[0-9]{5}$") Then Return
+    Dim mode As String = InputBox("Type APPLY to modify eligible files; anything else is DRY RUN.", "Safety confirmation", "DRY RUN")
+    Dim apply As Boolean = String.Equals(mode.Trim(), "APPLY", StringComparison.Ordinal)
+    Dim root As String = System.IO.Path.GetDirectoryName(active.FullFileName)
+    Dim log As String = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "BEEXCITED_PROP_TEST01_" & Now.ToString("yyyyMMdd_HHmmss_fff") & ".log")
+    Dim scanned As Integer = 0, modified As Integer = 0, skipped As Integer = 0, failed As Integer = 0
+    WriteLine(log, "VERSION 0.1.0 | " & If(apply, "APPLY", "DRY RUN") & " | ROOT " & root & " | PREFIX " & pj)
+    Dim files As New System.Collections.Generic.List(Of String)
+    If ext = ".iam" Then
+        files.Add(active.FullFileName)
+        Try
+            Dim asm As Inventor.AssemblyDocument = CType(active, Inventor.AssemblyDocument)
+            For Each child As Inventor.Document In asm.AllReferencedDocuments
+                Dim path As String = child.FullFileName
+                Dim childExt As String = System.IO.Path.GetExtension(path).ToLowerInvariant()
+                If childExt = ".iam" OrElse childExt = ".ipt" Then files.Add(path)
+            Next
+        Catch ex As Exception
+            WriteLine(log, "ABORT-DISCOVERY " & ex.Message)
+            MessageBox.Show("Traversal failed. No updates attempted." & vbCrLf & log)
+            Return
+        End Try
+    Else
+        files.Add(active.FullFileName)
+        Try
+            For Each f As String In System.IO.Directory.GetFiles(root, "*", System.IO.SearchOption.TopDirectoryOnly)
+                Dim e As String = System.IO.Path.GetExtension(f).ToLowerInvariant()
+                If e = ".idw" OrElse e = ".dwg" Then files.Add(f)
+            Next
+        Catch ex As Exception
+            WriteLine(log, "ABORT-DISCOVERY " & ex.Message)
+            MessageBox.Show("Drawing discovery failed. No updates attempted." & vbCrLf & log)
+            Return
+        End Try
+    End If
+    Dim unique As New System.Collections.Generic.HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+    For Each path As String In files
+        If Not unique.Add(path) Then Continue For
+        Dim why As String = EligibilityReason(path, root)
+        If why <> "" Then
+            skipped += 1 : WriteLine(log, "SKIP " & why & " | " & path) : Continue For
+        End If
+        Dim doc As Inventor.Document = Nothing
+        Dim opened As Boolean = False
+        Try
+            scanned += 1
+            If String.Equals(path, active.FullFileName, StringComparison.OrdinalIgnoreCase) Then
+                doc = active
+            Else
+                Try : doc = ThisApplication.Documents.ItemByName(path) : Catch : End Try
+                If doc Is Nothing Then
+                    doc = ThisApplication.Documents.Open(path, False)
+                    opened = True
+                End If
+            End If
+            If doc.Dirty Then
+                skipped += 1 : WriteLine(log, "SKIP DIRTY-OPEN-DOCUMENT | " & path) : Continue For
+            End If
+            Dim changes As New System.Collections.Generic.List(Of String)
+            Dim isDrawing As Boolean = (ext <> ".iam")
+            If isDrawing Then
+                ' Conservative verified subset only: DRAWING_NUMBER, when property already exists.
+                ' Do NOT reset revisions, author, dates, or drawing issue fields.
+                Dim oldName As String = System.IO.Path.GetFileNameWithoutExtension(path)
+                Dim newName As String = ReplaceLeadingProject(oldName, pj)
+                QueueChange(doc, "Inventor User Defined Properties", "DRAWING_NUMBER", newName, changes, log, path)
+            Else
+                Dim custom As String = "Inventor User Defined Properties"
+                Dim design As String = "Design Tracking Properties"
+                QueuePrefix(doc, custom, "SPECIFICATION", pj, changes, log, path)
+                QueuePrefix(doc, design, "Part Number", pj, changes, log, path)
+                ' Other project fields deliberately deferred until field mapping is confirmed.
+            End If
+            If changes.Count = 0 Then
+                WriteLine(log, "UNCHANGED | " & path) : Continue For
+            End If
+            If apply Then
+                For Each entry As String In changes
+                    Dim fields() As String = entry.Split(New Char() {ChrW(9)}, 3)
+                    doc.PropertySets.Item(fields(0)).Item(fields(1)).Value = fields(2)
+                Next
+                doc.Save2(False)
+                Dim verified As Boolean = True
+                For Each entry As String In changes
+                    Dim fields() As String = entry.Split(New Char() {ChrW(9)}, 3)
+                    Dim actual As String = Convert.ToString(doc.PropertySets.Item(fields(0)).Item(fields(1)).Value)
+                    If Not String.Equals(actual, fields(2), StringComparison.Ordinal) Then
+                        verified = False
+                        WriteLine(log, "VERIFY-FAIL " & path & " [" & fields(1) & "] expected=" & fields(2) & " actual=" & actual)
+                    End If
+                Next
+                If Not verified Then Throw New Exception("Post-save in-memory property readback failed")
+                WriteLine(log, "SAVED-VERIFIED | " & path)
+            Else
+                WriteLine(log, "PREVIEW | " & path & " | " & changes.Count & " properties")
+            End If
+            modified += 1
+        Catch ex As Exception
+            failed += 1 : WriteLine(log, "FAIL | " & path & " | " & ex.Message)
+        Finally
+            If opened AndAlso doc IsNot Nothing Then
+                Try
+                    If Not doc.Dirty Then doc.Close(True)
+                Catch ex As Exception
+                    WriteLine(log, "CLOSE-FAIL | " & path & " | " & ex.Message)
+                End Try
+            End If
+        End Try
+    Next
+    WriteLine(log, "SUMMARY scanned=" & scanned & " candidate-or-verified=" & modified & " skipped=" & skipped & " failed=" & failed)
+    MessageBox.Show("Property Refresh " & If(apply, "APPLY", "DRY RUN") & " finished." & vbCrLf & "Scanned=" & scanned & ", candidates/verified=" & modified & ", skipped=" & skipped & ", failed=" & failed & vbCrLf & log)
+End Sub
+
+' CORE: path containment; protects external libraries even when referenced by GA.
+Function EligibilityReason(path As String, root As String) As String
+    If String.IsNullOrWhiteSpace(path) OrElse Not System.IO.File.Exists(path) Then Return "MISSING"
+    Dim full As String = System.IO.Path.GetFullPath(path)
+    Dim basePath As String = System.IO.Path.GetFullPath(root).TrimEnd(System.IO.Path.DirectorySeparatorChar) & System.IO.Path.DirectorySeparatorChar
+    If Not full.StartsWith(basePath, StringComparison.OrdinalIgnoreCase) Then Return "OUTSIDE-GA-FOLDER-TREE"
+    If (System.IO.File.GetAttributes(full) And System.IO.FileAttributes.ReadOnly) <> 0 Then Return "READONLY-OR-NOT-CHECKED-OUT"
+    Return ""
+End Function
+
+' CORE: replace project prefix only when followed by hyphen; preserve entire suffix.
+Function ReplaceLeadingProject(oldValue As String, pj As String) As String
+    If oldValue Is Nothing Then Return ""
+    Return System.Text.RegularExpressions.Regex.Replace(oldValue, "^PJ[0-9]{5}(?=-)", pj, System.Text.RegularExpressions.RegexOptions.IgnoreCase)
+End Function
+
+' CORE: queue changes without writing, usable in dry-run or APPLY.
+Sub QueuePrefix(doc As Inventor.Document, setName As String, propName As String, pj As String, changes As System.Collections.Generic.List(Of String), log As String, path As String)
+    Dim oldValue As String = ""
+    Try : oldValue = Convert.ToString(doc.PropertySets.Item(setName).Item(propName).Value)
+    Catch : WriteLine(log, "MISSING-PROPERTY | " & path & " | " & propName) : Return
+    End Try
+    QueueChange(doc, setName, propName, ReplaceLeadingProject(oldValue, pj), changes, log, path)
+End Sub
+
+Sub QueueChange(doc As Inventor.Document, setName As String, propName As String, newValue As String, changes As System.Collections.Generic.List(Of String), log As String, path As String)
+    Try
+        Dim oldValue As String = Convert.ToString(doc.PropertySets.Item(setName).Item(propName).Value)
+        If String.Equals(oldValue, newValue, StringComparison.Ordinal) Then Return
+        If newValue.IndexOf(ChrW(9)) >= 0 Then Throw New Exception("Tab in proposed value")
+        changes.Add(setName & vbTab & propName & vbTab & newValue)
+        WriteLine(log, "CHANGE | " & path & " | " & propName & " | " & oldValue & " => " & newValue)
+    Catch ex As Exception
+        WriteLine(log, "MISSING-OR-UNREADABLE | " & path & " | " & propName & " | " & ex.Message)
+    End Try
+End Sub
+
+Sub WriteLine(log As String, line As String)
+    System.IO.File.AppendAllText(log, Now.ToString("HH:mm:ss.fff") & " " & line & vbCrLf)
+End Sub
