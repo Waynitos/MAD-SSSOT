@@ -1,0 +1,76 @@
+' SCS Existing Target Repair — PWTP PREVIEW v0.1.0
+' Read-only diagnostic, NOT an executable repair candidate.
+Sub Main()
+ Dim timer As System.Diagnostics.Stopwatch = System.Diagnostics.Stopwatch.StartNew()
+ Dim doc As Inventor.Document = ThisApplication.ActiveDocument
+ If doc Is Nothing OrElse doc.DocumentType <> Inventor.DocumentTypeEnum.kAssemblyDocumentObject Then
+  MessageBox.Show("Open source assembly.", "SCS Preview") : Return
+ End If
+ Dim root As String = InputBox("Existing target folder:", "SCS Preview")
+ If String.IsNullOrWhiteSpace(root) Then Return
+ root = System.IO.Path.GetFullPath(root.Trim())
+ If Not System.IO.Directory.Exists(root) Then
+  MessageBox.Show("Target folder not found.", "SCS Preview") : Return
+ End If
+ Dim sourceRoot As String = System.IO.Path.GetDirectoryName(doc.FullFileName)
+ Dim rows As New System.Collections.Generic.List(Of String)
+ rows.Add("version" & vbTab & "type" & vbTab & "source" & vbTab & "target" & vbTab & "status" & vbTab & "detail")
+ Dim seen As New System.Collections.Generic.HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+ Dim mapped As New System.Collections.Generic.Dictionary(Of String,String)(StringComparer.OrdinalIgnoreCase)
+ Walk(doc,sourceRoot,root,seen,mapped,rows)
+ timer.Stop()
+ Dim folder As String = System.IO.Path.Combine(System.IO.Path.GetTempPath(),"SCS_Repair_Preview")
+ System.IO.Directory.CreateDirectory(folder)
+ Dim output As String = System.IO.Path.Combine(folder,"preview_" & DateTime.Now.ToString("yyyyMMdd_HHmmss_fff") & ".tsv")
+ rows.Add("v0.1.0" & vbTab & "SUMMARY" & vbTab & Clean(doc.FullFileName) & vbTab & Clean(root) & vbTab & "PREVIEW_ONLY" & vbTab & "total_ms=" & timer.ElapsedMilliseconds)
+ System.IO.File.WriteAllLines(output,rows.ToArray())
+ MessageBox.Show("PREVIEW ONLY — no files modified." & vbCrLf & "Total: " & timer.Elapsed.TotalSeconds.ToString("F3") & " seconds" & vbCrLf & output,"SCS Preview v0.1.0")
+End Sub
+Sub Walk(doc As Inventor.Document, sourceRoot As String, targetRoot As String, seen As System.Collections.Generic.HashSet(Of String), mapped As System.Collections.Generic.Dictionary(Of String,String), rows As System.Collections.Generic.List(Of String))
+ Dim source As String = doc.FullFileName
+ If String.IsNullOrWhiteSpace(source) OrElse Not seen.Add(source) Then Return
+ Dim t As System.Diagnostics.Stopwatch = System.Diagnostics.Stopwatch.StartNew()
+ Dim target As String = ""
+ Dim status As String = "BLOCKED"
+ Dim detail As String = ""
+ Try
+  Dim prefix As String = sourceRoot.TrimEnd(System.IO.Path.DirectorySeparatorChar) & System.IO.Path.DirectorySeparatorChar
+  If Not source.StartsWith(prefix,StringComparison.OrdinalIgnoreCase) Then
+   detail = "External/library source; mapping not permitted"
+  Else
+   target = System.IO.Path.GetFullPath(System.IO.Path.Combine(targetRoot,source.Substring(prefix.Length)))
+   Dim targetPrefix As String = targetRoot.TrimEnd(System.IO.Path.DirectorySeparatorChar) & System.IO.Path.DirectorySeparatorChar
+   If Not target.StartsWith(targetPrefix,StringComparison.OrdinalIgnoreCase) Then
+    detail = "Target outside root"
+   ElseIf mapped.ContainsKey(target) AndAlso Not String.Equals(mapped(target),source,StringComparison.OrdinalIgnoreCase) Then
+    detail = "Collision: two sources map to one target"
+   Else
+    mapped(target) = source
+    If Not System.IO.File.Exists(target) Then
+     detail = "Target missing"
+    ElseIf (System.IO.File.GetAttributes(target) And System.IO.FileAttributes.ReadOnly) <> 0 Then
+     detail = "Read-only target"
+    Else
+     status = "REVIEW"
+     detail = "Identity, provenance, Vault checkout, Frame Generator skeleton/member and reference integrity unverified"
+    End If
+   End If
+  End If
+ Catch ex As Exception
+  detail = ex.ToString()
+ End Try
+ rows.Add("v0.1.0" & vbTab & "DOCUMENT" & vbTab & Clean(source) & vbTab & Clean(target) & vbTab & status & vbTab & Clean(detail))
+ Try
+  For Each child As Inventor.Document In doc.ReferencedDocuments
+   Walk(child,sourceRoot,targetRoot,seen,mapped,rows)
+  Next
+ Catch ex As Exception
+  rows.Add("v0.1.0" & vbTab & "ERROR" & vbTab & Clean(source) & vbTab & Clean(target) & vbTab & "BLOCKED" & vbTab & Clean(ex.ToString()))
+ End Try
+ t.Stop()
+ rows.Add("v0.1.0" & vbTab & "TIMING" & vbTab & Clean(source) & vbTab & Clean(target) & vbTab & "OBSERVED" & vbTab & "walk_ms=" & t.ElapsedMilliseconds)
+End Sub
+Function Clean(value As String) As String
+ If value Is Nothing Then Return ""
+ Return value.Replace(vbTab," ").Replace(vbCr," ").Replace(vbLf," ")
+End Function
