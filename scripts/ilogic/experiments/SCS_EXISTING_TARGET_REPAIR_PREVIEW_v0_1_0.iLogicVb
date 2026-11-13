@@ -1,0 +1,88 @@
+' SCS_EXISTING_TARGET_REPAIR_PREVIEW_v0_1_0.iLogicVb
+' PWTP: standalone PREVIEW ONLY. Inventor 2025 iLogic, assembly active.
+' No Save/SaveAs/Replace/Update/File.Copy/attribute or Vault mutations.
+' Intended for an ALREADY-COPIED target assembly opened directly.
+Sub Main()
+    Dim sw As System.Diagnostics.Stopwatch = System.Diagnostics.Stopwatch.StartNew()
+    Dim stage As String = "START"
+    Dim lines As New System.Collections.Generic.List(Of String)
+    Dim outPath As String = ""
+    Try
+        Dim doc As Inventor.Document = ThisApplication.ActiveDocument
+        If doc Is Nothing OrElse doc.DocumentType <> Inventor.DocumentTypeEnum.kAssemblyDocumentObject Then
+            MessageBox.Show("Open an existing TARGET .iam assembly before running this preview.", "SCS Preview v0.1.0")
+            Return
+        End If
+        Dim oldPrefix As String = InputBox("OLD project prefix (e.g. PJ00201):", "SCS Repair Preview")
+        If String.IsNullOrWhiteSpace(oldPrefix) Then Return
+        Dim newPrefix As String = InputBox("NEW project prefix (e.g. PJ00183):", "SCS Repair Preview")
+        If String.IsNullOrWhiteSpace(newPrefix) Then Return
+        oldPrefix = oldPrefix.Trim()
+        newPrefix = newPrefix.Trim()
+        If oldPrefix.Equals(newPrefix, StringComparison.OrdinalIgnoreCase) OrElse _
+           Not System.Text.RegularExpressions.Regex.IsMatch(oldPrefix, "^PJ[0-9]{5}$", System.Text.RegularExpressions.RegexOptions.IgnoreCase) OrElse _
+           Not System.Text.RegularExpressions.Regex.IsMatch(newPrefix, "^PJ[0-9]{5}$", System.Text.RegularExpressions.RegexOptions.IgnoreCase) Then
+            MessageBox.Show("Use distinct PJ##### project prefixes.", "SCS Preview v0.1.0")
+            Return
+        End If
+        stage = "SETUP"
+        Dim targetFolder As String = System.IO.Path.GetDirectoryName(doc.FullFileName)
+        If String.IsNullOrEmpty(targetFolder) Then Throw New Exception("Active document is unsaved.")
+        Dim logDir As String = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "SCS_Repair_Previews")
+        System.IO.Directory.CreateDirectory(logDir)
+        outPath = System.IO.Path.Combine(logDir, "repair_preview_" & DateTime.Now.ToString("yyyyMMdd_HHmmss_fff") & ".tsv")
+        lines.Add("version" & vbTab & "kind" & vbTab & "source_ref" & vbTab & "candidate_target" & vbTab & "status" & vbTab & "detail")
+        lines.Add("0.1.0" & vbTab & "RUN" & vbTab & Clean(doc.FullFileName) & vbTab & "" & vbTab & "PREVIEW_ONLY" & vbTab & "old=" & oldPrefix & ";new=" & newPrefix)
+        stage = "DESCRIPTOR_SCAN"
+        Dim count As Integer = 0
+        Dim blocked As Integer = 0
+        Dim candidate As Integer = 0
+        Dim descriptors As Inventor.DocumentDescriptorsEnumerator = CType(doc, Inventor.AssemblyDocument).ReferencedDocumentDescriptors
+        For Each dd As Inventor.DocumentDescriptor In descriptors
+            count += 1
+            Dim src As String = ""
+            Try
+                src = dd.FullDocumentName
+            Catch ex As Exception
+                blocked += 1
+                lines.Add("0.1.0" & vbTab & "ERROR" & vbTab & "" & vbTab & "" & vbTab & "BLOCKED" & vbTab & Clean(ex.Message))
+                Continue For
+            End Try
+            Dim srcFile As String = System.IO.Path.GetFileName(src)
+            Dim dstFile As String = srcFile
+            Dim status As String = "NO_PREFIX_MATCH"
+            Dim dest As String = ""
+            Dim detail As String = "Descriptor-level observation; nested references require separate scans"
+            If srcFile.StartsWith(oldPrefix, StringComparison.OrdinalIgnoreCase) Then
+                dstFile = newPrefix & srcFile.Substring(oldPrefix.Length)
+                dest = System.IO.Path.Combine(targetFolder, dstFile)
+                If System.IO.File.Exists(dest) Then
+                    If System.IO.File.GetAttributes(dest) And System.IO.FileAttributes.ReadOnly Then
+                        status = "BLOCKED_READONLY"
+                        blocked += 1
+                    Else
+                        status = "CANDIDATE_UNVERIFIED"
+                        candidate += 1
+                    End If
+                Else
+                    status = "BLOCKED_MISSING_TARGET"
+                    blocked += 1
+                End If
+            End If
+            lines.Add("0.1.0" & vbTab & "DESCRIPTOR" & vbTab & Clean(src) & vbTab & Clean(dest) & vbTab & status & vbTab & Clean(detail))
+        Next
+        stage = "WRITE_LOG"
+        sw.Stop()
+        lines.Add("0.1.0" & vbTab & "SUMMARY" & vbTab & "" & vbTab & "" & vbTab & "NOT_EXECUTABLE" & vbTab & "descriptors=" & count & ";candidates=" & candidate & ";blocked=" & blocked & ";elapsed_ms=" & sw.ElapsedMilliseconds & ";vault=UNVERIFIED;frame_associativity=UNVERIFIED;rollback=NOT_APPLICABLE")
+        System.IO.File.WriteAllLines(outPath, lines.ToArray())
+        MessageBox.Show("SCS Preview v0.1.0 — NO CHANGES" & vbCrLf & "Descriptors: " & count & "  Candidates: " & candidate & "  Blocked: " & blocked & vbCrLf & "Total: " & sw.ElapsedMilliseconds & " ms" & vbCrLf & outPath & vbCrLf & "No repair authorised. Vault, identity and Frame Generator integrity unverified.", "SCS Preview")
+    Catch ex As Exception
+        sw.Stop()
+        MessageBox.Show("SCS Preview FAILED at " & stage & " after " & sw.ElapsedMilliseconds & " ms" & vbCrLf & ex.ToString() & vbCrLf & "No model modifications attempted.", "SCS Preview")
+    End Try
+End Sub
+
+Function Clean(value As String) As String
+    If value Is Nothing Then Return ""
+    Return value.Replace(vbTab, " ").Replace(vbCr, " ").Replace(vbLf, " ")
+End Function
