@@ -132,17 +132,25 @@ Function ReadProp(setObj As Inventor.PropertySet, name As String) As String
 End Function
 
 Function UpdateProp(setObj As Inventor.PropertySet, name As String, value As String, file As String, logPath As String, apply As Boolean) As Integer
+    Dim p As Inventor.Property = Nothing
     Try
-        Dim p As Inventor.Property = setObj.Item(name)
-        Dim old As String = Convert.ToString(p.Value)
-        If String.Equals(old, value, StringComparison.Ordinal) Then Return 0
-        WriteLog(logPath, "PROP " & file & " [" & name & "] " & old & " -> " & value)
-        If apply Then p.Value = value
-        Return 1
-    Catch
-        WriteLog(logPath, "MISSING-OR-UNWRITABLE " & file & " [" & name & "]")
+        p = setObj.Item(name)
+    Catch ex As Exception
+        WriteLog(logPath, "MISSING-PROPERTY " & file & " [" & name & "] " & ex.Message)
         Return 0
     End Try
+    Dim old As String = Convert.ToString(p.Value)
+    If String.Equals(old, value, StringComparison.Ordinal) Then Return 0
+    WriteLog(logPath, "PROP " & file & " [" & name & "] " & old & " -> " & value)
+    If apply Then
+        Try
+            p.Value = value
+        Catch ex As Exception
+            WriteLog(logPath, "PROPERTY-WRITE-FAIL " & file & " [" & name & "] " & ex.ToString())
+            Throw
+        End Try
+    End If
+    Return 1
 End Function
 
 Function UpdatePropIfPopulated(setObj As Inventor.PropertySet, name As String, value As String, file As String, logPath As String, apply As Boolean) As Integer
