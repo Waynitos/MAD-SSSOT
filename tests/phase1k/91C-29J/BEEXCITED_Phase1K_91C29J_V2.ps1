@@ -26,7 +26,8 @@ function Acl($path,$pub,$seal,$pubRead=$false){
  if($pubRead){$entries+= ,@((Get-LocalUser BEEXCITED_PubLab).SID.Value,'ReadAndExecute')}
  foreach($e in $entries){
   $sid=New-Object Security.Principal.SecurityIdentifier($e[0])
-  $rule=New-Object Security.AccessControl.FileSystemAccessRule($sid,$e[1],[Security.AccessControl.InheritanceFlags]'ContainerInherit,ObjectInherit',[Security.AccessControl.PropagationFlags]::None,[Security.AccessControl.AccessControlType]::Allow)
+  if([IO.Directory]::Exists($path)){$inherit=[Security.AccessControl.InheritanceFlags]'ContainerInherit,ObjectInherit'}else{$inherit=[Security.AccessControl.InheritanceFlags]::None}
+  $rule=New-Object Security.AccessControl.FileSystemAccessRule($sid,$e[1],$inherit,[Security.AccessControl.PropagationFlags]::None,[Security.AccessControl.AccessControlType]::Allow)
   $a.AddAccessRule($rule)
  }
  Set-Acl -LiteralPath $path -AclObject $a
@@ -60,10 +61,17 @@ switch($Mode){
   if($LASTEXITCODE -ne 0){throw 'ACL_INSPECTION_FAILED'}
   Write-Host "SOURCE_SHA256=$(Hash $src)"
   Write-Host "SEALED_EXISTS=$([IO.File]::Exists($copy)) DIGEST_EXISTS=$([IO.File]::Exists($digest))"
+  if([IO.File]::Exists($copy) -and [IO.File]::Exists($digest)){
+   if((Get-Item -LiteralPath $copy).Length -le 0 -or (Get-Item -LiteralPath $digest).Length -le 0){throw 'SEALED_ARTIFACT_EMPTY'}
+   & icacls.exe $copy $digest
+   if($LASTEXITCODE -ne 0){throw 'SEALED_ACL_INSPECTION_FAILED'}
+   Write-Host 'ADMIN_ATTESTATION=SEALED_FILES_PRESENT_NONEMPTY;REVIEW_ACLS_MANUALLY'
+  }
  }
  Seal {
   if($Role -ne 'Sealer'){throw 'SEALER_REQUIRED'}
   if([IO.File]::Exists($copy) -or [IO.File]::Exists($digest)){throw 'SEAL_EXISTS_NO_RESEAL'}
+  if([IO.File]::Exists($src) -eq $false){throw 'SOURCE_MISSING'}
   $bytes=[IO.File]::ReadAllBytes($src);if($bytes.Length -gt 1048576){throw 'SOURCE_TOO_LARGE'}
   $sha=[Security.Cryptography.SHA256]::Create()
   try{$h=[BitConverter]::ToString($sha.ComputeHash($bytes)).Replace('-','')}finally{$sha.Dispose()}
@@ -87,6 +95,7 @@ switch($Mode){
  }
  Probe {
   if($Role -notin @('Publisher','Adversary')){throw 'INVALID_PROBE_ROLE'}
+  # Do not inspect protected marker or check protected file existence under untrusted identity.
   foreach($p in @($copy,$digest)){
    foreach($access in @([IO.FileAccess]::Read,[IO.FileAccess]::Write)){
     try{$f=[IO.File]::Open($p,[IO.FileMode]::Open,$access,[IO.FileShare]::None);$f.Dispose();throw "ACCESS_ALLOWED=$p $access"}
