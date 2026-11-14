@@ -14,12 +14,17 @@ Write-Host "IDENTITY=$($identity.Name)"
 Write-Host "SID=$($identity.User.Value)"
 Write-Host 'SCOPE=DISPOSABLE_SYNTHETIC_ONLY'
 Write-Host 'DESIGN=BASELINE_CAPABILITY_TEST_NOT_IMMUTABILITY_PROOF'
-function Hash([string]$p){(Get-FileHash -LiteralPath $p -Algorithm SHA256 -ErrorAction Stop).Hash}
+function Hash([string]$p){ $sha=[Security.Cryptography.SHA256]::Create(); try { $stream=[IO.File]::Open($p,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read); try { [BitConverter]::ToString($sha.ComputeHash($stream)).Replace('-','') } finally { $stream.Dispose() } } finally { $sha.Dispose() } }
 if($Mode -eq 'Baseline'){
- if(Test-Path -LiteralPath $lab){throw 'LAB_ALREADY_EXISTS: Refusing to overwrite prior experiment'}
- New-Item -ItemType Directory -Path $lab -ErrorAction Stop | Out-Null
- $payload=[Text.Encoding]::UTF8.GetBytes('BEEXCITED 91C29I SYNTHETIC SEALED CANDIDATE v1')
- [IO.File]::WriteAllBytes($evidence,$payload)
+ if(Test-Path -LiteralPath $lab){
+   if((Test-Path -LiteralPath $evidence) -and -not (Test-Path -LiteralPath $manifest) -and ([IO.File]::ReadAllText($evidence) -ceq 'BEEXCITED 91C29I SYNTHETIC SEALED CANDIDATE v1')){
+     Write-Host 'RECOVERY: Exact synthetic evidence found without manifest; resuming interrupted baseline'
+   }else{throw 'LAB_ALREADY_EXISTS: Refusing to overwrite or trust unexpected prior experiment'}
+ }else{
+   New-Item -ItemType Directory -Path $lab -ErrorAction Stop | Out-Null
+   $payload=[Text.Encoding]::UTF8.GetBytes('BEEXCITED 91C29I SYNTHETIC SEALED CANDIDATE v1')
+   [IO.File]::WriteAllBytes($evidence,$payload)
+ }
  $digest=Hash $evidence
  [IO.File]::WriteAllText($manifest,$digest,[Text.Encoding]::ASCII)
  Write-Host "BASELINE_SHA256=$digest"
