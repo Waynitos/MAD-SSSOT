@@ -51,3 +51,14 @@ instructions. Every AI agent (Claude, Grok Bot, Cursor, others) follows these ru
 - `prompts/`          MAD agent prompts (AA, DA, SA, SSA)
 - repo root `*.md`    project instructions and protocols
 - `runs/`             MAD run outputs
+
+
+## 7. BEEXCITED Codex routing and isolated-branch override (2026-11-14)
+- These instructions override the general `main` push default in section 4 for all PROPERTY REFRESH TEST 01 / Clean Sweeper work. **Never edit, push, merge or deploy `main` for this assignment.** Work only on `feature/sweeper-v2.2.34-existing-target-repair`, or a child task branch with an explicitly approved PR targeting that feature branch. Never resolve conflicts by automatically preferring the agent's version; preserve both sides and seek review when uncertain.
+- Before coding, read `docs/BEEXCITED_CODEX_HANDOVER_PROPERTY_REFRESH_01.md`, `docs/BEEXCITED_CODEX_ROUTING_PROTOCOL.md`, `docs/PROPERTY_REFRESH_TEST_01_SHARED_CORE_CONTRACT_v0_1.md` and the qualification blockers audit. Verify actual repository state; the handover is a snapshot, not proof of current code.
+- The first assignment is PROPERTY REFRESH TEST 01 only. Build one canonical shared execution core with separate read-only discovery, root/library classification, property planning, logging and thin GA assembly/drawing wrappers. Reuse the same source without copy/paste for later Clean Sweeper integration. Do not expand into Existing Target Repair.
+- Dry-run first. APPLY must stay fail-closed until authoritative Vault checkout ownership, project-root resolution, dirty/read-only guards, persisted-file verification, partial-write recovery and target-Inventor runtime tests are qualified. Never auto-checkout or alter original/source/external library files.
+- Keep original successful iLogic scripts intact. Do not delete, rename or shrink scripts without explicit approval. Respect current repository's historical versioned experiments; do not proliferate new dated clones.
+- For every task: read complete relevant source files; state the proposed scope and acceptance criteria; run actual available offline tests; record command, exit code, and outcomes; separate static evidence from Inventor/Vault runtime evidence; produce a reviewable diff and report limitations. Do not claim Inventor compilation or testing from a cloud Linux sandbox.
+- Routing decision: use ChatGPT/MAD for requirements and design; Codex for implementation, refactoring, codebase inspection and offline testing; use both plus human approval for high-risk Vault/file mutation. Never imply a Codex job has been started merely because a handover was prepared.
+- Do not auto-merge or change production. Stop and ask for approval if the task requires external credentials, repository permission escalation, destructive changes, or modifying actual engineering project files.
