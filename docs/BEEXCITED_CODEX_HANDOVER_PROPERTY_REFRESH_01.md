@@ -56,3 +56,11 @@ G0 design reviewed → G1 offline pure/static regression evidence → G2 Invento
 
 ## Codex task starter
 Read AGENTS.md and this handover; verify current branch, sources and tests. Start with read-only preflight and an implementation plan for shared preview core + two thin wrappers. Do not modify main, enable APPLY, auto-checkout, merge or claim Inventor testing. Report exact proposed files, risks and test commands before writing.
+
+
+## 2026-11-14 source-level integration hazard (verified by full source inspection)
+The existing standalone rule calls its **local** `PlanDrawingNumber(filenameStem, existingNumber, targetPrefix)` with filename first, whereas the separate pure module exposes `PlanDrawingNumber(existingValue, fileBaseName, proposed)` with existing property first. Their argument order is reversed. A direct replacement without an explicit named adapter would silently mis-map values; because both parameters are String, compilation would not detect it. Their no-change contracts also differ: the standalone returns empty String as a skip sentinel; the pure module returns the original existing value. The pure module also returns original value when the old prefix is not proven, while the standalone only queues changes if the proposed value is nonempty. Before wiring wrappers, establish a single typed drawing planning contract, explicit named arguments or request object, and tests for mismatch, unchanged/idempotence, missing value, suffix preservation, filename mismatch and lower-case old prefix. This finding is based on source inspection only; it is not a runtime failure claim.
+
+The current standalone still includes an unreachable APPLY mutation block after an explicit early APPLY rejection. Do not interpret the presence of `Save2(False)` or in-memory readback as qualification. Keep APPLY fail-closed and remove/defer mutation logic only as part of a reviewed refactor; do not activate it.
+
+The standalone's `root` is the active document's directory, not a trusted project root, so its current eligibility gate excludes valid sibling project directories and has no authoritative external-library root mapping. Do not weaken containment; use the existing root-classification work and explicit ownership inputs.
