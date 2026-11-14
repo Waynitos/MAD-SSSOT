@@ -34,8 +34,8 @@ try {
     Assert-Available
     Write-Host '=== 91C-29G-4 PROVISIONING ==='
     Write-Host "LAB_ROOT=$root"
-    New-LabUser $publisher 'BEEXCITED disposable publication authority test account'
-    New-LabUser $adversary 'BEEXCITED disposable untrusted writer test account'
+    New-LabUser $publisher 'BEEXCITED lab publisher'
+    New-LabUser $adversary 'BEEXCITED lab adversary'
     New-Item -ItemType Directory -Path $root -ErrorAction Stop | Out-Null
     $createdRoot = $true
     foreach ($folder in @('store','ledger','inbox')) { New-Item -ItemType Directory -Path (Join-Path $root $folder) | Out-Null }
