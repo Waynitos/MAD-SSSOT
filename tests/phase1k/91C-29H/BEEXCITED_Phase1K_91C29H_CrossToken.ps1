@@ -39,7 +39,7 @@ if($Role -eq 'Seed') {
   Check 'create ledger file' {[IO.File]::WriteAllText((Join-Path $ledger '91C29H_unauthorised.txt'),'TAMPER')} $false
   Check 'create inbox file' {[IO.File]::WriteAllText((Join-Path $inbox '91C29H_unauthorised.txt'),'TAMPER')} $false
   Check 'rename evidence' {[IO.File]::Move($seed,(Join-Path $store '91C29H_renamed.txt'))} $false
-  Check 'delete evidence' {[IO.File]::Delete($seed); if(-not (Test-Path -LiteralPath $seed)){throw 'DELETE_SUCCEEDED'}} $false
+  Check 'delete evidence' {[IO.File]::Delete($seed)} $false
   Write-Host 'PHASE1K_91C29H_ADVERSARY_COMPLETE'
 } else {
   Check 'publisher evidence intact' {if([IO.File]::ReadAllText($seed) -cne $expected){throw 'Evidence altered'}} $true
