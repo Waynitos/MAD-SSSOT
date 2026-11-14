@@ -31,7 +31,7 @@ function Acl($path,$pub,$seal,$pubRead=$false){
  }
  Set-Acl -LiteralPath $path -AclObject $a
 }
-if($Mode -ne 'Provision'){
+if($Mode -in @('Inspect','Seal','Verify','Rollback')){
  if(-not [IO.File]::Exists($marker)){throw 'V2_MARKER_MISSING'}
  if([IO.File]::ReadAllText($marker).Trim() -cne 'BEEXCITED_91C29J_V2_SYNTHETIC_ONLY'){throw 'MARKER_MISMATCH'}
 }
@@ -91,9 +91,10 @@ switch($Mode){
    foreach($access in @([IO.FileAccess]::Read,[IO.FileAccess]::Write)){
     try{$f=[IO.File]::Open($p,[IO.FileMode]::Open,$access,[IO.FileShare]::None);$f.Dispose();throw "ACCESS_ALLOWED=$p $access"}
     catch [UnauthorizedAccessException]{Write-Host "PASS_DENIED=$p $access"}
+    catch {throw "PROBE_INCONCLUSIVE=$p $access : $($_.Exception.GetType().FullName)"}
    }
   }
-  Write-Host 'PROBES=PASS'
+  Write-Host 'PROBES=PASS_ACCESS_DENIED; REQUIRES_ADMIN_EXISTENCE_ATTESTATION'
  }
  Rollback {
   if($Role -ne 'Admin' -or -not $ConfirmRollback){throw 'ADMIN_AND_CONFIRMATION_REQUIRED'}
