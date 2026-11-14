@@ -62,4 +62,20 @@ Public Module BEEXCITED_PropertyRefreshPure
             .Reason = "Leading project prefix only"
         }
     End Function
+
+    ' Typed drawing planner: explicitly named inputs prevent the historical
+    ' filename/existing-value positional swap in the standalone candidate.
+    ' Nothing is returned when identity is unverified or value is unchanged.
+    Public Function PlanExistingDrawingProperty(ByVal filePath As String, ByVal filenameStem As String, ByVal existingDrawingNumber As String, ByVal targetProjectPrefix As String) As PropertyChange
+        Dim nextValue As String = PlanDrawingNumber(existingValue:=existingDrawingNumber, fileBaseName:=filenameStem, proposed:=targetProjectPrefix)
+        If String.Equals(existingDrawingNumber, nextValue, StringComparison.Ordinal) Then Return Nothing
+        Return New PropertyChange With {
+            .FilePath = filePath,
+            .PropertySetName = "Inventor User Defined Properties",
+            .PropertyName = "DRAWING_NUMBER",
+            .OldValue = existingDrawingNumber,
+            .NewValue = nextValue,
+            .Reason = "Verified drawing identity and leading project prefix only"
+        }
+    End Function
 End Module
