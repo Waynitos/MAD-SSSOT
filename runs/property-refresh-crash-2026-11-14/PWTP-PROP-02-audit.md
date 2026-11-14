@@ -42,3 +42,15 @@ SSA: run 5-file DRY RUN, inspect desktop log and document count, then backed-up 
 4. Reopen changed files in Inventor, verify SPECIFICATION, Part Number, PROJECT NUMBER, DRAWING REF/ITEM NUMBER; check for 6-digit remnants. Rerun DRY RUN; zero candidates expected for corrected fields.
 5. If freeze/crash: preserve last desktop log line and Windows Event Viewer Application Error (Inventor.exe faulting module), plus Inventor version and loaded add-ins. Do not widen batch.
 6. Broader 411-file test and drawings only after verified small-batch success and explicit approval.
+
+## Sunday 2026-11-15 — additional source-audit finding
+
+**Confirmed diagnostic defect:** PWTP-PROP-02 previously wrapped property lookup, read, and `p.Value = value` in one `Catch` returning 0, so a COM setter failure could be logged merely as `MISSING-OR-UNWRITABLE` and omitted from `failed`. This makes the prior `failed=0` metric less trustworthy as a measure of individual property writes. The original PWTP-PROP-01 has the same suppression.
+
+**Minimal pilot-only repair:** commit `de1ce0a022e4edd5e2e3c8e2ac52bbc2a020aa5b` separates missing-property lookup from property assignment. Missing properties remain logged/skipped for compatibility. A setter failure now emits `PROPERTY-WRITE-FAIL`, rethrows to the per-file handler, and increments `failed`. No production baseline changed. Static source review only; no Inventor compilation or execution.
+
+**Remaining risks:** the pilot's default substring filter can select five files without any change candidates; choose a known candidate and confirm `PROP` lines before APPLY. A dry run still opens models and can trigger Inventor document-load side effects; monitor `OPEN-END`/`CLOSE-END`. `changed` counts files with candidate changes before Save2 completes; never interpret it as a count of persisted files. Any partial mutation on a setter exception is discarded by `Close(True)` for pilot-opened docs, but independently triggered saves/events have not been excluded.
+
+**Monday gate:** verify actual file backup, successful iLogic compilation, 5-file DRY RUN with candidate, 5-file APPLY with balanced lifecycle and zero FAIL, reopen saved files and inspect fields, then repeat DRY RUN. Full-folder APPLY remains BLOCKED pending workplace evidence and approval.
+
+**Hive Knowledge Contribution:** CANDIDATE — avoid catch-all property setter error suppression in batch iLogic; provenance: PWTP-PROP-01 and PWTP-PROP-02 source, this audit, commit above. Verification: CODE_REVIEWED, not LOCALLY_TESTED or WORKPLACE_VALIDATED.
