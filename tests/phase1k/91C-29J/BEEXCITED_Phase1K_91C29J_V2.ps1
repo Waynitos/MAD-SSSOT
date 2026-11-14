@@ -17,12 +17,13 @@ function Hash($path){
   try{[BitConverter]::ToString($sha.ComputeHash($f)).Replace('-','')}finally{$f.Dispose()}
  }finally{$sha.Dispose()}
 }
-function Acl($path,$pub,$seal){
+function Acl($path,$pub,$seal,$pubRead=$false){
  $a=Get-Acl -LiteralPath $path;$a.SetAccessRuleProtection($true,$false)
  foreach($r in @($a.Access)){[void]$a.RemoveAccessRuleSpecific($r)}
  $entries=@(@('S-1-5-18','FullControl'),@('S-1-5-32-544','FullControl'))
  if($pub){$entries+= ,@((Get-LocalUser BEEXCITED_PubLab).SID.Value,'Modify')}
  if($seal){$entries+= ,@((Get-LocalUser BEEXCITED_SealLab).SID.Value,'Modify')}
+ if($pubRead){$entries+= ,@((Get-LocalUser BEEXCITED_PubLab).SID.Value,'ReadAndExecute')}
  foreach($e in $entries){
   $sid=New-Object Security.Principal.SecurityIdentifier($e[0])
   $rule=New-Object Security.AccessControl.FileSystemAccessRule($sid,$e[1],[Security.AccessControl.InheritanceFlags]'ContainerInherit,ObjectInherit',[Security.AccessControl.PropagationFlags]::None,[Security.AccessControl.AccessControlType]::Allow)
@@ -46,7 +47,7 @@ switch($Mode){
   $sid=(Get-LocalUser BEEXCITED_SealLab).SID.Value
   if(@(Get-LocalGroupMember -Group Administrators)|Where-Object {$_.SID.Value -eq $sid}){throw 'SEALER_IS_ADMIN'}
   [void][IO.Directory]::CreateDirectory($lab);[void][IO.Directory]::CreateDirectory($stage);[void][IO.Directory]::CreateDirectory($vault)
-  Acl $lab $false $true;Acl $stage $true $true;Acl $vault $false $true
+  Acl $lab $false $true $true;Acl $stage $true $true;Acl $vault $false $true
   [IO.File]::WriteAllBytes($src,[Text.Encoding]::UTF8.GetBytes('BEEXCITED 91C29J V2 SYNTHETIC EVIDENCE v1'))
   Acl $src $true $true
   [IO.File]::WriteAllText($marker,'BEEXCITED_91C29J_V2_SYNTHETIC_ONLY',[Text.Encoding]::ASCII)
