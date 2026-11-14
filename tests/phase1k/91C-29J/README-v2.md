@@ -30,3 +30,8 @@ Candidate code not yet executed on Windows; inspect source and test on disposabl
 AA: separate SID and NTFS ACL create meaningful independent publisher boundary.
 DA: administrator and sealer still trusted, no off-host digest, no WORM, possible parent ACL edge cases, partial failures.
 SSA: testable candidate only; do not declare PASS before real Windows results.
+
+## Review amendment — 2026-11-14
+Probe mode intentionally skips the protected administrative marker because publisher/adversary must not be able to read it. UnauthorizedAccessException is the only expected denial; other exceptions are INCONCLUSIVE. **A denied probe alone is not sufficient**: after Seal, administrator must inspect and attest both protected files exist and are nonempty, including their ACLs, before accepting probe results. Earlier downloaded V2 SHA256 60E369029DD2E0783FF288B41F01392A9C70002BBC1C1D2583D031EF3ADE7484 is now **obsolete**; do not run that file. Download the new committed script and compare against a separately retrieved GitHub revision/hash before executing.
+
+**Additional blocker:** Provision currently grants publisher ReadAndExecute to lab root; confirm protected sealed child ACL has inheritance disabled. The unprivileged Probe also checks the pre-existing base lab marker and account identities; test those prerequisites under each user before treating any probe failure as an ACL result. Do not provision until this and all remaining implementation review issues are resolved.
