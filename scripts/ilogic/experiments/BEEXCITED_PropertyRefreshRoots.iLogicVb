@@ -1,0 +1,67 @@
+' BEEXCITED Property Refresh 01 — path-root preview classifier v0.1.0-preview
+' Pure classification only. Does NOT authorize APPLY or establish Vault ownership.
+' Caller must independently resolve real paths, reparse points, mapped drives and UNC aliases.
+Imports System
+Imports System.Collections.Generic
+Imports System.IO
+
+Public Module BEEXCITED_PropertyRefreshRoots
+    Public Const ClassifierVersion As String = "0.1.0-preview"
+
+    Public Enum RootDecision
+        BlockedInvalidPath
+        BlockedExternalLibrary
+        BlockedOutsideApprovedRoot
+        PreviewCandidateRequiresOwnershipVerification
+    End Enum
+
+    Private Function CanonicalLexicalPath(ByVal value As String) As String
+        If String.IsNullOrWhiteSpace(value) Then Return Nothing
+        Try
+            If Not Path.IsPathRooted(value) Then Return Nothing
+            Dim full As String = Path.GetFullPath(value)
+            If Not Path.IsPathRooted(full) Then Return Nothing
+            Dim root As String = Path.GetPathRoot(full)
+            If String.IsNullOrEmpty(root) Then Return Nothing
+            Return full.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+        Catch
+            Return Nothing
+        End Try
+    End Function
+
+    Private Function UnderRoot(ByVal candidate As String, ByVal root As String) As Boolean
+        If String.IsNullOrEmpty(candidate) OrElse String.IsNullOrEmpty(root) Then Return False
+        If String.Equals(candidate, root, StringComparison.OrdinalIgnoreCase) Then Return True
+        Return candidate.StartsWith(root & Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+    End Function
+
+    ' External protected roots take precedence over approved project roots.
+    ' Name tokens JC/SJD alone are NEVER grounds for exclusion.
+    ' PreviewCandidate is NOT permission to mutate.
+    Public Function ClassifyPreviewRoot(ByVal candidatePath As String,
+                                        ByVal projectRoot As String,
+                                        ByVal approvedRoots As IEnumerable(Of String),
+                                        ByVal protectedRoots As IEnumerable(Of String)) As RootDecision
+        Dim candidate As String = CanonicalLexicalPath(candidatePath)
+        Dim project As String = CanonicalLexicalPath(projectRoot)
+        If candidate Is Nothing OrElse project Is Nothing OrElse approvedRoots Is Nothing OrElse protectedRoots Is Nothing Then
+            Return RootDecision.BlockedInvalidPath
+        End If
+        Dim approved As Boolean = False
+        Dim hasApproved As Boolean = False
+        For Each raw As String In approvedRoots
+            Dim root As String = CanonicalLexicalPath(raw)
+            If root Is Nothing Then Return RootDecision.BlockedInvalidPath
+            hasApproved = True
+            If UnderRoot(candidate, root) AndAlso UnderRoot(root, project) Then approved = True
+        Next
+        If Not hasApproved Then Return RootDecision.BlockedInvalidPath
+        For Each raw As String In protectedRoots
+            Dim root As String = CanonicalLexicalPath(raw)
+            If root Is Nothing Then Return RootDecision.BlockedInvalidPath
+            If UnderRoot(candidate, root) Then Return RootDecision.BlockedExternalLibrary
+        Next
+        If Not UnderRoot(candidate, project) OrElse Not approved Then Return RootDecision.BlockedOutsideApprovedRoot
+        Return RootDecision.PreviewCandidateRequiresOwnershipVerification
+    End Function
+End Module
