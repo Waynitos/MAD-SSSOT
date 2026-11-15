@@ -1,0 +1,210 @@
+' BEEXCITED PROPERTY REFRESH — DIRECT INVENTOR TEST 01
+' Self-contained standalone iLogic rule for disposable, backed-up, checked-out project COPIES.
+' Inventor 2025 target; NOT compiled or runtime-validated. No Copy Design.
+' APPLY requires explicit confirmation. No Vault API ownership check: operator must verify checkout.
+' External referenced files outside the approved project root are never opened for update.
+Sub Main()
+    Dim app As Inventor.Application = ThisApplication
+    Dim ga As Inventor.Document = app.ActiveDocument
+    If ga Is Nothing OrElse String.IsNullOrWhiteSpace(ga.FullFileName) Then
+        MessageBox.Show("Open a saved GA assembly or drawing first.") : Return
+    End If
+    Dim kind As String = System.IO.Path.GetExtension(ga.FullFileName).ToLowerInvariant()
+    If kind <> ".iam" AndAlso kind <> ".idw" AndAlso kind <> ".dwg" Then
+        MessageBox.Show("Open a .iam, .idw or .dwg file.") : Return
+    End If
+    If ga.Dirty Then
+        MessageBox.Show("Save or discard unsaved changes in the active GA before testing.") : Return
+    End If
+    Dim target As String = InputBox("Enter NEW project prefix (PJ#####)", "Property Refresh Test", "")
+    target = target.Trim().ToUpperInvariant()
+    If Not System.Text.RegularExpressions.Regex.IsMatch(target, "^PJ[0-9]{5}$") Then
+        MessageBox.Show("Invalid project prefix. No changes made.") : Return
+    End If
+    Dim defaultRoot As String = System.IO.Path.GetDirectoryName(ga.FullFileName)
+    Dim root As String = InputBox("APPROVED PROJECT ROOT. Only files inside this folder tree are eligible. External library references are excluded.", "Confirm project root", defaultRoot)
+    If String.IsNullOrWhiteSpace(root) OrElse Not System.IO.Directory.Exists(root) Then
+        MessageBox.Show("Project root missing or invalid.") : Return
+    End If
+    root = System.IO.Path.GetFullPath(root).TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar)
+    If Not WithinRoot(ga.FullFileName, root) Then
+        MessageBox.Show("Active GA is outside the selected root. Aborted.") : Return
+    End If
+    Dim mode As String = InputBox("PREVIEW or APPLY? APPLY writes files. Only use backed-up, checked-out disposable test copies.", "Test mode", "PREVIEW")
+    Dim apply As Boolean = String.Equals(mode.Trim(), "APPLY", StringComparison.OrdinalIgnoreCase)
+    If Not apply AndAlso Not String.Equals(mode.Trim(), "PREVIEW", StringComparison.OrdinalIgnoreCase) Then Return
+    If apply Then
+        Dim warning As String = "WARNING: this test rule does NOT verify Vault checkout ownership or resolve junctions/reparse-point aliases." & vbCrLf & _
+            "Proceed ONLY with backed-up, checked-out, disposable files in an isolated project folder." & vbCrLf & _
+            "Type CONFIRM to write."
+        If InputBox(warning, "Write confirmation", "") <> "CONFIRM" Then Return
+    End If
+    Dim log As String = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "BEEXCITED_PROPERTY_REFRESH_" & Now.ToString("yyyyMMdd_HHmmss_fff") & ".log")
+    LogLine(log, "MODE=" & If(apply, "APPLY", "PREVIEW") & " ROOT=" & root & " TARGET=" & target & " ACTIVE=" & ga.FullFileName)
+    Dim paths As New System.Collections.Generic.HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+    paths.Add(ga.FullFileName)
+    Try
+        If kind = ".iam" Then
+            Dim asm As Inventor.AssemblyDocument = CType(ga, Inventor.AssemblyDocument)
+            For Each child As Inventor.Document In asm.AllReferencedDocuments
+                Dim ext As String = System.IO.Path.GetExtension(child.FullFileName).ToLowerInvariant()
+                If ext = ".iam" OrElse ext = ".ipt" Then paths.Add(child.FullFileName)
+            Next
+        Else
+            Dim drawingFolder As String = System.IO.Path.GetDirectoryName(ga.FullFileName)
+            For Each path As String In System.IO.Directory.GetFiles(drawingFolder, "*", System.IO.SearchOption.TopDirectoryOnly)
+                Dim ext As String = System.IO.Path.GetExtension(path).ToLowerInvariant()
+                If ext = ".idw" OrElse ext = ".dwg" Then paths.Add(path)
+            Next
+        End If
+    Catch ex As Exception
+        LogLine(log, "DISCOVERY-FAILED " & ex.ToString())
+        MessageBox.Show("Discovery failed; no files were changed." & vbCrLf & log) : Return
+    End Try
+    Dim inspected As Integer = 0, proposed As Integer = 0, saved As Integer = 0, skipped As Integer = 0, failed As Integer = 0
+    For Each path As String In paths
+        Dim doc As Inventor.Document = Nothing
+        Dim opened As Boolean = False
+        Try
+            If Not WithinRoot(path, root) Then
+                skipped += 1 : LogLine(log, "SKIP EXTERNAL " & path) : Continue For
+            End If
+            If Not System.IO.File.Exists(path) Then
+                skipped += 1 : LogLine(log, "SKIP MISSING " & path) : Continue For
+            End If
+            Dim attrs As System.IO.FileAttributes = System.IO.File.GetAttributes(path)
+            If (attrs And System.IO.FileAttributes.ReparsePoint) <> 0 OrElse (attrs And System.IO.FileAttributes.ReadOnly) <> 0 Then
+                skipped += 1 : LogLine(log, "SKIP REPARSE/READONLY " & path) : Continue For
+            End If
+            If HasReparseAncestor(path, root) Then
+                skipped += 1 : LogLine(log, "SKIP REPARSE-ANCESTOR " & path) : Continue For
+            End If
+            If String.Equals(path, ga.FullFileName, StringComparison.OrdinalIgnoreCase) Then
+                doc = ga
+            Else
+                ' Avoid mutating documents already open elsewhere in the Inventor session.
+                Dim alreadyOpen As Boolean = False
+                For Each d As Inventor.Document In app.Documents
+                    If String.Equals(d.FullFileName, path, StringComparison.OrdinalIgnoreCase) Then
+                        alreadyOpen = True : Exit For
+                    End If
+                Next
+                If alreadyOpen Then
+                    skipped += 1 : LogLine(log, "SKIP ALREADY-OPEN " & path) : Continue For
+                End If
+                doc = app.Documents.Open(path, False)
+                opened = True
+            End If
+            If doc.Dirty Then
+                skipped += 1 : LogLine(log, "SKIP DIRTY " & path) : Continue For
+            End If
+            inspected += 1
+            Dim plans As New System.Collections.Generic.List(Of String())
+            If kind = ".iam" Then
+                AddModelPlan(doc, "Design Tracking Properties", "Part Number", target, plans, log, path)
+                AddModelPlan(doc, "Inventor User Defined Properties", "SPECIFICATION", target, plans, log, path)
+            Else
+                AddDrawingPlan(doc, path, target, plans, log)
+            End If
+            If plans.Count = 0 Then
+                skipped += 1 : LogLine(log, "UNCHANGED " & path) : Continue For
+            End If
+            proposed += 1
+            If apply Then
+                For Each plan As String() In plans
+                    doc.PropertySets.Item(plan(0)).Item(plan(1)).Value = plan(3)
+                Next
+                doc.Save2(False)
+                Dim ok As Boolean = True
+                For Each plan As String() In plans
+                    Dim actual As String = Convert.ToString(doc.PropertySets.Item(plan(0)).Item(plan(1)).Value)
+                    If Not String.Equals(actual, plan(3), StringComparison.Ordinal) Then ok = False
+                Next
+                If Not ok Then Throw New Exception("In-memory readback mismatch; inspect this file manually")
+                saved += 1 : LogLine(log, "SAVED IN-MEMORY-READBACK-ONLY " & path)
+            End If
+        Catch ex As Exception
+            failed += 1 : LogLine(log, "FAIL " & path & " | " & ex.ToString())
+        Finally
+            If opened AndAlso doc IsNot Nothing Then
+                Try
+                    ' Never discard unexpected dirty state following a failed write.
+                    If Not doc.Dirty Then doc.Close(True)
+                Catch ex As Exception
+                    LogLine(log, "CLOSE-FAIL " & path & " | " & ex.Message)
+                End Try
+            End If
+        End Try
+    Next
+    LogLine(log, "SUMMARY inspected=" & inspected & " proposed=" & proposed & " saved=" & saved & " skipped=" & skipped & " failed=" & failed)
+    MessageBox.Show("Finished " & If(apply, "APPLY", "PREVIEW") & vbCrLf & _
+        "Inspected: " & inspected & "  Proposed: " & proposed & "  Saved: " & saved & vbCrLf & _
+        "Skipped: " & skipped & "  Failed: " & failed & vbCrLf & log)
+End Sub
+
+Function WithinRoot(path As String, root As String) As Boolean
+    Try
+        Dim p As String = System.IO.Path.GetFullPath(path)
+        Dim r As String = System.IO.Path.GetFullPath(root).TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar)
+        Return p.StartsWith(r & System.IO.Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+    Catch
+        Return False
+    End Try
+End Function
+
+Function HasReparseAncestor(path As String, root As String) As Boolean
+    Try
+        Dim current As String = System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(path))
+        Dim stopAt As String = System.IO.Path.GetFullPath(root).TrimEnd(System.IO.Path.DirectorySeparatorChar)
+        Do While current IsNot Nothing
+            If (System.IO.File.GetAttributes(current) And System.IO.FileAttributes.ReparsePoint) <> 0 Then Return True
+            If String.Equals(current.TrimEnd(System.IO.Path.DirectorySeparatorChar), stopAt, StringComparison.OrdinalIgnoreCase) Then Exit Do
+            current = System.IO.Path.GetDirectoryName(current)
+        Loop
+    Catch
+        Return True
+    End Try
+    Return False
+End Function
+
+Function ChangePrefix(value As String, target As String) As String
+    If value Is Nothing Then Return Nothing
+    If Not System.Text.RegularExpressions.Regex.IsMatch(value, "^PJ[0-9]{5}-", System.Text.RegularExpressions.RegexOptions.IgnoreCase) Then Return value
+    Return target & value.Substring(7)
+End Function
+
+Sub AddModelPlan(doc As Inventor.Document, setName As String, propName As String, target As String, plans As System.Collections.Generic.List(Of String()), log As String, path As String)
+    Try
+        Dim oldValue As String = Convert.ToString(doc.PropertySets.Item(setName).Item(propName).Value)
+        Dim newValue As String = ChangePrefix(oldValue, target)
+        If String.Equals(oldValue, newValue, StringComparison.Ordinal) Then Return
+        plans.Add(New String() {setName, propName, oldValue, newValue})
+        LogLine(log, "PLAN " & path & " | " & propName & " | " & oldValue & " => " & newValue)
+    Catch ex As Exception
+        LogLine(log, "PROPERTY-SKIP " & path & " | " & propName & " | " & ex.Message)
+    End Try
+End Sub
+
+Sub AddDrawingPlan(doc As Inventor.Document, path As String, target As String, plans As System.Collections.Generic.List(Of String()), log As String)
+    Try
+        Dim stem As String = System.IO.Path.GetFileNameWithoutExtension(path)
+        Dim setName As String = "Inventor User Defined Properties"
+        Dim oldValue As String = Convert.ToString(doc.PropertySets.Item(setName).Item("DRAWING_NUMBER").Value)
+        Dim pat As String = "^PJ[0-9]{5}-"
+        If Not System.Text.RegularExpressions.Regex.IsMatch(stem, pat, System.Text.RegularExpressions.RegexOptions.IgnoreCase) Then Return
+        If Not System.Text.RegularExpressions.Regex.IsMatch(oldValue, pat, System.Text.RegularExpressions.RegexOptions.IgnoreCase) Then Return
+        If Not String.Equals(stem.Substring(0, 7), oldValue.Substring(0, 7), StringComparison.OrdinalIgnoreCase) Then
+            LogLine(log, "SKIP DRAWING-IDENTITY-MISMATCH " & path) : Return
+        End If
+        Dim newValue As String = ChangePrefix(oldValue, target)
+        If String.Equals(oldValue, newValue, StringComparison.Ordinal) Then Return
+        plans.Add(New String() {setName, "DRAWING_NUMBER", oldValue, newValue})
+        LogLine(log, "PLAN " & path & " | DRAWING_NUMBER | " & oldValue & " => " & newValue)
+    Catch ex As Exception
+        LogLine(log, "PROPERTY-SKIP " & path & " | DRAWING_NUMBER | " & ex.Message)
+    End Try
+End Sub
+
+Sub LogLine(path As String, msg As String)
+    System.IO.File.AppendAllText(path, Now.ToString("HH:mm:ss.fff") & " " & msg & vbCrLf)
+End Sub
