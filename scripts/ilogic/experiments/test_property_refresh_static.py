@@ -17,6 +17,9 @@ def check(name, condition):
     return bool(condition)
 
 def main():
+    if not OLD.is_file():
+        print("BLOCKED: Friday baseline source missing: " + str(OLD))
+        return 2
     old = OLD.read_text(encoding="utf-8-sig")
     checks = [
         check("Friday source exists", OLD.is_file()),
@@ -44,6 +47,9 @@ def main():
         check("Save operation", "Save2(False)" in new),
         check("No Copy Design coupling", "Copy Design" not in new and "SaveAs(" not in new),
     ]
+    # These lexical checks are necessary but insufficient: a green result is NOT
+    # approval to enable APPLY or evidence of Inventor/Vault compatibility.
+    print("STATIC-ONLY: drawing mapping, persisted readback, Vault guards, and runtime remain unverified")
     return 0 if all(checks + gates) else 1
 
 if __name__ == "__main__":
