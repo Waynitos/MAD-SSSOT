@@ -3,7 +3,7 @@
 ' No Copy Design, SaveAs, rename, reference repair, or automatic Vault checkout.
 ' Entry: active GA assembly (.iam), or active GA drawing (.idw/.dwg).
 ' DRY RUN by default. APPLY requires typing APPLY.
-' Core functions are independent of prompts; future integration must call the SAME functions.
+' Preview calls the canonical BEEXCITED_PropertyRefreshPure module; it must be included as a shared external rule/module in Inventor before compilation. Integration not Inventor-validated.
 Sub Main()
     Dim active As Inventor.Document = ThisApplication.ActiveDocument
     If active Is Nothing OrElse String.IsNullOrEmpty(active.FullFileName) Then
@@ -16,8 +16,13 @@ Sub Main()
     If active.Dirty Then
         MessageBox.Show("Active document has unsaved edits. Save/close edits before running; nothing changed.") : Return
     End If
-    Dim pj As String = InputBox("New project prefix (PJ#####):", "BEEXCITED Property Refresh Test 01", "").Trim().ToUpperInvariant()
-    If Not System.Text.RegularExpressions.Regex.IsMatch(pj, "^PJ[0-9]{5}$") Then Return
+    Dim pj As String = ""
+    Try
+        pj = BEEXCITED_PropertyRefreshPure.NormalizeProjectPrefix(InputBox("New project prefix (PJ#####):", "BEEXCITED Property Refresh Test 01", ""))
+    Catch ex As ArgumentException
+        MessageBox.Show("Invalid project prefix. Nothing changed.")
+        Return
+    End Try
     Dim mode As String = InputBox("Type APPLY to modify eligible files; anything else is DRY RUN.", "Safety confirmation", "DRY RUN")
     Dim apply As Boolean = String.Equals(mode.Trim(), "APPLY", StringComparison.Ordinal)
     If apply Then
@@ -94,17 +99,27 @@ Sub Main()
                     WriteLine(log, "SKIP DRAWING-NUMBER-MISSING | " & path & " | " & ex.Message)
                     Continue For
                 End Try
-                Dim proposedNumber As String = PlanDrawingNumber(oldName, existingNumber, pj)
-                If proposedNumber = "" Then
-                    WriteLine(log, "SKIP DRAWING-IDENTITY-UNVERIFIED | " & path)
+                Dim proposal As BEEXCITED_PropertyRefreshPure.PropertyChange = BEEXCITED_PropertyRefreshPure.PlanExistingDrawingProperty(filePath:=path, filenameStem:=oldName, existingDrawingNumber:=existingNumber, targetProjectPrefix:=pj)
+                If proposal Is Nothing Then
+                    WriteLine(log, "SKIP DRAWING-UNCHANGED-OR-IDENTITY-UNVERIFIED | " & path)
                     Continue For
                 End If
-                QueueChange(doc, "Inventor User Defined Properties", "DRAWING_NUMBER", proposedNumber, changes, log, path)
+                QueuePlannedChange(proposal, changes, log)
             Else
                 Dim custom As String = "Inventor User Defined Properties"
                 Dim design As String = "Design Tracking Properties"
-                QueuePrefix(doc, custom, "SPECIFICATION", pj, changes, log, path)
-                QueuePrefix(doc, design, "Part Number", pj, changes, log, path)
+                For Each mapping As String In New String() {custom & vbTab & "SPECIFICATION", design & vbTab & "Part Number"}
+                    Dim mappingParts() As String = mapping.Split(ChrW(9))
+                    Dim existingValue As String = ""
+                    Try
+                        existingValue = Convert.ToString(doc.PropertySets.Item(mappingParts(0)).Item(mappingParts(1)).Value)
+                    Catch ex As Exception
+                        WriteLine(log, "MISSING-OR-UNREADABLE | " & path & " | " & mappingParts(1) & " | " & ex.Message)
+                        Continue For
+                    End Try
+                    Dim proposal As BEEXCITED_PropertyRefreshPure.PropertyChange = BEEXCITED_PropertyRefreshPure.PlanExistingModelProperty(filePath:=path, propertySetName:=mappingParts(0), propertyName:=mappingParts(1), existingValue:=existingValue, proposed:=pj)
+                    If proposal IsNot Nothing Then QueuePlannedChange(proposal, changes, log)
+                Next
                 ' Other project fields deliberately deferred until field mapping is confirmed.
             End If
             If changes.Count = 0 Then
@@ -157,46 +172,16 @@ Function EligibilityReason(path As String, root As String) As String
     Return ""
 End Function
 
-' PURE PLANNER: only change a drawing property if both filename and existing value
-' have matching old PJ#####- identities. Preserve the property's complete suffix.
-' Empty result means no safe change is proposed; no document mutation here.
-Function PlanDrawingNumber(filenameStem As String, existingNumber As String, targetPrefix As String) As String
-    Dim rx As String = "^PJ[0-9]{5}(?=-)"
-    If Not System.Text.RegularExpressions.Regex.IsMatch(targetPrefix, "^PJ[0-9]{5}$") Then Return ""
-    Dim fileMatch As System.Text.RegularExpressions.Match = System.Text.RegularExpressions.Regex.Match(If(filenameStem, ""), rx, System.Text.RegularExpressions.RegexOptions.IgnoreCase)
-    Dim propertyMatch As System.Text.RegularExpressions.Match = System.Text.RegularExpressions.Regex.Match(If(existingNumber, ""), rx, System.Text.RegularExpressions.RegexOptions.IgnoreCase)
-    If Not fileMatch.Success OrElse Not propertyMatch.Success Then Return ""
-    If Not String.Equals(fileMatch.Value, propertyMatch.Value, StringComparison.OrdinalIgnoreCase) Then Return ""
-    Dim proposed As String = ReplaceLeadingProject(existingNumber, targetPrefix)
-    If String.Equals(proposed, existingNumber, StringComparison.Ordinal) Then Return ""
-    Return proposed
-End Function
-
-' CORE: replace project prefix only when followed by hyphen; preserve entire suffix.
-Function ReplaceLeadingProject(oldValue As String, pj As String) As String
-    If oldValue Is Nothing Then Return ""
-    Return System.Text.RegularExpressions.Regex.Replace(oldValue, "^PJ[0-9]{5}(?=-)", pj, System.Text.RegularExpressions.RegexOptions.IgnoreCase)
-End Function
-
-' CORE: queue changes without writing, usable in dry-run or APPLY.
-Sub QueuePrefix(doc As Inventor.Document, setName As String, propName As String, pj As String, changes As System.Collections.Generic.List(Of String), log As String, path As String)
-    Dim oldValue As String = ""
-    Try : oldValue = Convert.ToString(doc.PropertySets.Item(setName).Item(propName).Value)
-    Catch : WriteLine(log, "MISSING-PROPERTY | " & path & " | " & propName) : Return
-    End Try
-    QueueChange(doc, setName, propName, ReplaceLeadingProject(oldValue, pj), changes, log, path)
-End Sub
-
-Sub QueueChange(doc As Inventor.Document, setName As String, propName As String, newValue As String, changes As System.Collections.Generic.List(Of String), log As String, path As String)
-    Try
-        Dim oldValue As String = Convert.ToString(doc.PropertySets.Item(setName).Item(propName).Value)
-        If String.Equals(oldValue, newValue, StringComparison.Ordinal) Then Return
-        If newValue.IndexOf(ChrW(9)) >= 0 Then Throw New Exception("Tab in proposed value")
-        changes.Add(setName & vbTab & propName & vbTab & newValue)
-        WriteLine(log, "CHANGE | " & path & " | " & propName & " | " & oldValue & " => " & newValue)
-    Catch ex As Exception
-        WriteLine(log, "MISSING-OR-UNREADABLE | " & path & " | " & propName & " | " & ex.Message)
-    End Try
+' Thin preview-only serializer. All project-prefix and drawing-identity decisions
+' are delegated to BEEXCITED_PropertyRefreshPure, unchanged.
+Sub QueuePlannedChange(plan As BEEXCITED_PropertyRefreshPure.PropertyChange, changes As System.Collections.Generic.List(Of String), log As String)
+    If plan Is Nothing Then Return
+    If plan.NewValue Is Nothing OrElse plan.NewValue.IndexOf(ChrW(9)) >= 0 Then
+        WriteLine(log, "SKIP INVALID-PLAN | " & plan.FilePath & " | " & plan.PropertyName)
+        Return
+    End If
+    changes.Add(plan.PropertySetName & vbTab & plan.PropertyName & vbTab & plan.NewValue)
+    WriteLine(log, "CHANGE | " & plan.FilePath & " | " & plan.PropertyName & " | " & plan.OldValue & " => " & plan.NewValue)
 End Sub
 
 Sub WriteLine(log As String, line As String)
