@@ -1,0 +1,136 @@
+' BEEXCITED / iLogic Assassin — PROPERTY WRITE SMOKE TEST 02
+' Single-file iLogic rule. Inventor 2025 target. No Copy Design, no rename.
+' Run on BACKED-UP, CHECKED-OUT TEST COPIES only. Not runtime-validated.
+' The ONLY drawing field changed is existing custom DRAWING_NUMBER.
+' Model fields: Design Tracking / Part Number and custom SPECIFICATION.
+Sub Main()
+    Dim ga As Inventor.Document = ThisApplication.ActiveDocument
+    If ga Is Nothing Then Return
+    Dim ext As String = IO.Path.GetExtension(ga.FullFileName).ToLowerInvariant()
+    If ext <> ".iam" AndAlso ext <> ".idw" AndAlso ext <> ".dwg" Then
+        MessageBox.Show("Open an assembly or drawing.") : Return
+    End If
+    If ga.Dirty Then
+        MessageBox.Show("Save active document edits before testing.") : Return
+    End If
+    Dim pj As String = InputBox("New prefix PJ#####", "Property write test", "").Trim().ToUpperInvariant()
+    If Not System.Text.RegularExpressions.Regex.IsMatch(pj, "^PJ\d{5}$") Then Return
+    Dim folder As String = IO.Path.GetDirectoryName(ga.FullFileName)
+    Dim root As String = InputBox("Project COPY root (external references will be skipped)", "Scope", folder)
+    If String.IsNullOrWhiteSpace(root) OrElse Not IO.Directory.Exists(root) Then Return
+    root = IO.Path.GetFullPath(root).TrimEnd(IO.Path.DirectorySeparatorChar)
+    If Not InRoot(ga.FullFileName, root) Then Return
+    Dim confirm As String = InputBox("Type WRITE to update backed-up, checked-out TEST COPIES. Anything else = preview.", "Mode", "PREVIEW")
+    Dim write As Boolean = (confirm = "WRITE")
+    Dim log As String = IO.Path.Combine(IO.Path.GetTempPath(), "PROPERTY_WRITE_TEST02_" & Now.ToString("yyyyMMdd_HHmmss") & ".txt")
+    Dim files As New System.Collections.Generic.HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+    files.Add(ga.FullFileName)
+    If ext = ".iam" Then
+        For Each d As Inventor.Document In CType(ga, Inventor.AssemblyDocument).AllReferencedDocuments
+            If d.DocumentType = Inventor.DocumentTypeEnum.kPartDocumentObject OrElse d.DocumentType = Inventor.DocumentTypeEnum.kAssemblyDocumentObject Then
+                files.Add(d.FullFileName)
+            End If
+        Next
+    Else
+        For Each f As String In IO.Directory.GetFiles(folder)
+            Dim e As String = IO.Path.GetExtension(f).ToLowerInvariant()
+            If e = ".idw" OrElse e = ".dwg" Then files.Add(f)
+        Next
+    End If
+    Dim changed As Integer = 0, skipped As Integer = 0, errors As Integer = 0
+    For Each f As String In files
+        Dim d As Inventor.Document = Nothing
+        Dim opened As Boolean = False
+        Try
+            If Not InRoot(f, root) OrElse Not IO.File.Exists(f) Then
+                skipped += 1 : Record(log, "SKIP OUTSIDE/MISSING " & f) : Continue For
+            End If
+            Dim attributes As IO.FileAttributes = IO.File.GetAttributes(f)
+            If (attributes And IO.FileAttributes.ReadOnly) <> 0 OrElse (attributes And IO.FileAttributes.ReparsePoint) <> 0 Then
+                skipped += 1 : Record(log, "SKIP READONLY/REPARSE " & f) : Continue For
+            End If
+            If IO.Path.GetFullPath(f).Equals(IO.Path.GetFullPath(ga.FullFileName), StringComparison.OrdinalIgnoreCase) Then
+                d = ga
+            Else
+                d = ThisApplication.Documents.Open(f, False)
+                opened = True
+            End If
+            If d.Dirty Then
+                skipped += 1 : Record(log, "SKIP DIRTY " & f) : Continue For
+            End If
+            Dim count As Integer = 0
+            If ext = ".iam" Then
+                count += UpdateOne(d, "Design Tracking Properties", "Part Number", pj, write, log)
+                count += UpdateOne(d, "Inventor User Defined Properties", "SPECIFICATION", pj, write, log)
+            Else
+                ' Drawing-number mapping is deliberately isolated: no revision resets.
+                Dim current As String = ""
+                Try
+                    current = CStr(d.PropertySets.Item("Inventor User Defined Properties").Item("DRAWING_NUMBER").Value)
+                Catch
+                    Record(log, "DRAWING_NUMBER MISSING " & f)
+                End Try
+                Dim stem As String = IO.Path.GetFileNameWithoutExtension(f)
+                If current.Length >= 8 AndAlso stem.Length >= 8 AndAlso _
+                   System.Text.RegularExpressions.Regex.IsMatch(current, "^PJ\d{5}-", System.Text.RegularExpressions.RegexOptions.IgnoreCase) AndAlso _
+                   System.Text.RegularExpressions.Regex.IsMatch(stem, "^PJ\d{5}-", System.Text.RegularExpressions.RegexOptions.IgnoreCase) AndAlso _
+                   String.Equals(current.Substring(0, 7), stem.Substring(0, 7), StringComparison.OrdinalIgnoreCase) Then
+                    count += UpdateOne(d, "Inventor User Defined Properties", "DRAWING_NUMBER", pj, write, log)
+                Else
+                    Record(log, "DRAWING IDENTITY NOT VERIFIED " & f)
+                End If
+            End If
+            If count > 0 Then
+                changed += 1
+                If write Then
+                    d.Save2(False)
+                    Record(log, "SAVED " & f & " (check iProperties manually after reopen)")
+                End If
+            End If
+        Catch ex As Exception
+            errors += 1 : Record(log, "ERROR " & f & " | " & ex.Message)
+        Finally
+            If opened AndAlso d IsNot Nothing Then
+                Try
+                    If Not d.Dirty Then d.Close(True)
+                Catch
+                End Try
+            End If
+        End Try
+    Next
+    MessageBox.Show(If(write, "WRITE", "PREVIEW") & " complete." & vbCrLf & _
+        "Files with changes: " & changed & "  Skipped: " & skipped & "  Errors: " & errors & vbCrLf & log)
+End Sub
+
+Function UpdateOne(d As Inventor.Document, setName As String, name As String, pj As String, write As Boolean, log As String) As Integer
+    Try
+        Dim prop As Inventor.Property = d.PropertySets.Item(setName).Item(name)
+        Dim oldValue As String = Convert.ToString(prop.Value)
+        If Not System.Text.RegularExpressions.Regex.IsMatch(oldValue, "^PJ\d{5}-", System.Text.RegularExpressions.RegexOptions.IgnoreCase) Then Return 0
+        Dim newValue As String = pj & oldValue.Substring(7)
+        If newValue = oldValue Then Return 0
+        Record(log, If(write, "WRITE ", "PREVIEW ") & d.FullFileName & " | " & name & " | " & oldValue & " -> " & newValue)
+        If write Then
+            prop.Value = newValue
+            If Convert.ToString(prop.Value) <> newValue Then Throw New Exception("Immediate readback mismatch: " & name)
+        End If
+        Return 1
+    Catch ex As Exception
+        Record(log, "PROPERTY ERROR " & d.FullFileName & " | " & name & " | " & ex.Message)
+        Return 0
+    End Try
+End Function
+
+Function InRoot(f As String, root As String) As Boolean
+    Try
+        Dim p As String = IO.Path.GetFullPath(f)
+        Dim r As String = IO.Path.GetFullPath(root).TrimEnd(IO.Path.DirectorySeparatorChar) & IO.Path.DirectorySeparatorChar
+        Return p.StartsWith(r, StringComparison.OrdinalIgnoreCase)
+    Catch
+        Return False
+    End Try
+End Function
+
+Sub Record(log As String, line As String)
+    IO.File.AppendAllText(log, line & vbCrLf)
+End Sub
