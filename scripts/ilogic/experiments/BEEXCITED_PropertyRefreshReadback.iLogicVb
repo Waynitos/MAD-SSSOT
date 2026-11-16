@@ -1,0 +1,47 @@
+' BEEXCITED Property Refresh 01 — shared read-only property snapshot v0.1.0-preview
+' Inventor 2017+ API surface: Document.PropertySets; no UI, Copy Design, writes or saves.
+' This module is NOT an APPLY engine and does not verify persisted disk state.
+Imports System
+Imports System.Collections.Generic
+
+Public Module BEEXCITED_PropertyRefreshReadback
+    Public Const ReadbackVersion As String = "0.1.0-preview"
+
+    Public Class PropertySnapshot
+        Public Property FilePath As String
+        Public Property PropertySetName As String
+        Public Property PropertyName As String
+        Public Property Value As String
+    End Class
+
+    ' Contract: saved document + nonblank property set/name -> snapshot or exception.
+    ' Never creates missing custom properties. Callers must abort on failures.
+    Public Function ReadProperty(ByVal doc As Inventor.Document,
+                                 ByVal setName As String,
+                                 ByVal propertyName As String) As PropertySnapshot
+        If doc Is Nothing Then Throw New ArgumentNullException("doc")
+        If String.IsNullOrWhiteSpace(doc.FullFileName) Then Throw New InvalidOperationException("Unsaved document.")
+        If String.IsNullOrWhiteSpace(setName) OrElse String.IsNullOrWhiteSpace(propertyName) Then
+            Throw New ArgumentException("Property set and name are required.")
+        End If
+        Dim raw As Object = doc.PropertySets.Item(setName).Item(propertyName).Value
+        If raw Is Nothing Then Throw New InvalidOperationException("Null property value.")
+        Return New PropertySnapshot With {
+            .FilePath = doc.FullFileName,
+            .PropertySetName = setName,
+            .PropertyName = propertyName,
+            .Value = Convert.ToString(raw, Globalization.CultureInfo.InvariantCulture)
+        }
+    End Function
+
+    ' Contract: compare an already-open document with an expected value.
+    ' This checks memory only; persisted verification must reopen a saved file separately.
+    Public Function MatchesExpected(ByVal doc As Inventor.Document,
+                                    ByVal setName As String,
+                                    ByVal propertyName As String,
+                                    ByVal expected As String) As Boolean
+        If expected Is Nothing Then Throw New ArgumentNullException("expected")
+        Dim observed As PropertySnapshot = ReadProperty(doc, setName, propertyName)
+        Return String.Equals(observed.Value, expected, StringComparison.Ordinal)
+    End Function
+End Module
