@@ -29,7 +29,32 @@ Sub Main()
         MessageBox.Show("APPLY BLOCKED in v0.1.0: Vault checkout ownership, persisted-file verification and partial-write recovery are not yet implemented. Run DRY RUN only on disposable test files.")
         Return
     End If
-    Dim root As String = System.IO.Path.GetDirectoryName(active.FullFileName)
+    ' Preview requires explicit project and external-library boundaries; never infer safety from the GA folder.
+    Dim root As String = InputBox("Approved old project root (absolute path):", "Project boundary", System.IO.Path.GetDirectoryName(active.FullFileName)).Trim()
+    Dim approvedInput As String = InputBox("Additional approved project roots (semicolon-separated absolute paths; blank for none):", "Approved roots", "")
+    Dim protectedInput As String = InputBox("External protected Content Center / JC / SJD library roots (semicolon-separated absolute paths; REQUIRED):", "Protected library roots", "")
+    Dim approvedRoots As New System.Collections.Generic.List(Of String)
+    Dim protectedRoots As New System.Collections.Generic.List(Of String)
+    If Not System.IO.Path.IsPathRooted(root) OrElse Not System.IO.Directory.Exists(root) Then
+        MessageBox.Show("Invalid project root. Nothing changed.") : Return
+    End If
+    approvedRoots.Add(root)
+    For Each item As String In approvedInput.Split(";"c)
+        If item.Trim() <> "" Then approvedRoots.Add(item.Trim())
+    Next
+    For Each item As String In protectedInput.Split(";"c)
+        If item.Trim() <> "" Then protectedRoots.Add(item.Trim())
+    Next
+    If protectedRoots.Count = 0 Then
+        MessageBox.Show("Protected library roots are required even for DRY RUN. Nothing changed.") : Return
+    End If
+    Dim allRoots As New System.Collections.Generic.List(Of String)(approvedRoots)
+    allRoots.AddRange(protectedRoots)
+    For Each boundary As String In allRoots
+        If Not System.IO.Path.IsPathRooted(boundary) OrElse Not System.IO.Directory.Exists(boundary) Then
+            MessageBox.Show("Invalid or missing boundary root: " & boundary & ". Nothing changed.") : Return
+        End If
+    Next
     Dim log As String = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "BEEXCITED_PROP_TEST01_" & Now.ToString("yyyyMMdd_HHmmss_fff") & ".log")
     Dim scanned As Integer = 0, candidates As Integer = 0, skipped As Integer = 0, failed As Integer = 0
     WriteLine(log, "VERSION 0.1.0 | " & If(apply, "APPLY", "DRY RUN") & " | ROOT " & root & " | PREFIX " & pj)
@@ -49,9 +74,9 @@ Sub Main()
     Dim unique As New System.Collections.Generic.HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
     For Each path As String In files
         If Not unique.Add(path) Then Continue For
-        Dim why As String = EligibilityReason(path, root)
-        If why <> "" Then
-            skipped += 1 : WriteLine(log, "SKIP " & why & " | " & path) : Continue For
+        Dim decision As BEEXCITED_PropertyRefreshEligibility.EligibilityDecision = BEEXCITED_PropertyRefreshEligibility.ClassifyPreview(path, root, approvedRoots, protectedRoots)
+        If decision <> BEEXCITED_PropertyRefreshEligibility.EligibilityDecision.PreviewCandidateRequiresVaultOwnershipAndDirtyChecks Then
+            skipped += 1 : WriteLine(log, "SKIP " & decision.ToString() & " | " & path) : Continue For
         End If
         Dim doc As Inventor.Document = Nothing
         Dim opened As Boolean = False
@@ -128,16 +153,6 @@ Sub Main()
     WriteLine(log, "SUMMARY scanned=" & scanned & " preview-candidates=" & candidates & " skipped=" & skipped & " failed=" & failed)
     MessageBox.Show("Property Refresh " & If(apply, "APPLY", "DRY RUN") & " finished." & vbCrLf & "Scanned=" & scanned & ", preview candidates=" & candidates & ", skipped=" & skipped & ", failed=" & failed & vbCrLf & log)
 End Sub
-
-' CORE: path containment; protects external libraries even when referenced by GA.
-Function EligibilityReason(path As String, root As String) As String
-    If String.IsNullOrWhiteSpace(path) OrElse Not System.IO.File.Exists(path) Then Return "MISSING"
-    Dim full As String = System.IO.Path.GetFullPath(path)
-    Dim basePath As String = System.IO.Path.GetFullPath(root).TrimEnd(System.IO.Path.DirectorySeparatorChar) & System.IO.Path.DirectorySeparatorChar
-    If Not full.StartsWith(basePath, StringComparison.OrdinalIgnoreCase) Then Return "OUTSIDE-GA-FOLDER-TREE"
-    If (System.IO.File.GetAttributes(full) And System.IO.FileAttributes.ReadOnly) <> 0 Then Return "READONLY"
-    Return ""
-End Function
 
 ' Thin preview-only serializer. All project-prefix and drawing-identity decisions
 ' are delegated to BEEXCITED_PropertyRefreshPure, unchanged.
