@@ -39,6 +39,8 @@ def main():
         "preview discovers drawing folder": "SearchOption.TopDirectoryOnly" in preview,
         "preview explicitly blocks APPLY":
             bool(re.search(r"If apply Then\s*MessageBox.Show\(\"APPLY BLOCKED", preview)),
+        "preview contains no write/save execution":
+            "doc.Save2(" not in preview and not bool(re.search(r"\.Item\([^\n]+\)\.Value\s*=", preview)),
         "preview has no revision assignment":
             not bool(re.search(r"\.Item\(\"(?:REVISION|Revision Number|1st REV)\"\)\.Value\s*=", preview, re.I)),
         "direct test still has duplicated planner":
