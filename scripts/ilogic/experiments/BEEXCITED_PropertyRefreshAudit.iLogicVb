@@ -1,0 +1,64 @@
+' BEEXCITED Property Refresh Test 01 — shared append-only audit v0.1.0-preview
+' No Inventor dependency, UI, Copy Design, property writes, or document saves.
+' Fail closed: exceptions propagate. This logger is not proof of persisted property readback.
+Imports System
+Imports System.IO
+Imports System.Text
+
+Public Module BEEXCITED_PropertyRefreshAudit
+    Public Const AuditVersion As String = "0.1.0-preview"
+
+    Public Class AuditRecord
+        Public Property RunId As String
+        Public Property FilePath As String
+        Public Property PropertySetName As String
+        Public Property PropertyName As String
+        Public Property BeforeValue As String
+        Public Property ProposedValue As String
+        Public Property Outcome As String
+        Public Property Reason As String
+        Public Property Verification As String
+    End Class
+
+    ' Contract: all required identifiers and status must be populated.
+    ' Output: one UTF-8 line with base64-encoded fields, preserving tabs/newlines in values.
+    ' Failure: ArgumentException for missing fields; never silently discards a record.
+    Public Function EncodeRecord(ByVal record As AuditRecord) As String
+        If record Is Nothing Then Throw New ArgumentNullException("record")
+        If String.IsNullOrWhiteSpace(record.RunId) OrElse
+           String.IsNullOrWhiteSpace(record.FilePath) OrElse
+           String.IsNullOrWhiteSpace(record.Outcome) Then
+            Throw New ArgumentException("RunId, FilePath and Outcome are required.")
+        End If
+        Dim fields As String() = {
+            AuditVersion, record.RunId, record.FilePath, record.PropertySetName,
+            record.PropertyName, record.BeforeValue, record.ProposedValue,
+            record.Outcome, record.Reason, record.Verification
+        }
+        Dim encoded As New System.Collections.Generic.List(Of String)
+        For Each value As String In fields
+            Dim normalized As String = If(value, "")
+            encoded.Add(Convert.ToBase64String(Encoding.UTF8.GetBytes(normalized)))
+        Next
+        Return String.Join(vbTab, encoded.ToArray())
+    End Function
+
+    ' Contract: existing writable parent directory and nonblank audit path.
+    ' Output: append exactly one complete encoded line; return only after flush.
+    ' Failure: propagate IO/permission errors. Caller must abort APPLY on any error.
+    ' WARNING: append is not transactional with Inventor saves; log preflight and
+    ' attempted writes BEFORE mutation, then log post-save/reopen outcomes separately.
+    Public Sub AppendRecord(ByVal auditPath As String, ByVal record As AuditRecord)
+        If String.IsNullOrWhiteSpace(auditPath) Then Throw New ArgumentException("Audit path required.")
+        Dim parent As String = Path.GetDirectoryName(Path.GetFullPath(auditPath))
+        If String.IsNullOrWhiteSpace(parent) OrElse Not Directory.Exists(parent) Then
+            Throw New DirectoryNotFoundException("Audit parent directory must already exist.")
+        End If
+        Dim line As String = EncodeRecord(record) & Environment.NewLine
+        Dim bytes As Byte() = Encoding.UTF8.GetBytes(line)
+        Using stream As New FileStream(auditPath, FileMode.Append, FileAccess.Write, FileShare.Read)
+            stream.Write(bytes, 0, bytes.Length)
+            stream.Flush(True)
+        End Using
+    End Sub
+End Module
