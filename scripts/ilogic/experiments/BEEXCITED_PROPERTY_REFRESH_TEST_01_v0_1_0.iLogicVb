@@ -31,7 +31,7 @@ Sub Main()
     End If
     Dim root As String = System.IO.Path.GetDirectoryName(active.FullFileName)
     Dim log As String = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "BEEXCITED_PROP_TEST01_" & Now.ToString("yyyyMMdd_HHmmss_fff") & ".log")
-    Dim scanned As Integer = 0, modified As Integer = 0, skipped As Integer = 0, failed As Integer = 0
+    Dim scanned As Integer = 0, candidates As Integer = 0, skipped As Integer = 0, failed As Integer = 0
     WriteLine(log, "VERSION 0.1.0 | " & If(apply, "APPLY", "DRY RUN") & " | ROOT " & root & " | PREFIX " & pj)
     ' Shared read-only discovery; no traversal implementation is duplicated in this wrapper.
     Dim files As System.Collections.Generic.List(Of String)
@@ -72,7 +72,7 @@ Sub Main()
             Dim changes As New System.Collections.Generic.List(Of String)
             Dim isDrawing As Boolean = (ext <> ".iam")
             If isDrawing Then
-                ' Conservative verified subset only: DRAWING_NUMBER, when property already exists.
+                ' UNVERIFIED drawing/title-block mapping: DRAWING_NUMBER is a planning hypothesis only; no APPLY.
                 ' Do NOT reset revisions, author, dates, or drawing issue fields.
                 Dim oldName As String = System.IO.Path.GetFileNameWithoutExtension(path)
                 ' Fail closed: never derive a replacement value from a non-project filename.
@@ -112,7 +112,7 @@ Sub Main()
             End If
             ' PREVIEW ONLY: no write or Save2 path exists in this candidate.
             WriteLine(log, "PREVIEW | " & path & " | " & changes.Count & " properties")
-            modified += 1
+            candidates += 1
         Catch ex As Exception
             failed += 1 : WriteLine(log, "FAIL | " & path & " | " & ex.Message)
         Finally
@@ -125,8 +125,8 @@ Sub Main()
             End If
         End Try
     Next
-    WriteLine(log, "SUMMARY scanned=" & scanned & " candidate-or-verified=" & modified & " skipped=" & skipped & " failed=" & failed)
-    MessageBox.Show("Property Refresh " & If(apply, "APPLY", "DRY RUN") & " finished." & vbCrLf & "Scanned=" & scanned & ", candidates/verified=" & modified & ", skipped=" & skipped & ", failed=" & failed & vbCrLf & log)
+    WriteLine(log, "SUMMARY scanned=" & scanned & " preview-candidates=" & candidates & " skipped=" & skipped & " failed=" & failed)
+    MessageBox.Show("Property Refresh " & If(apply, "APPLY", "DRY RUN") & " finished." & vbCrLf & "Scanned=" & scanned & ", preview candidates=" & candidates & ", skipped=" & skipped & ", failed=" & failed & vbCrLf & log)
 End Sub
 
 ' CORE: path containment; protects external libraries even when referenced by GA.
