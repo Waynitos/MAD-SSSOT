@@ -1,0 +1,54 @@
+' BEEXCITED Property Refresh 01 — shared read-only discovery v0.1.0-preview
+' Inventor host required for assembly traversal; no UI, Copy Design, property writes or saves.
+' Failure is fatal to the discovery pass; caller must not use partial results.
+Imports System
+Imports System.Collections.Generic
+Imports System.IO
+
+Public Module BEEXCITED_PropertyRefreshDiscovery
+    Public Const DiscoveryVersion As String = "0.1.0-preview"
+
+    ' Inputs: saved active .iam; output: unique full paths for root and all nested .iam/.ipt.
+    ' Failure: invalid document/path, COM traversal error -> exception, no partial return.
+    Public Function DiscoverAssemblyModels(ByVal active As Inventor.AssemblyDocument) As List(Of String)
+        If active Is Nothing OrElse String.IsNullOrWhiteSpace(active.FullFileName) Then Throw New ArgumentException("Saved assembly required.")
+        Dim result As New List(Of String)
+        Dim seen As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+        AddModelPath(active.FullFileName, result, seen)
+        For Each child As Inventor.Document In active.AllReferencedDocuments
+            If child Is Nothing Then Throw New InvalidOperationException("Null referenced document.")
+            AddModelPath(child.FullFileName, result, seen)
+        Next
+        Return result
+    End Function
+
+    Private Sub AddModelPath(ByVal value As String, ByVal result As List(Of String), ByVal seen As HashSet(Of String))
+        If String.IsNullOrWhiteSpace(value) Then Throw New InvalidOperationException("Unsaved referenced model.")
+        Dim extension As String = Path.GetExtension(value).ToLowerInvariant()
+        If extension <> ".iam" AndAlso extension <> ".ipt" Then Return
+        Dim full As String = Path.GetFullPath(value)
+        If seen.Add(full) Then result.Add(full)
+    End Sub
+
+    ' Inputs: saved active .idw/.dwg; output: unique drawing paths in its folder only.
+    ' Failure: inaccessible directory, invalid active drawing -> exception, no partial return.
+    Public Function DiscoverDrawingFolder(ByVal activePath As String) As List(Of String)
+        If String.IsNullOrWhiteSpace(activePath) Then Throw New ArgumentException("Saved drawing required.")
+        Dim full As String = Path.GetFullPath(activePath)
+        Dim extension As String = Path.GetExtension(full).ToLowerInvariant()
+        If extension <> ".idw" AndAlso extension <> ".dwg" Then Throw New ArgumentException("Expected .idw or .dwg.")
+        Dim folder As String = Path.GetDirectoryName(full)
+        If String.IsNullOrWhiteSpace(folder) OrElse Not File.Exists(full) Then Throw New FileNotFoundException("Active drawing missing.", full)
+        Dim result As New List(Of String)
+        Dim seen As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+        result.Add(full)
+        seen.Add(full)
+        For Each candidate As String In Directory.GetFiles(folder, "*", SearchOption.TopDirectoryOnly)
+            Dim candidateExtension As String = Path.GetExtension(candidate).ToLowerInvariant()
+            If candidateExtension <> ".idw" AndAlso candidateExtension <> ".dwg" Then Continue For
+            Dim normalized As String = Path.GetFullPath(candidate)
+            If seen.Add(normalized) Then result.Add(normalized)
+        Next
+        Return result
+    End Function
+End Module
