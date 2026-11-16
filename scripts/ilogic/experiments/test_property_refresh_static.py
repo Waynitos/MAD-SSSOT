@@ -15,17 +15,20 @@ BASELINE = DIR / "BBn_PROPERTY_REFRESH_ONLY_PWTP_01.iLogicVb"
 PURE = DIR / "BEEXCITED_PropertyRefreshPure.iLogicVb"
 PREVIEW = DIR / "BEEXCITED_PROPERTY_REFRESH_TEST_01_v0_1_0.iLogicVb"
 DIRECT = DIR / "BEEXCITED_PROPERTY_REFRESH_DIRECT_TEST_01.iLogicVb"
+DISCOVERY = DIR / "BEEXCITED_PropertyRefreshDiscovery.iLogicVb"
 
 def main():
     sources = {}
     for name, path in [("Friday baseline", BASELINE), ("shared pure planner", PURE),
-                       ("versioned preview", PREVIEW), ("direct test", DIRECT)]:
+                       ("versioned preview", PREVIEW), ("direct test", DIRECT),
+                       ("shared discovery", DISCOVERY)]:
         if not path.is_file():
             print("BLOCKED missing " + name + ": " + str(path))
             return 2
         sources[name] = path.read_text(encoding="utf-8-sig")
     old, pure, preview, direct = (sources[n] for n in
         ("Friday baseline", "shared pure planner", "versioned preview", "direct test"))
+    discovery = sources["shared discovery"]
     tests = {
         "baseline direct property setter": "p.Value = value" in old,
         "baseline prefix regex": '"^PJ[0-9]{5}(?=-)"' in old,
@@ -35,8 +38,11 @@ def main():
             "BEEXCITED_PropertyRefreshPure.PlanExistingModelProperty(" in preview,
         "preview delegates drawing planning to shared module":
             "BEEXCITED_PropertyRefreshPure.PlanExistingDrawingProperty(" in preview,
-        "preview discovers GA references": "asm.AllReferencedDocuments" in preview,
-        "preview discovers drawing folder": "SearchOption.TopDirectoryOnly" in preview,
+        "preview delegates GA discovery": "BEEXCITED_PropertyRefreshDiscovery.DiscoverAssemblyModels(" in preview,
+        "shared discovery traverses all referenced models": "active.AllReferencedDocuments" in discovery,
+        "preview delegates drawing discovery": "BEEXCITED_PropertyRefreshDiscovery.DiscoverDrawingFolder(" in preview,
+        "shared discovery limits drawing folder": "SearchOption.TopDirectoryOnly" in discovery,
+        "preview has no embedded traversal": "AllReferencedDocuments" not in preview and "Directory.GetFiles(" not in preview,
         "preview explicitly blocks APPLY":
             bool(re.search(r"If apply Then\s*MessageBox.Show\(\"APPLY BLOCKED", preview)),
         "preview contains no write/save execution":
