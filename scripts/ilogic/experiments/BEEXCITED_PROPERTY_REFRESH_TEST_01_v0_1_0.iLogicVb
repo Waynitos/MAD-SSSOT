@@ -3,7 +3,7 @@
 ' No Copy Design, SaveAs, rename, reference repair, or automatic Vault checkout.
 ' Entry: active GA assembly (.iam), or active GA drawing (.idw/.dwg).
 ' DRY RUN by default. APPLY requires typing APPLY.
-' Preview calls the canonical BEEXCITED_PropertyRefreshPure and BEEXCITED_PropertyRefreshDiscovery modules; both must be included as shared external modules in Inventor before compilation. Integration not Inventor-validated.
+' Preview calls the canonical BEEXCITED_PropertyRefreshPure and BEEXCITED_PropertyRefreshDiscovery modules; all referenced shared modules must be included as external modules in Inventor before compilation. Integration not Inventor-validated.
 Sub Main()
     Dim active As Inventor.Document = ThisApplication.ActiveDocument
     If active Is Nothing OrElse String.IsNullOrEmpty(active.FullFileName) Then
@@ -151,6 +151,14 @@ Sub QueuePlannedChange(plan As BEEXCITED_PropertyRefreshPure.PropertyChange, cha
     WriteLine(log, "CHANGE | " & plan.FilePath & " | " & plan.PropertyName & " | " & plan.OldValue & " => " & plan.NewValue)
 End Sub
 
+' Audit serialization and append are owned exclusively by the shared module.
+' Preview events have no property-level readback; never mark them verified.
 Sub WriteLine(log As String, line As String)
-    System.IO.File.AppendAllText(log, Now.ToString("HH:mm:ss.fff") & " " & line & vbCrLf)
+    Dim entry As New BEEXCITED_PropertyRefreshAudit.AuditRecord()
+    entry.RunId = System.IO.Path.GetFileNameWithoutExtension(log)
+    entry.FilePath = If(ThisApplication.ActiveDocument Is Nothing, "(no active document)", ThisApplication.ActiveDocument.FullFileName)
+    entry.Outcome = "PREVIEW-EVENT"
+    entry.Reason = Now.ToString("HH:mm:ss.fff") & " " & line
+    entry.Verification = "NOT-PERSISTED-NOT-VERIFIED"
+    BEEXCITED_PropertyRefreshAudit.AppendRecord(log, entry)
 End Sub
