@@ -1,0 +1,57 @@
+' BEEXCITED PROPERTY REFRESH TEST 01 - shared preview eligibility v0.1.0-preview
+' No Inventor UI, Copy Design, property mutation, Vault checkout or save.
+' IMPORTANT: A PreviewCandidate result is NOT APPLY authorization.
+Imports System
+Imports System.Collections.Generic
+Imports System.IO
+
+Public Module BEEXCITED_PropertyRefreshEligibility
+    Public Const EligibilityVersion As String = "0.1.0-preview"
+
+    Public Enum EligibilityDecision
+        BlockedMissingOrInvalid
+        BlockedProtectedLibrary
+        BlockedOutsideApprovedRoots
+        BlockedReadOnly
+        BlockedFileInspectionError
+        PreviewCandidateRequiresVaultOwnershipAndDirtyChecks
+    End Enum
+
+    ' Inputs must be independently resolved to real paths by the caller.
+    ' Lexical root classification cannot resolve symlinks, junctions or UNC aliases.
+    ' Protected roots must be supplied explicitly; an empty collection is not
+    ' proof that Content Center / JC / SJD external libraries are absent.
+    Public Function ClassifyPreview(ByVal filePath As String,
+                                    ByVal projectRoot As String,
+                                    ByVal approvedRoots As IEnumerable(Of String),
+                                    ByVal protectedRoots As IEnumerable(Of String)) As EligibilityDecision
+        If String.IsNullOrWhiteSpace(filePath) OrElse
+           String.IsNullOrWhiteSpace(projectRoot) OrElse
+           approvedRoots Is Nothing OrElse protectedRoots Is Nothing Then
+            Return EligibilityDecision.BlockedMissingOrInvalid
+        End If
+
+        Dim protectedList As New List(Of String)(protectedRoots)
+        If protectedList.Count = 0 Then Return EligibilityDecision.BlockedMissingOrInvalid
+        Dim rootDecision As BEEXCITED_PropertyRefreshRoots.RootDecision =
+            BEEXCITED_PropertyRefreshRoots.ClassifyPreviewRoot(filePath, projectRoot, approvedRoots, protectedList)
+        Select Case rootDecision
+            Case BEEXCITED_PropertyRefreshRoots.RootDecision.BlockedExternalLibrary
+                Return EligibilityDecision.BlockedProtectedLibrary
+            Case BEEXCITED_PropertyRefreshRoots.RootDecision.BlockedOutsideApprovedRoot
+                Return EligibilityDecision.BlockedOutsideApprovedRoots
+            Case BEEXCITED_PropertyRefreshRoots.RootDecision.BlockedInvalidPath
+                Return EligibilityDecision.BlockedMissingOrInvalid
+        End Select
+
+        Try
+            If Not File.Exists(filePath) Then Return EligibilityDecision.BlockedMissingOrInvalid
+            If (File.GetAttributes(filePath) And FileAttributes.ReadOnly) <> 0 Then
+                Return EligibilityDecision.BlockedReadOnly
+            End If
+        Catch ex As Exception
+            Return EligibilityDecision.BlockedFileInspectionError
+        End Try
+        Return EligibilityDecision.PreviewCandidateRequiresVaultOwnershipAndDirtyChecks
+    End Function
+End Module
