@@ -3,7 +3,7 @@
 ' No Copy Design, SaveAs, rename, reference repair, or automatic Vault checkout.
 ' Entry: active GA assembly (.iam), or active GA drawing (.idw/.dwg).
 ' DRY RUN by default. APPLY requires typing APPLY.
-' Preview calls the canonical BEEXCITED_PropertyRefreshPure module; it must be included as a shared external rule/module in Inventor before compilation. Integration not Inventor-validated.
+' Preview calls the canonical BEEXCITED_PropertyRefreshPure and BEEXCITED_PropertyRefreshDiscovery modules; both must be included as shared external modules in Inventor before compilation. Integration not Inventor-validated.
 Sub Main()
     Dim active As Inventor.Document = ThisApplication.ActiveDocument
     If active Is Nothing OrElse String.IsNullOrEmpty(active.FullFileName) Then
@@ -33,34 +33,19 @@ Sub Main()
     Dim log As String = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "BEEXCITED_PROP_TEST01_" & Now.ToString("yyyyMMdd_HHmmss_fff") & ".log")
     Dim scanned As Integer = 0, modified As Integer = 0, skipped As Integer = 0, failed As Integer = 0
     WriteLine(log, "VERSION 0.1.0 | " & If(apply, "APPLY", "DRY RUN") & " | ROOT " & root & " | PREFIX " & pj)
-    Dim files As New System.Collections.Generic.List(Of String)
-    If ext = ".iam" Then
-        files.Add(active.FullFileName)
-        Try
-            Dim asm As Inventor.AssemblyDocument = CType(active, Inventor.AssemblyDocument)
-            For Each child As Inventor.Document In asm.AllReferencedDocuments
-                Dim path As String = child.FullFileName
-                Dim childExt As String = System.IO.Path.GetExtension(path).ToLowerInvariant()
-                If childExt = ".iam" OrElse childExt = ".ipt" Then files.Add(path)
-            Next
-        Catch ex As Exception
-            WriteLine(log, "ABORT-DISCOVERY " & ex.Message)
-            MessageBox.Show("Traversal failed. No updates attempted." & vbCrLf & log)
-            Return
-        End Try
-    Else
-        files.Add(active.FullFileName)
-        Try
-            For Each f As String In System.IO.Directory.GetFiles(root, "*", System.IO.SearchOption.TopDirectoryOnly)
-                Dim e As String = System.IO.Path.GetExtension(f).ToLowerInvariant()
-                If e = ".idw" OrElse e = ".dwg" Then files.Add(f)
-            Next
-        Catch ex As Exception
-            WriteLine(log, "ABORT-DISCOVERY " & ex.Message)
-            MessageBox.Show("Drawing discovery failed. No updates attempted." & vbCrLf & log)
-            Return
-        End Try
-    End If
+    ' Shared read-only discovery; no traversal implementation is duplicated in this wrapper.
+    Dim files As System.Collections.Generic.List(Of String)
+    Try
+        If ext = ".iam" Then
+            files = BEEXCITED_PropertyRefreshDiscovery.DiscoverAssemblyModels(CType(active, Inventor.AssemblyDocument))
+        Else
+            files = BEEXCITED_PropertyRefreshDiscovery.DiscoverDrawingFolder(active.FullFileName)
+        End If
+    Catch ex As Exception
+        WriteLine(log, "ABORT-DISCOVERY | " & ex.Message)
+        MessageBox.Show("Discovery failed. No updates attempted." & vbCrLf & log)
+        Return
+    End Try
     Dim unique As New System.Collections.Generic.HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
     For Each path As String In files
         If Not unique.Add(path) Then Continue For
