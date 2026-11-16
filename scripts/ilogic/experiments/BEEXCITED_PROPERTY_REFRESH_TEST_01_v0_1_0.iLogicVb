@@ -125,26 +125,8 @@ Sub Main()
             If changes.Count = 0 Then
                 WriteLine(log, "UNCHANGED | " & path) : Continue For
             End If
-            If apply Then
-                For Each entry As String In changes
-                    Dim fields() As String = entry.Split(New Char() {ChrW(9)}, 3)
-                    doc.PropertySets.Item(fields(0)).Item(fields(1)).Value = fields(2)
-                Next
-                doc.Save2(False)
-                Dim verified As Boolean = True
-                For Each entry As String In changes
-                    Dim fields() As String = entry.Split(New Char() {ChrW(9)}, 3)
-                    Dim actual As String = Convert.ToString(doc.PropertySets.Item(fields(0)).Item(fields(1)).Value)
-                    If Not String.Equals(actual, fields(2), StringComparison.Ordinal) Then
-                        verified = False
-                        WriteLine(log, "VERIFY-FAIL " & path & " [" & fields(1) & "] expected=" & fields(2) & " actual=" & actual)
-                    End If
-                Next
-                If Not verified Then Throw New Exception("Post-save in-memory property readback failed")
-                WriteLine(log, "SAVED-VERIFIED | " & path)
-            Else
-                WriteLine(log, "PREVIEW | " & path & " | " & changes.Count & " properties")
-            End If
+            ' PREVIEW ONLY: no write or Save2 path exists in this candidate.
+            WriteLine(log, "PREVIEW | " & path & " | " & changes.Count & " properties")
             modified += 1
         Catch ex As Exception
             failed += 1 : WriteLine(log, "FAIL | " & path & " | " & ex.Message)
