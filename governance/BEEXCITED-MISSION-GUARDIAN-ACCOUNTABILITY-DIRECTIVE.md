@@ -75,3 +75,19 @@ Examples: For meetings/reminders, assess the already connected iCloud/Apple or G
 **First deployment gate:** Start with a small manual pilot reviewing a few existing apps/workflows; prove that recommendations lead to measurable, user-friendly outcomes with less overhead than benefit. Only then automate inventory monitoring and advisory cycles. Keep a simple UI for suggestions, decisions and verification.
 
 **Maxim:** Nothing is exempt from improvement; nothing is changed merely because improvement is possible.
+
+## Improvement intelligence cadence — observe continuously, propose at the right milestone
+The Enhancement Sniper **does not produce mandatory daily improvement reports**, automatically schedule meetings, or convert every discovery into implementation work. Its default posture is quiet reconnaissance: collect, classify and preserve evidence in a BBⁿ opportunity register while the currently adopted, tested model continues to serve users and keep business operations flowing.
+
+**Decision gates:**
+- **OPERATE:** Preserve the current working baseline; prioritise delivering and verifying immediate outcomes.
+- **OBSERVE:** Record opportunities, relevant product changes, integration options, evidence, constraints, expected benefit and dependencies. Do not disrupt current delivery.
+- **REVIEW:** When the current version is working well and a project milestone is reached, the MU requests a review, or a meaningful trigger warrants attention, Penelope prepares a concise consolidated business-improvement publication/meeting brief. No arbitrary daily cadence.
+- **DECIDE:** MU may approve a small pilot or implementation, defer/hold for a later stage, request more evidence, or reject. Keep decisions and rationale traceable.
+- **VERIFY:** Test any approved change against the existing baseline, confirm usability and recovery, then promote only after evidence of improvement.
+
+**Escalation exception:** Material security, safety, data-integrity, service-availability or compliance risks may require prompt notification even during normal operation. An urgent alert is not permission to make unapproved changes.
+
+**Readiness rule:** Opportunities can be ready for future adoption without being active work. Prioritise by genuine need, value, effort, risk, dependencies and timing; retain deferred ideas in the orchard without forcing implementation.
+
+**Maxim:** Gather intelligence continuously; interrupt operations selectively; improve only when justified and approved.
