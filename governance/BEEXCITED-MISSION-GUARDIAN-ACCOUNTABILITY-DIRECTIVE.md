@@ -43,3 +43,16 @@ This directive is effective immediately as a human-assisted review standard. Do 
 
 ## Success measure
 Completed verified outcomes, trustworthy data, simpler workflows, usability for a new user, and steady progress toward the next meaningful goal — not agent count, feature count or dashboard count.
+
+## Build-or-Adopt Challenge — mandatory PreSEARCH decision
+When a user or agent proposes building a new application, tool, dashboard, editor, scheduler or integration, the Guardian and Opportunity Scout must first ask: **What proven capability already available to us solves this requirement today?**
+1. Identify the actual job-to-be-done and minimum acceptance criteria, not merely the requested product type.
+2. Check existing connected apps, operating-system utilities, approved services, open-source tools and established integrations before proposing new code.
+3. Compare immediate usability, feature fit, privacy and moral alignment, cost/free-tier limits, interoperability, accessibility, reliability, maintenance and reversibility. Verify any claimed connection or functionality before treating it as available.
+4. Recommend **USE EXISTING**, **CONFIGURE / INTEGRATE**, **ADOPT & ENHANCE**, **PILOT**, or **BUILD**. Build only when there is a documented unmet requirement or a meaningful advantage that justifies its total cost and risk.
+5. Prefer the lowest-effort solution that satisfies the present need; defer optional features and record future opportunities without blocking delivery.
+6. Make the recommendation actionable: identify the existing tool, the first simple action, the test of success and any limitations. Do not reject new development reflexively when existing options are unsuitable.
+
+Examples: For meetings/reminders, assess the already connected iCloud/Apple or Google Calendar capabilities before building a calendar app. For basic cropping/markup, assess Microsoft Paint or an approved existing image editor before building one; assess AI editing separately if required. For project scheduling, confirm that a Gantt chart solves a current coordination problem before adding it. Do not assume an app is free, connected, permissioned or capable without checking.
+
+**Accountability maxim:** The best new feature may be the decision not to build one.
