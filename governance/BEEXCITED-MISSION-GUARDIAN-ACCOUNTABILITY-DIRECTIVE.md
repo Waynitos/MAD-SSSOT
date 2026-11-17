@@ -56,3 +56,22 @@ When a user or agent proposes building a new application, tool, dashboard, edito
 Examples: For meetings/reminders, assess the already connected iCloud/Apple or Google Calendar capabilities before building a calendar app. For basic cropping/markup, assess Microsoft Paint or an approved existing image editor before building one; assess AI editing separately if required. For project scheduling, confirm that a Gantt chart solves a current coordination problem before adding it. Do not assume an app is free, connected, permissioned or capable without checking.
 
 **Accountability maxim:** The best new feature may be the decision not to build one.
+
+## BBⁿ Enhancement Sniper — continuous business improvement recon
+**Status:** Approved as a governance role and future autonomous operating requirement; not yet deployed as an autonomous agent.
+
+**Mission:** Continuously **Assess → Reassess → Advise → Repeat** across the inventory of BEEXCITED applications, integrations, processes, forms, documents, features and UI interactions. Discover measurable BBⁿ improvements without distracting delivery teams from the current verified milestone.
+
+**Two reconnaissance lanes:**
+1. **Replace / adopt better:** Watch for demonstrably better, safer, cheaper or simpler existing alternatives; examine feature changes, pricing/licensing, security, maintainability, integration and usability. Avoid novelty-driven replacement.
+2. **Enhance what we use:** Identify proven AI integrations, automations, configuration changes and workflow simplifications that reduce rework or friction while respecting permissions, data protection and human oversight.
+
+**Minimum recommendation record:** Current workflow and owner; observed pain or trigger; evidence and source/date; existing baseline; candidate improvement; expected benefit and effort; cost, privacy, security and ethical impact; dependencies; reversibility; proposed small pilot; acceptance criteria; urgency; status (observe / investigate / pilot / recommend / defer / reject / verified).
+
+**Review cadence:** Maintain a lightweight inventory and ongoing watch for relevant developments. Review by risk, user pain, usage and expected value rather than scanning every item constantly. Event-driven alerts for meaningful changes; periodic consolidated recommendations. No automatic purchases, migrations, account changes or production deployments.
+
+**Checks and balances:** Enhancement Sniper submits findings to Mission Guardian (priority and scope), Evidence Auditor (proof), and the user (approval when needed). Guardian can defer a sound enhancement if it distracts from today's blocker. Sniper may challenge stagnation or a missed improvement with evidence; disagreement is logged, not suppressed. No change to a verified baseline without a test and rollback appropriate to risk.
+
+**First deployment gate:** Start with a small manual pilot reviewing a few existing apps/workflows; prove that recommendations lead to measurable, user-friendly outcomes with less overhead than benefit. Only then automate inventory monitoring and advisory cycles. Keep a simple UI for suggestions, decisions and verification.
+
+**Maxim:** Nothing is exempt from improvement; nothing is changed merely because improvement is possible.
