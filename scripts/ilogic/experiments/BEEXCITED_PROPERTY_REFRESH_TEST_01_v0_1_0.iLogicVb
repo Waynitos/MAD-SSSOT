@@ -5,6 +5,16 @@
 ' DRY RUN by default. APPLY requires typing APPLY.
 ' Preview calls the canonical BEEXCITED_PropertyRefreshPure and BEEXCITED_PropertyRefreshDiscovery modules; all referenced shared modules must be included as external modules in Inventor before compilation. Integration not Inventor-validated.
 Sub Main()
+    Try
+        RunPreview()
+    Catch ex As Exception
+        ' Fail closed: no continuation if shared audit append or any other preview operation fails.
+        ' Do not attempt to write a second audit entry when the audit sink itself may have failed.
+        MessageBox.Show("PROPERTY REFRESH PREVIEW ABORTED. No property writes are implemented in this version." & vbCrLf & "Failure: " & ex.Message & vbCrLf & "Audit log may be incomplete; do not treat this run as qualified.")
+    End Try
+End Sub
+
+Sub RunPreview()
     Dim active As Inventor.Document = ThisApplication.ActiveDocument
     If active Is Nothing OrElse String.IsNullOrEmpty(active.FullFileName) Then
         MessageBox.Show("Open a saved GA assembly or GA drawing first.") : Return
