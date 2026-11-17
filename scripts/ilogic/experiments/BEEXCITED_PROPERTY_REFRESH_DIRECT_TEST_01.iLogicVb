@@ -4,6 +4,11 @@
 ' APPLY requires explicit confirmation. No Vault API ownership check: operator must verify checkout.
 ' External referenced files outside the approved project root are never opened for update.
 Sub Main()
+    ' SAFETY LOCK: legacy standalone implementation duplicates planning and lacks
+    ' authoritative Vault ownership and persisted disk readback. Retained for
+    ' historical comparison only. No preview or APPLY may execute this rule.
+    MessageBox.Show("LEGACY RULE DISABLED: use the versioned shared-library preview wrapper. APPLY is blocked pending safety qualification.")
+    Return
     Dim app As Inventor.Application = ThisApplication
     Dim ga As Inventor.Document = app.ActiveDocument
     If ga Is Nothing OrElse String.IsNullOrWhiteSpace(ga.FullFileName) Then
