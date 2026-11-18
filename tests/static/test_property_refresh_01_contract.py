@@ -1,50 +1,48 @@
 #!/usr/bin/env python3
-"""Offline source contract gate for PROPERTY REFRESH TEST 01. No Inventor execution."""
+"""Source-level PROPERTY REFRESH TEST 01 architecture contract.
+
+This checks the current shared-module architecture, not Inventor execution.
+Run: python tests/static/test_property_refresh_01_contract.py
+"""
 from pathlib import Path
 import re
 import sys
 
-RULE = Path(__file__).resolve().parents[2] / "scripts/ilogic/experiments/BEEXCITED_PROPERTY_REFRESH_TEST_01_v0_1_0.iLogicVb"
-source = RULE.read_text(encoding="utf-8")
+ROOT = Path(__file__).resolve().parents[2] / "scripts/ilogic/experiments"
+def read(name):
+    return (ROOT / name).read_text(encoding="utf-8")
+
+wrapper = read("BEEXCITED_PROPERTY_REFRESH_TEST_01_v0_1_0.iLogicVb")
+pure = read("BEEXCITED_PropertyRefreshPure.iLogicVb")
+discovery = read("BEEXCITED_PropertyRefreshDiscovery.iLogicVb")
+eligibility = read("BEEXCITED_PropertyRefreshEligibility.iLogicVb")
+audit = read("BEEXCITED_PropertyRefreshAudit.iLogicVb")
+
 checks = {
-    "active document": "ThisApplication.ActiveDocument" in source,
-    "GA assembly recursive references": "asm.AllReferencedDocuments" in source,
-    "GA drawing folder top level": "SearchOption.TopDirectoryOnly" in source,
-    "project prefix validation": '"^PJ[0-9]{5}$"' in source,
-    "explicit APPLY": 'String.Equals(mode.Trim(), "APPLY", StringComparison.Ordinal)' in source,
-    "dirty active document guard": "If active.Dirty Then" in source,
-    "dirty referenced document guard": "If doc.Dirty Then" in source,
-    "readonly guard": "FileAttributes.ReadOnly" in source,
-    "project path containment": "OUTSIDE-GA-FOLDER-TREE" in source,
-    "dry-run before write": "If apply Then" in source,
-    "part number update": '"Part Number"' in source,
-    "specification update": '"SPECIFICATION"' in source,
-    "drawing number update": '"DRAWING_NUMBER"' in source,
-    "post-save in-memory readback": "Post-save in-memory property readback failed" in source,
-    "per-file log": "WriteLine(log," in source,
-    "no automatic Vault checkout": not re.search(r"\bCheckOut\s*\(", source, re.I),
-    "no SaveAs": not re.search(r"\bSaveAs\s*\(", source, re.I),
-    "no component replace": not re.search(r"\bReplace\s*\(", source, re.I),
-    "no revision reset": not re.search(r'QueueChange\([^\n]*"(?:REVISION|1st REV|Revision Number)"', source, re.I),
+    "active saved document entry": "ThisApplication.ActiveDocument" in wrapper,
+    "shared assembly discovery called": "BEEXCITED_PropertyRefreshDiscovery.DiscoverAssemblyModels(" in wrapper,
+    "shared drawing discovery called": "BEEXCITED_PropertyRefreshDiscovery.DiscoverDrawingFolder(" in wrapper,
+    "recursive assembly references in shared module": "active.AllReferencedDocuments" in discovery,
+    "immediate drawing folder in shared module": "SearchOption.TopDirectoryOnly" in discovery,
+    "prefix validation in shared planner": '"^PJ[0-9]{5}$"' in pure,
+    "anchored prefix with suffix preservation": '"^PJ[0-9]{5}-"' in pure and "original.Substring(7)" in pure,
+    "typed model and drawing plans": "Class PropertyChange" in pure and "Function PlanExistingModelProperty" in pure and "Function PlanExistingDrawingProperty" in pure,
+    "named drawing arguments at call site": "filenameStem:=oldName" in wrapper and "existingDrawingNumber:=existingNumber" in wrapper,
+    "drawing mapping explicitly unverified": "UNVERIFIED drawing/title-block mapping" in wrapper,
+    "eligibility delegates to root classification": "BEEXCITED_PropertyRefreshRoots.ClassifyPreviewRoot(" in eligibility,
+    "protected roots mandatory": "If protectedList.Count = 0 Then" in eligibility,
+    "shared audit serializer": "BEEXCITED_PropertyRefreshAudit.AppendRecord(" in wrapper and "Function EncodeRecord(" in audit,
+    "per-candidate audit path": "entry.FilePath = If(String.IsNullOrWhiteSpace(filePath)" in wrapper and "plan.FilePath" in wrapper,
+    "dirty document guard": "If doc.Dirty Then" in wrapper and "If active.Dirty Then" in wrapper,
+    "APPLY explicitly blocked": 'If apply Then' in wrapper and "APPLY BLOCKED" in wrapper,
+    "no wrapper property writes": not re.search(r"\.Value\s*=", wrapper, re.I),
+    "no wrapper save": not re.search(r"\bSave2\s*\(", wrapper, re.I),
+    "no automatic Vault checkout": not re.search(r"\bCheckOut\s*\(", wrapper, re.I),
+    "no SaveAs or component replace": not re.search(r"\b(?:SaveAs|Replace)\s*\(", wrapper, re.I),
+    "no revision reset": not re.search(r"QueuePlannedChange\([^\n]*(?:REVISION|1st REV|Revision Number)", wrapper, re.I),
 }
-for label, ok in checks.items():
-    print(f"{'PASS' if ok else 'FAIL'}: {label}")
-# Pure-Python behavior mirrors the *documented* regex contract; does not execute VB.
-def replace_prefix(value, pj):
-    return re.sub(r"^PJ[0-9]{5}(?=-)", pj, value, flags=re.I)
-cases = [
-    ("PJ00201-3410-01", "PJ00999-3410-01"),
-    ("pj00201-A", "PJ00999-A"),
-    ("PJ00201", "PJ00201"),
-    ("ABC-PJ00201-A", "ABC-PJ00201-A"),
-    ("PJ00201_X", "PJ00201_X"),
-    ("PJ00999-A", "PJ00999-A"),
-]
-for before, expected in cases:
-    actual = replace_prefix(before, "PJ00999")
-    ok = actual == expected
-    checks[f"prefix case {before}"] = ok
-    print(f"{'PASS' if ok else 'FAIL'}: prefix {before} -> {actual}")
-print(f"RESULT: {sum(checks.values())}/{len(checks)} passed")
-if not all(checks.values()):
-    sys.exit(1)
+for label, passed in checks.items():
+    print(f"{'PASS' if passed else 'FAIL'}: {label}")
+print(f"Source contract: {sum(checks.values())}/{len(checks)}")
+print("NOT A RUNTIME QUALIFICATION: Vault ownership, disk readback, recovery, drawing mapping and Inventor tests remain separate gates.")
+sys.exit(0 if all(checks.values()) else 1)
