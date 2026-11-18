@@ -116,12 +116,12 @@ Sub RunPreview()
                 Try
                     existingNumber = Convert.ToString(doc.PropertySets.Item("Inventor User Defined Properties").Item("DRAWING_NUMBER").Value)
                 Catch ex As Exception
-                    WriteLine(log, "SKIP DRAWING-NUMBER-MISSING | " & path & " | " & ex.Message)
+                    WriteLine(log, "SKIP DRAWING-NUMBER-MISSING | " & path & " | " & ex.Message, path)
                     Continue For
                 End Try
                 Dim proposal As BEEXCITED_PropertyRefreshPure.PropertyChange = BEEXCITED_PropertyRefreshPure.PlanExistingDrawingProperty(filePath:=path, filenameStem:=oldName, existingDrawingNumber:=existingNumber, targetProjectPrefix:=pj)
                 If proposal Is Nothing Then
-                    WriteLine(log, "SKIP DRAWING-UNCHANGED-OR-IDENTITY-UNVERIFIED | " & path)
+                    WriteLine(log, "SKIP DRAWING-UNCHANGED-OR-IDENTITY-UNVERIFIED | " & path, path)
                     Continue For
                 End If
                 QueuePlannedChange(proposal, changes, log)
@@ -134,7 +134,7 @@ Sub RunPreview()
                     Try
                         existingValue = Convert.ToString(doc.PropertySets.Item(mappingParts(0)).Item(mappingParts(1)).Value)
                     Catch ex As Exception
-                        WriteLine(log, "MISSING-OR-UNREADABLE | " & path & " | " & mappingParts(1) & " | " & ex.Message)
+                        WriteLine(log, "MISSING-OR-UNREADABLE | " & path & " | " & mappingParts(1) & " | " & ex.Message, path)
                         Continue For
                     End Try
                     Dim proposal As BEEXCITED_PropertyRefreshPure.PropertyChange = BEEXCITED_PropertyRefreshPure.PlanExistingModelProperty(filePath:=path, propertySetName:=mappingParts(0), propertyName:=mappingParts(1), existingValue:=existingValue, proposed:=pj)
@@ -146,16 +146,16 @@ Sub RunPreview()
                 WriteLine(log, "UNCHANGED | " & path) : Continue For
             End If
             ' PREVIEW ONLY: no write or Save2 path exists in this candidate.
-            WriteLine(log, "PREVIEW | " & path & " | " & changes.Count & " properties")
+            WriteLine(log, "PREVIEW | " & path & " | " & changes.Count & " properties", path)
             candidates += 1
         Catch ex As Exception
-            failed += 1 : WriteLine(log, "FAIL | " & path & " | " & ex.Message)
+            failed += 1 : WriteLine(log, "FAIL | " & path & " | " & ex.Message, path)
         Finally
             If opened AndAlso doc IsNot Nothing Then
                 Try
                     If Not doc.Dirty Then doc.Close(True)
                 Catch ex As Exception
-                    WriteLine(log, "CLOSE-FAIL | " & path & " | " & ex.Message)
+                    WriteLine(log, "CLOSE-FAIL | " & path & " | " & ex.Message, path)
                 End Try
             End If
         End Try
@@ -169,19 +169,19 @@ End Sub
 Sub QueuePlannedChange(plan As BEEXCITED_PropertyRefreshPure.PropertyChange, changes As System.Collections.Generic.List(Of String), log As String)
     If plan Is Nothing Then Return
     If plan.NewValue Is Nothing OrElse plan.NewValue.IndexOf(ChrW(9)) >= 0 Then
-        WriteLine(log, "SKIP INVALID-PLAN | " & plan.FilePath & " | " & plan.PropertyName)
+        WriteLine(log, "SKIP INVALID-PLAN | " & plan.FilePath & " | " & plan.PropertyName, plan.FilePath)
         Return
     End If
     changes.Add(plan.PropertySetName & vbTab & plan.PropertyName & vbTab & plan.NewValue)
-    WriteLine(log, "CHANGE | " & plan.FilePath & " | " & plan.PropertyName & " | " & plan.OldValue & " => " & plan.NewValue)
+    WriteLine(log, "CHANGE | " & plan.FilePath & " | " & plan.PropertyName & " | " & plan.OldValue & " => " & plan.NewValue, plan.FilePath)
 End Sub
 
 ' Audit serialization and append are owned exclusively by the shared module.
 ' Preview events have no property-level readback; never mark them verified.
-Sub WriteLine(log As String, line As String)
+Sub WriteLine(log As String, line As String, Optional filePath As String = "")
     Dim entry As New BEEXCITED_PropertyRefreshAudit.AuditRecord()
     entry.RunId = System.IO.Path.GetFileNameWithoutExtension(log)
-    entry.FilePath = If(ThisApplication.ActiveDocument Is Nothing, "(no active document)", ThisApplication.ActiveDocument.FullFileName)
+    entry.FilePath = If(String.IsNullOrWhiteSpace(filePath), "(run-level event)", filePath)
     entry.Outcome = "PREVIEW-EVENT"
     entry.Reason = Now.ToString("HH:mm:ss.fff") & " " & line
     entry.Verification = "NOT-PERSISTED-NOT-VERIFIED"
