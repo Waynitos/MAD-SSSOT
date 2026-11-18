@@ -1,7 +1,7 @@
 '' =====================================================================
 '' SUPER_CLEAN_SWEEPER.iLogicVb
 '' Copy Design with full provenance architecture
-'' Version: 2.2.116 — 2026-11-19
+'' Version: 2.2.117 — 2026-11-19
 ''
 '' V2.2.116  (WALK-FOREIGN-SUB — 2026-11-19)
 ''   IsLibraryPartToSkip: "\CONTENT CENTRE\" / "\CONTENT CENTER\" check was too
@@ -525,7 +525,7 @@ Sub Main()
         System.Environment.SpecialFolder.Desktop)
     Dim sLogPath As String = System.IO.Path.Combine(sDesktop, _
         "SUPER_CLEAN_SWEEPER_" & Now.ToString("yyyyMMdd_HHmmss") & ".log")
-    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.116  —  " & Now.ToString() & vbCrLf & _
+    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.117  —  " & Now.ToString() & vbCrLf & _
                          "GA: " & sTopFull & vbCrLf
     Try : System.IO.File.WriteAllText(sLogPath, sLog) : Catch : End Try
     If sEntryLog <> "" Then
@@ -3213,7 +3213,7 @@ Sub Main()
 
     ' ── 8. Final summary ──────────────────────────────────────────────────────
     Dim sSummary As String = _
-        "SUPER CLEAN SWEEPER v2.2.116 — COMPLETE" & vbCrLf & vbCrLf & _
+        "SUPER CLEAN SWEEPER v2.2.117 — COMPLETE" & vbCrLf & vbCrLf & _
         "Phase 1  Rename map built:   " & oRenameMap.Count & " file(s)" & vbCrLf & _
         "Phase 2  SaveAs + Provenance:" & vbCrLf & _
         "         Saved    : " & iSaved & vbCrLf & _
@@ -4246,6 +4246,27 @@ Sub WalkTree(oDoc As Document, _
             Dim sPrefixed As String = sNewPrefix & "-" & sStripped
             sRuled = System.IO.Path.Combine(sTargetFolder, sPrefixed & System.IO.Path.GetExtension(sFullPath))
         End If
+
+        ' v2.2.117 (WALK-FOREIGN-SUB): files that originate OUTSIDE sOldProjectRoot
+        ' (e.g. BC bolted-connection assemblies in another project's Content Centre
+        ' subfolder) are Non Std Parts — route their copies to the "Non Std Parts\"
+        ' subfolder of the new project, not the main target folder.
+        ' We detect "foreign" by checking that the source is NOT under sOldProjectRoot
+        ' AND NOT under sTargetFolder (housekeep-only files are already in target).
+        If Not bHousekeep AndAlso Not bNameOverride Then
+            Dim bUnderOldRoot As Boolean = IsSameOrUnderDirectory(sFullPath, sOldProjectRoot)
+            Dim bUnderTarget  As Boolean = IsSameOrUnderDirectory(sFullPath, sTargetFolder)
+            If Not bUnderOldRoot AndAlso Not bUnderTarget Then
+                ' Foreign project file → Non Std Parts\  (NonStdFolder creates it if absent)
+                Dim sNspFolder As String = NonStdFolder(sTargetFolder)
+                Dim sBaseName  As String = System.IO.Path.GetFileName(sRuled)   ' already prefixed above
+                sRuled = System.IO.Path.Combine(sNspFolder, sBaseName)
+                Try : System.IO.File.AppendAllText(sLogPath, _
+                    "WALK-FOREIGN-SUB: " & System.IO.Path.GetFileName(sFullPath) & _
+                    "  ->  Non Std Parts\" & sBaseName & vbCrLf) : Catch : End Try
+            End If
+        End If
+
         Dim bRuleChanged As Boolean = bHousekeep OrElse Not String.Equals(sRuled, sNewFull, StringComparison.Ordinal)
         Dim bReused As Boolean = False
         Dim sTestFull As String = ResolveTarget(sFullPath, sRuled, bRuleChanged, oMappedTargets, sLogPath, bReused, oSourcePathCache)
