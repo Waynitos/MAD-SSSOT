@@ -37,6 +37,14 @@ class IdentityContractTests(unittest.TestCase):
         self.assertIn("root & separator", self.code)
         self.assertIn("StringComparison.OrdinalIgnoreCase", self.code)
 
+    def test_overlapping_project_roots_denied(self):
+        self.assertIn("If IsUnder(target, source) OrElse IsUnder(source, target)", self.code)
+        self.assertIn("Return IdentityReason.DenyInvalidIdentity", self.code)
+
+    def test_protected_root_overlap_denied(self):
+        self.assertIn("If IsUnder(target, checkedRoot) OrElse IsUnder(checkedRoot, target)", self.code)
+        self.assertIn("Return IdentityReason.DenyProtectedRoot", self.code)
+
     def test_no_mutation_or_ui_in_pure_gate(self):
         forbidden = (r"\.Save(?:As|2)?\s*\(", r"\.PropertySets\b",
                      r"MessageBox\.", r"InputBox\s*\(", r"Vault\.",
