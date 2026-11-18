@@ -1,8 +1,20 @@
 '' =====================================================================
 '' SUPER_CLEAN_SWEEPER.iLogicVb
 '' Copy Design with full provenance architecture
-'' Version: 2.2.115 — 2026-11-19
+'' Version: 2.2.116 — 2026-11-19
 ''
+'' V2.2.116  (WALK-FOREIGN-SUB — 2026-11-19)
+''   IsLibraryPartToSkip: "\CONTENT CENTRE\" / "\CONTENT CENTER\" check was too
+''     broad — it also caught project-specific "Content Centre" subfolders (e.g.
+''     PJ00190 BC bolted-connection assemblies).  Added AndAlso Not
+''     sUp.Contains("\VAULT\PROJECTS\") guard so only non-project Content Centre
+''     paths are skipped.  BC assemblies now walk into oRenameMap and are copied +
+''     renamed into the target folder in Phase 2.  (WALK-LIB-SKIP false-positive
+''     for project BC assemblies resolved.)
+''   Phase 4: added read-only bit clear on parent assembly before oOcc.Replace.
+''     Files from a previous partial run or Vault Copy Design inherit read-only
+''     attributes; without clearing, oOcc.Replace throws E_FAIL and the
+''     false-positive VAULT-LOCKED detection fires.
 '' V2.2.115  (CA-1 fix — 2026-11-19)
 ''   PASS1-FILTER: removed oRenameMap.Clear() / replace pattern.  Drawing List
 ''     keys are display names; oRenameMap keys are disk filenames — they never
@@ -513,7 +525,7 @@ Sub Main()
         System.Environment.SpecialFolder.Desktop)
     Dim sLogPath As String = System.IO.Path.Combine(sDesktop, _
         "SUPER_CLEAN_SWEEPER_" & Now.ToString("yyyyMMdd_HHmmss") & ".log")
-    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.115  —  " & Now.ToString() & vbCrLf & _
+    Dim sLog As String = "SUPER CLEAN SWEEPER  v2.2.116  —  " & Now.ToString() & vbCrLf & _
                          "GA: " & sTopFull & vbCrLf
     Try : System.IO.File.WriteAllText(sLogPath, sLog) : Catch : End Try
     If sEntryLog <> "" Then
@@ -3201,7 +3213,7 @@ Sub Main()
 
     ' ── 8. Final summary ──────────────────────────────────────────────────────
     Dim sSummary As String = _
-        "SUPER CLEAN SWEEPER v2.2.115 — COMPLETE" & vbCrLf & vbCrLf & _
+        "SUPER CLEAN SWEEPER v2.2.116 — COMPLETE" & vbCrLf & vbCrLf & _
         "Phase 1  Rename map built:   " & oRenameMap.Count & " file(s)" & vbCrLf & _
         "Phase 2  SaveAs + Provenance:" & vbCrLf & _
         "         Saved    : " & iSaved & vbCrLf & _
@@ -3675,7 +3687,13 @@ Function IsLibraryPartToSkip(sPath As String) As Boolean
     ' Content Center / Centre root, and any project "Content Centre" folder
     If sUp.StartsWith("C:\VAULT\CONTENT CENTER FILES\") OrElse sUp.Contains("\CONTENT CENTER FILES\") _
        AndAlso Not sUp.Contains("\PROJECTS\") Then Return True
-    If sUp.Contains("\CONTENT CENTRE\") OrElse sUp.Contains("\CONTENT CENTER\") Then Return True
+    ' v2.2.116 (WALK-FOREIGN-SUB): only skip a Content Centre/Center subfolder when it
+    ' is NOT inside a Vault Projects folder.  Project-specific "Content Centre"
+    ' subfolders hold project assemblies (bolted connections etc.) that ARE copied
+    ' and prefixed like any other sub.  The old unconditional check caused
+    ' WALK-LIB-SKIP false-positives for BC assemblies in PJ00190's Content Centre.
+    If (sUp.Contains("\CONTENT CENTRE\") OrElse sUp.Contains("\CONTENT CENTER\")) _
+       AndAlso Not sUp.Contains("\VAULT\PROJECTS\") Then Return True
     If IsTopLevelContentCenter(sPath) Then Return True
     ' SJD parts only skipped when they live in the SJD00-GT library folder.
     ' An SJD-named file copied into a project folder is a non-std part and gets the prefix.
@@ -4374,6 +4392,16 @@ Sub Phase4_WalkOccs(oCompDef As ComponentDefinition, _
         Dim bP4Replaced As Boolean = False
         Dim sP4Method As String = "Occurrence.Replace"
         Dim sP4Error As String = ""
+        ' v2.2.116: clear read-only bit on parent assembly before Replace.
+        ' Files from a previous partial run or Vault Copy Design can inherit
+        ' read-only attributes; without clearing, oOcc.Replace throws E_FAIL.
+        Try
+            Dim sParentFullP4 As String = oCompDef.Document.FullFileName
+            Dim oParentAttrsP4 As System.IO.FileAttributes = System.IO.File.GetAttributes(sParentFullP4)
+            If (oParentAttrsP4 And System.IO.FileAttributes.ReadOnly) = System.IO.FileAttributes.ReadOnly Then
+                System.IO.File.SetAttributes(sParentFullP4, oParentAttrsP4 And Not System.IO.FileAttributes.ReadOnly)
+            End If
+        Catch : End Try
         Try
             oOcc.Replace(sNewPath, False)
             bP4Replaced = True
