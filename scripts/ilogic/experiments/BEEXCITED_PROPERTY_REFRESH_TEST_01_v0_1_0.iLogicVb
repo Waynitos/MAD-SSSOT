@@ -86,7 +86,7 @@ Sub RunPreview()
         If Not unique.Add(path) Then Continue For
         Dim decision As BEEXCITED_PropertyRefreshEligibility.EligibilityDecision = BEEXCITED_PropertyRefreshEligibility.ClassifyPreview(path, root, approvedRoots, protectedRoots)
         If decision <> BEEXCITED_PropertyRefreshEligibility.EligibilityDecision.PreviewCandidateRequiresVaultOwnershipAndDirtyChecks Then
-            skipped += 1 : WriteLine(log, "SKIP " & decision.ToString() & " | " & path) : Continue For
+            skipped += 1 : WriteLine(log, "SKIP " & decision.ToString() & " | " & path, path) : Continue For
         End If
         Dim doc As Inventor.Document = Nothing
         Dim opened As Boolean = False
@@ -102,7 +102,7 @@ Sub RunPreview()
                 End If
             End If
             If doc.Dirty Then
-                skipped += 1 : WriteLine(log, "SKIP DIRTY-OPEN-DOCUMENT | " & path) : Continue For
+                skipped += 1 : WriteLine(log, "SKIP DIRTY-OPEN-DOCUMENT | " & path, path) : Continue For
             End If
             Dim changes As New System.Collections.Generic.List(Of String)
             Dim isDrawing As Boolean = (ext <> ".iam")
@@ -143,7 +143,7 @@ Sub RunPreview()
                 ' Other project fields deliberately deferred until field mapping is confirmed.
             End If
             If changes.Count = 0 Then
-                WriteLine(log, "UNCHANGED | " & path) : Continue For
+                WriteLine(log, "UNCHANGED | " & path, path) : Continue For
             End If
             ' PREVIEW ONLY: no write or Save2 path exists in this candidate.
             WriteLine(log, "PREVIEW | " & path & " | " & changes.Count & " properties", path)
