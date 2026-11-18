@@ -1,39 +1,82 @@
 #!/usr/bin/env python3
-"""Qualification gate: fail CLOSED until PROPERTY REFRESH TEST 01 is truly reusable and safe.
+"""Fail-closed source qualification for the SHARED Property Refresh 01 architecture.
 
-This is intentionally stricter than test_property_refresh_01_contract.py. It never
-executes Inventor or treats a source-token check as proof of runtime safety.
-Run from any directory: python tests/static/test_property_refresh_01_qualification.py
+This is a structural gate, not VB compilation, a semantic test, or Inventor/Vault
+runtime evidence. A green source gate must NEVER authorize APPLY on its own.
+Run: python tests/static/test_property_refresh_01_qualification.py
 """
 from pathlib import Path
 import re
 import sys
 
-ROOT = Path(__file__).resolve().parents[2]
-RULE = ROOT / "scripts/ilogic/experiments/BEEXCITED_PROPERTY_REFRESH_TEST_01_v0_1_0.iLogicVb"
-s = RULE.read_text(encoding="utf-8")
-main = s.split("Sub Main()", 1)[1].split("End Sub", 1)[0] if "Sub Main()" in s else s
-tests = {
-    # These are explicit qualification assertions, NOT proof of safety in Inventor.
-    "Core is external and independently callable": bool(re.search(r"AddVbFile|AddVbRule|ExternalRule|Imports\s+BEEXCITED", s, re.I)),
-    "Traversal separated from UI wrapper": "AllReferencedDocuments" not in main and "Directory.GetFiles" not in main,
-    "Eligibility separated from UI wrapper": "EligibilityReason(" not in main,
-    "File mutation separated from UI wrapper": "Save2(" not in main and ".PropertySets.Item(" not in main,
-    "Explicit project root input distinct from GA folder": not re.search(r"Dim root As String\s*=\s*System\.IO\.Path\.GetDirectoryName\(active\.FullFileName\)", main),
-    "Vault ownership check beyond read-only attribute": bool(re.search(r"Vault.*(CheckOut|CheckedOut|Ownership|Owner)|CheckedOut.*Vault", s, re.I)) and not ("Vault ownership" in s and "not" in s),
-    "Independent disk readback after save": bool(re.search(r"Documents\.Open\(|PropertySets\.Open\(", s, re.I)) and bool(re.search(r"DISK_VERIFIED|disk verification", s, re.I)),
-    "Structured typed property-change record": bool(re.search(r"(Class|Structure)\s+\w*(?:PropertyChange|ChangeRecord)", s, re.I)),
-    "No tab-encoded mutation records": "changes.Add(setName & vbTab" not in s,
-    "Explicit recovery path for partial mutation": bool(re.search(r"Rollback|RestoreOriginal|RecoveryQuarantine", s, re.I)),
-    "Distinct preview / save / disk verification counts": all(x in s for x in ("previewCount", "savedCount", "diskVerifiedCount")),
+ROOT = Path(__file__).resolve().parents[2] / "scripts/ilogic/experiments"
+
+def source(name):
+    return (ROOT / ("BEEXCITED_" + name + ".iLogicVb")).read_text(encoding="utf-8")
+
+wrapper = source("PROPERTY_REFRESH_TEST_01_v0_1_0")
+pure = source("PropertyRefreshPure")
+discovery = source("PropertyRefreshDiscovery")
+eligibility = source("PropertyRefreshEligibility")
+roots = source("PropertyRefreshRoots")
+audit = source("PropertyRefreshAudit")
+readback = source("PropertyRefreshReadback")
+all_source = "\n".join((wrapper, pure, discovery, eligibility, roots, audit, readback))
+
+def has(pattern, text):
+    return re.search(pattern, text, re.I | re.S) is not None
+
+checks = {
+    "Shared discovery invoked by standalone wrapper":
+        "BEEXCITED_PropertyRefreshDiscovery.DiscoverAssemblyModels(" in wrapper
+        and "BEEXCITED_PropertyRefreshDiscovery.DiscoverDrawingFolder(" in wrapper,
+    "Shared pure property planner invoked by wrapper":
+        "BEEXCITED_PropertyRefreshPure." in wrapper
+        and "Class PropertyChange" in pure,
+    "Shared protected-root classification invoked":
+        "BEEXCITED_PropertyRefreshRoots.ClassifyPreviewRoot(" in eligibility
+        and "If protectedList.Count = 0 Then" in eligibility,
+    "Shared per-file audit invoked":
+        "BEEXCITED_PropertyRefreshAudit.AppendRecord(" in wrapper
+        and "entry.FilePath = If(String.IsNullOrWhiteSpace(filePath)" in wrapper,
+    "Wrapper keeps APPLY fail-closed":
+        "APPLY BLOCKED" in wrapper and "If apply Then" in wrapper
+        and not has(r"\bSave2\s*\(|\bSaveAs\s*\(|\bCheckOut\s*\(", wrapper)
+        and not has(r"\.Value\s*=", wrapper),
+    "No arbitrary drawing revision reset":
+        not has(r"QueuePlannedChange\([^\n]*(?:REVISION|1st REV|Revision Number)", wrapper),
+    "Shared core is independent of Copy Design":
+        not has(r"CopyDesign|ComponentOccurrence\.Replace\(", pure + discovery + eligibility + roots + audit + readback),
+    # The remaining gates are intentionally strict and currently expected to BLOCK.
+    # Do not satisfy these with comments, stubs, or token-only claims.
+    "Authoritative Vault checkout ownership implementation":
+        has(r"Function\s+VerifyVaultOwnership\s*\(", all_source)
+        and has(r"VerifyVaultOwnership\s*\(", wrapper)
+        and not has(r"Function\s+VerifyVaultOwnership[^\n]*\n\s*Return\s+True", all_source),
+    "Independent persisted disk readback implementation":
+        has(r"Function\s+VerifyPersisted(?:File|Property)\s*\(", all_source)
+        and has(r"VerifyPersisted(?:File|Property)\s*\(", wrapper)
+        and not has(r"does not verify persisted disk state", readback),
+    "Approved drawing property mapping implemented":
+        has(r"Function\s+VerifyDrawingPropertyMapping\s*\(", all_source)
+        and has(r"VerifyDrawingPropertyMapping\s*\(", wrapper)
+        and not has(r"UNVERIFIED drawing/title-block mapping", wrapper),
+    "Per-file recovery implementation":
+        has(r"Function\s+(?:RollbackPropertyChanges|RecoverPartialWrite)\s*\(", all_source)
+        and has(r"(?:RollbackPropertyChanges|RecoverPartialWrite)\s*\(", wrapper),
+    "Distinct preview, saved and disk-verified outcomes":
+        all(has(r"\b" + name + r"\b", all_source)
+            for name in ("previewCount", "savedCount", "diskVerifiedCount")),
+    "Bounded external Inventor COM watchdog with recovery":
+        has(r"Function\s+RunWithExternalWatchdog\s*\(", all_source)
+        and has(r"RunWithExternalWatchdog\s*\(", wrapper),
 }
-failed = []
-for name, passed in tests.items():
+for name, passed in checks.items():
     print(("PASS" if passed else "BLOCK") + ": " + name)
-    if not passed:
-        failed.append(name)
-print(f"Qualification gate: {len(tests)-len(failed)}/{len(tests)} source assertions satisfied")
-if failed:
-    print("NOT QUALIFIED. This is an expected result for v0.1.0; do not enable APPLY on production files.")
-    sys.exit(1)
-print("Source assertions pass. Inventor compilation, Vault integration and runtime tests STILL REQUIRED.")
+count = sum(checks.values())
+print(f"Source qualification: {count}/{len(checks)} assertions satisfied")
+print("Source assertions do not establish VB compilation, Inventor/Vault compatibility, "
+      "disk persistence, or safe APPLY. Host validation and human authorization required.")
+if count != len(checks):
+    print("NOT QUALIFIED: keep APPLY blocked; do not modify source/production files.")
+sys.exit(0 if count == len(checks) else 1)
