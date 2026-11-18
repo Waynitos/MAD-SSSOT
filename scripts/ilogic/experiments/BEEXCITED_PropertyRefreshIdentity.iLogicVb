@@ -7,7 +7,7 @@ Imports System.Collections.Generic
 Imports System.IO
 
 Public Module BEEXCITED_PropertyRefreshIdentity
-    Public Const IdentityVersion As String = "0.1.0"
+    Public Const IdentityVersion As String = "0.1.1"
     Public Enum IdentityReason
         DenyMissingEvidence
         DenyInvalidIdentity
@@ -62,6 +62,14 @@ Public Module BEEXCITED_PropertyRefreshIdentity
         Dim source As String = NormalizedAbsolute(evidence.ResolvedSourceRoot)
         Dim target As String = NormalizedAbsolute(evidence.ResolvedTargetRoot)
         If original Is Nothing OrElse candidate Is Nothing OrElse source Is Nothing OrElse target Is Nothing Then Return IdentityReason.DenyInvalidIdentity
+        ' Reject overlapping source/target roots: a target inside source would mutate source.
+        If IsUnder(target, source) OrElse IsUnder(source, target) Then Return IdentityReason.DenyInvalidIdentity
+        ' Reject protected-root overlap before considering an individual file.
+        For Each rawRoot As String In evidence.ResolvedProtectedRoots
+            Dim checkedRoot As String = NormalizedAbsolute(rawRoot)
+            If checkedRoot Is Nothing Then Return IdentityReason.DenyInvalidIdentity
+            If IsUnder(target, checkedRoot) OrElse IsUnder(checkedRoot, target) Then Return IdentityReason.DenyProtectedRoot
+        Next
         If String.IsNullOrWhiteSpace(evidence.StableFileId) OrElse String.IsNullOrWhiteSpace(evidence.RecheckedFileId) Then Return IdentityReason.DenyMissingEvidence
         If Not String.Equals(evidence.StableFileId, evidence.RecheckedFileId, StringComparison.Ordinal) Then Return IdentityReason.DenyChangedIdentity
         If IsUnder(candidate, source) Then Return IdentityReason.DenySourceRoot
