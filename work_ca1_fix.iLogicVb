@@ -1992,6 +1992,89 @@ Sub Main()
                 End Try
             End If
 
+            ' ── FrameDoc special path (Frame Generator .iam) ────────────────────
+            ' SaveAs on a FrameDoc triggers Inventor's live FG validation engine
+            ' before all members have resolved in the new location → E_FAIL (0x80004005).
+            ' Fix: disk-copy the .iam, open the copy invisibly, repoint each
+            ' ReferencedFileDescriptor to its already-mapped counterpart, save and close.
+            ' This bypasses the FG engine entirely.  Provenance is not written here
+            ' (the copy has no clean GUID path); oCreatedThisRun records it so Phase 3
+            ' deferred-provenance logic can pick it up if needed.
+            Dim bIsFrameDoc2 As Boolean = False
+            Try : bIsFrameDoc2 = oDoc2.DocumentInterests.HasInterest("FrameDoc") : Catch : End Try
+
+            If bIsFrameDoc2 Then
+                Try : System.IO.File.AppendAllText(sLogPath, _
+                    "FG-IAM: " & sOldName2 & " — disk-copy + ReplaceReference path" & vbCrLf) : Catch : End Try
+
+                Dim bFgCopyOk As Boolean = False
+                Try
+                    System.IO.File.Copy(sOldFull2, sNewFull2, True)
+                    Try
+                        Dim cFgAttr As System.IO.FileAttributes = System.IO.File.GetAttributes(sNewFull2)
+                        If (cFgAttr And System.IO.FileAttributes.ReadOnly) = System.IO.FileAttributes.ReadOnly Then
+                            System.IO.File.SetAttributes(sNewFull2, cFgAttr And Not System.IO.FileAttributes.ReadOnly)
+                        End If
+                    Catch : End Try
+                    Try : System.IO.File.AppendAllText(sLogPath, _
+                        "  FG-COPIED: " & sOldName2 & "  ->  " & sNewName2 & vbCrLf) : Catch : End Try
+                    bFgCopyOk = True
+                Catch exFgCopy2 As Exception
+                    iSaveFailed += 1
+                    Try : System.IO.File.AppendAllText(sLogPath, _
+                        "  FG-COPY-FAIL: " & sOldName2 & " — " & exFgCopy2.Message & vbCrLf) : Catch : End Try
+                End Try
+
+                If bFgCopyOk Then
+                    Dim oFgCopyDoc2 As Document = Nothing
+                    Try
+                        ThisApplication.SilentOperation = True
+                        oFgCopyDoc2 = ThisApplication.Documents.Open(sNewFull2, False)
+                        If oFgCopyDoc2 IsNot Nothing Then
+                            For Each rfd2 As ReferencedFileDescriptor In oFgCopyDoc2.ReferencedFiles
+                                Dim sRefPath2 As String = ""
+                                Try : sRefPath2 = rfd2.FullFileName : Catch : End Try
+                                If String.IsNullOrEmpty(sRefPath2) Then Continue For
+                                Dim sMappedRef2 As String = ""
+                                If oActualMap.ContainsKey(sRefPath2) Then
+                                    sMappedRef2 = oActualMap(sRefPath2)
+                                ElseIf oRenameMap.ContainsKey(sRefPath2) Then
+                                    sMappedRef2 = oRenameMap(sRefPath2)
+                                End If
+                                If Not String.IsNullOrEmpty(sMappedRef2) Then
+                                    Try
+                                        rfd2.ReplaceReference(sMappedRef2)
+                                        Try : System.IO.File.AppendAllText(sLogPath, _
+                                            "  FG-REREF: " & System.IO.Path.GetFileName(sRefPath2) & _
+                                            "  ->  " & System.IO.Path.GetFileName(sMappedRef2) & vbCrLf) : Catch : End Try
+                                    Catch exRef2 As Exception
+                                        Try : System.IO.File.AppendAllText(sLogPath, _
+                                            "  FG-REREF-FAIL: " & System.IO.Path.GetFileName(sRefPath2) & _
+                                            " — " & exRef2.Message & vbCrLf) : Catch : End Try
+                                    End Try
+                                End If
+                            Next
+                            oFgCopyDoc2.Save()
+                            Try : System.IO.File.AppendAllText(sLogPath, _
+                                "  FG-SAVE: " & sNewName2 & vbCrLf) : Catch : End Try
+                        End If
+                    Catch exFgOpen2 As Exception
+                        Try : System.IO.File.AppendAllText(sLogPath, _
+                            "  FG-OPEN-FAIL: " & sNewName2 & " — " & exFgOpen2.Message & vbCrLf) : Catch : End Try
+                    Finally
+                        Try : If oFgCopyDoc2 IsNot Nothing Then oFgCopyDoc2.Close(True) : Catch : End Try
+                    End Try
+                    oActualMap(sOldFull2) = sNewFull2
+                    oCreatedThisRun.Add(sNewFull2)
+                    iSaved += 1
+                End If
+
+                If bOpenedHere2 AndAlso oDoc2 IsNot Nothing Then
+                    Try : oDoc2.Close(True) : Catch : End Try
+                End If
+                Continue For
+            End If
+
             ' ── Capture GUID BEFORE SaveAs ───────────────────────────────────
             Dim sOldGUID2 As String = ""
             Try : sOldGUID2 = oDoc2.InternalName : Catch : End Try
