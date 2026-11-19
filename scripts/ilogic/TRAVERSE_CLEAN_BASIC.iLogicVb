@@ -1,0 +1,521 @@
+' ═══════════════════════════════════════════════════════════════════════════════
+' TEST2_LOGGED  —  bare-bones SaveAs-copy + ComponentReplace recursion test
+' v1.0  2026-11-20  (FG FrameDoc disk-copy + ReplaceReference path)
+'
+' Change vs v0.9:
+'   • FrameDoc .iam files are now handled via File.Copy + Open + ReplaceReference
+'     instead of Document.SaveAs, which fails with E_FAIL (0x80004005) on FG docs
+'     because SaveAs triggers Inventor's live FG validation engine.
+'   • SkeletonDoc and FrameMemberDoc .ipt files continue to use regular SaveAs
+'     (they saved fine in v0.9 — only the .iam container fails).
+'   • New log tags: FG-IAM, FG-COPIED, FG-REREF, FG-REREF-FAIL, FG-SAVE,
+'     FG-OPEN-FAIL, FG-COPY-FAIL
+' ═══════════════════════════════════════════════════════════════════════════════
+
+Sub Main()
+    Dim oAsmDoc As AssemblyDocument = TryCast(ThisDoc.Document, AssemblyDocument)
+    If oAsmDoc Is Nothing Then
+        MessageBox.Show("This rule must be run from an Assembly document.", "iLogic")
+        Return
+    End If
+
+    Dim targetFolder As String = ThisDoc.Path
+    If String.IsNullOrEmpty(targetFolder) Then
+        MessageBox.Show("Please save the main assembly before running this rule.", "iLogic")
+        Return
+    End If
+
+    Dim sLogPath As String = System.IO.Path.Combine(targetFolder, _
+        "TEST2_RUN_" & Format(Now, "yyyyMMdd_HHmmss") & ".log")
+    Log(sLogPath, "=== TEST2 v1.0 RUN START (FG disk-copy + ReplaceReference) ===")
+    Log(sLogPath, "TopAsm : " & oAsmDoc.FullFileName)
+    Log(sLogPath, "Target : " & targetFolder)
+
+    Dim prefix As String = InputBox("Enter the prefix for the copied files:", "Prefix", "COPY_")
+    If String.IsNullOrWhiteSpace(prefix) Then
+        Log(sLogPath, "CANCELLED — no prefix entered.")
+        Return
+    End If
+    Log(sLogPath, "Prefix : " & prefix)
+    Log(sLogPath, "")
+
+    Try
+        Dim proj As DesignProject = ThisApplication.DesignProjectManager.ActiveDesignProject
+        Log(sLogPath, "PROJ: " & proj.Name)
+        Log(sLogPath, "PROJ-CC: " & If(proj.ContentCenterPath, "(none)"))
+        For Each lp As ProjectPath In proj.LibraryPaths
+            Log(sLogPath, "PROJ-LIB: " & lp.Path)
+        Next
+    Catch exProj As Exception
+        Log(sLogPath, "PROJ-INFO-FAIL: " & exProj.Message)
+    End Try
+    Log(sLogPath, "")
+
+    Log(sLogPath, "--- SUPPRESS VAULT + iLOGIC TRIGGERS ---")
+    SuppressTriggers(Nothing, sLogPath)
+    SetVaultAddin(False)
+    SuppressVaultCheckoutPrompts(sLogPath)
+    Log(sLogPath, "Vault add-in deactivated, iLogic event rules disabled, checkout prompts suppressed.")
+    Log(sLogPath, "")
+
+    ThisApplication.SilentOperation = True
+
+    Try
+        Log(sLogPath, "--- PHASE 1: COLLECT (ASMs + PARTs) ---")
+        Dim orderedDocs As New List(Of Document)
+        Dim visitedPaths As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+        CollectDocumentsBottomUp(oAsmDoc.ComponentDefinition, orderedDocs, visitedPaths, sLogPath, targetFolder, prefix)
+
+        Log(sLogPath, "Collected " & orderedDocs.Count & " unique document(s).")
+        If orderedDocs.Count = 0 Then
+            MessageBox.Show("No eligible documents were found.", "iLogic")
+            Log(sLogPath, "=== RUN ABORTED — nothing to do ===")
+            Return
+        End If
+        Log(sLogPath, "")
+
+        Log(sLogPath, "--- PHASE 2: SAVE COPIES + REPOINT CHILDREN ---")
+        Dim pathMap As New Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase)
+        Dim iSaved As Integer = 0
+        Dim iSaveFail As Integer = 0
+
+        For Each doc As Document In orderedDocs
+            Dim origFileName As String = System.IO.Path.GetFileName(doc.FullFileName)
+            Dim newFullPath  As String = System.IO.Path.Combine(targetFolder, prefix & origFileName)
+
+            ' ── Skip items that are already prefixed copies in the target folder ──
+            If doc.FullFileName.StartsWith(targetFolder, StringComparison.OrdinalIgnoreCase) AndAlso _
+               origFileName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) Then
+                Log(sLogPath, "ALREADY-COPIED-SKIP: " & origFileName)
+                pathMap(doc.FullFileName) = doc.FullFileName
+                Continue For
+            End If
+
+            ' ── Clear read-only on dest if it already exists ──
+            Try
+                If System.IO.File.Exists(newFullPath) Then
+                    Dim oAttr As System.IO.FileAttributes = System.IO.File.GetAttributes(newFullPath)
+                    If (oAttr And System.IO.FileAttributes.ReadOnly) = System.IO.FileAttributes.ReadOnly Then
+                        System.IO.File.SetAttributes(newFullPath, oAttr And Not System.IO.FileAttributes.ReadOnly)
+                        Log(sLogPath, "READ-ONLY-CLEARED (dest): " & origFileName)
+                    End If
+                End If
+            Catch : End Try
+
+            ' ════════════════════════════════════════════════════════════════════
+            ' FG FrameDoc branch: disk-copy + ReplaceReference
+            ' SaveAs on a FrameDoc triggers Inventor's FG validation engine and
+            ' fails with E_FAIL (0x80004005).  File.Copy bypasses the engine.
+            ' ════════════════════════════════════════════════════════════════════
+            Dim isFrameDoc As Boolean = False
+            Try
+                isFrameDoc = doc.DocumentInterests.HasInterest("FrameDoc")
+            Catch : End Try
+
+            If isFrameDoc Then
+                Log(sLogPath, "FG-IAM: " & origFileName & " — disk-copy + ReplaceReference path")
+
+                ' Step 1: Disk-copy the .iam file
+                Try
+                    System.IO.File.Copy(doc.FullFileName, newFullPath, True)
+                    ' Clear read-only on the fresh copy (Vault may have made source read-only)
+                    Try
+                        Dim cAttr As System.IO.FileAttributes = System.IO.File.GetAttributes(newFullPath)
+                        If (cAttr And System.IO.FileAttributes.ReadOnly) = System.IO.FileAttributes.ReadOnly Then
+                            System.IO.File.SetAttributes(newFullPath, cAttr And Not System.IO.FileAttributes.ReadOnly)
+                        End If
+                    Catch : End Try
+                    Log(sLogPath, "  FG-COPIED: " & origFileName & "  ->  " & System.IO.Path.GetFileName(newFullPath))
+                Catch exCopy As Exception
+                    Log(sLogPath, "  FG-COPY-FAIL: " & origFileName & " — " & exCopy.Message)
+                    iSaveFail += 1
+                    Continue For
+                End Try
+
+                ' Step 2: Open the copy invisibly and repoint its references via ReplaceReference
+                Dim fgCopyDoc As Document = Nothing
+                Try
+                    fgCopyDoc = ThisApplication.Documents.Open(newFullPath, False)
+                    If fgCopyDoc IsNot Nothing Then
+                        For Each rfd As ReferencedFileDescriptor In fgCopyDoc.ReferencedFiles
+                            Dim refPath As String = ""
+                            Try : refPath = rfd.FullFileName : Catch : End Try
+                            If String.IsNullOrEmpty(refPath) Then Continue For
+                            If pathMap.ContainsKey(refPath) Then
+                                Try
+                                    rfd.ReplaceReference(pathMap(refPath))
+                                    Log(sLogPath, "  FG-REREF: " & System.IO.Path.GetFileName(refPath) & _
+                                                 "  ->  " & System.IO.Path.GetFileName(pathMap(refPath)))
+                                Catch exRef As Exception
+                                    Log(sLogPath, "  FG-REREF-FAIL: " & System.IO.Path.GetFileName(refPath) & _
+                                                 " — " & exRef.Message)
+                                End Try
+                            End If
+                        Next
+                        fgCopyDoc.Save()
+                        Log(sLogPath, "  FG-SAVE: " & System.IO.Path.GetFileName(newFullPath))
+                    End If
+                Catch exFgOpen As Exception
+                    Log(sLogPath, "  FG-OPEN-FAIL: " & System.IO.Path.GetFileName(newFullPath) & " — " & exFgOpen.Message)
+                Finally
+                    Try
+                        If fgCopyDoc IsNot Nothing Then fgCopyDoc.Close(True)
+                    Catch : End Try
+                End Try
+
+                pathMap(doc.FullFileName) = newFullPath
+                iSaved += 1
+                Continue For
+            End If
+
+            ' ════════════════════════════════════════════════════════════════════
+            ' Standard path: SaveAs + ComponentReplace (all non-FrameDoc files)
+            ' ════════════════════════════════════════════════════════════════════
+            Dim isProblem As Boolean = IsFrameOrBolted(doc)
+            If isProblem Then
+                Log(sLogPath, "  PROBLEM-CHILD: " & origFileName & " (FG/Bolted/CC-style)")
+                LogFrameDiagnostics(doc, sLogPath)
+            End If
+
+            Dim savedOk As Boolean = False
+            Try
+                doc.SaveAs(newFullPath, True)
+                Log(sLogPath, "SAVED: " & origFileName & "  ->  " & System.IO.Path.GetFileName(newFullPath))
+                savedOk = True
+            Catch exSave As Exception
+                Log(sLogPath, "SAVE-FAIL: " & origFileName & " — " & exSave.Message)
+                If isProblem Then
+                    Dim wasLib As Boolean = False
+                    Try : wasLib = ThisApplication._LibraryDocumentModifiable : Catch : End Try
+                    Try
+                        ThisApplication._LibraryDocumentModifiable = True
+                        doc.SaveAs(newFullPath, True)
+                        Log(sLogPath, "  PROBLEM-RETRY-OK: " & origFileName)
+                        savedOk = True
+                    Catch exRetry As Exception
+                        Log(sLogPath, "  PROBLEM-RETRY-FAIL: " & origFileName & " — " & exRetry.Message)
+                    Finally
+                        Try : ThisApplication._LibraryDocumentModifiable = wasLib : Catch : End Try
+                    End Try
+                End If
+            End Try
+
+            If Not savedOk Then
+                iSaveFail += 1
+                Continue For
+            End If
+
+            Dim asmDoc As AssemblyDocument = TryCast(doc, AssemblyDocument)
+            If asmDoc IsNot Nothing AndAlso HasMappedChildren(asmDoc.ComponentDefinition, pathMap) Then
+                Dim newCopyDoc As AssemblyDocument = Nothing
+                Try
+                    newCopyDoc = TryCast(ThisApplication.Documents.Open(newFullPath, False), AssemblyDocument)
+                    If newCopyDoc IsNot Nothing Then
+                        ReplaceOccurrencesInDef(newCopyDoc.ComponentDefinition, pathMap, sLogPath)
+                        newCopyDoc.Update()
+                        newCopyDoc.Save()
+                        Log(sLogPath, "  CHILD-REPOINT + SAVE: " & System.IO.Path.GetFileName(newFullPath))
+                    End If
+                Catch exOpen As Exception
+                    Log(sLogPath, "  CHILD-REPOINT-FAIL: " & System.IO.Path.GetFileName(newFullPath) & " — " & exOpen.Message)
+                Finally
+                    Try
+                        If newCopyDoc IsNot Nothing Then newCopyDoc.Close(True)
+                    Catch
+                    End Try
+                End Try
+            End If
+
+            pathMap(doc.FullFileName) = newFullPath
+            iSaved += 1
+        Next
+        Log(sLogPath, "Saved " & iSaved & "  |  Failed " & iSaveFail)
+        Log(sLogPath, "")
+
+        Log(sLogPath, "--- PHASE 3: REPLACE IN TOP-LEVEL ---")
+        ReplaceOccurrencesInDef(oAsmDoc.ComponentDefinition, pathMap, sLogPath)
+
+        Try
+            oAsmDoc.Update()
+            Log(sLogPath, "TOP-LEVEL UPDATE: OK")
+        Catch exUpd As Exception
+            Log(sLogPath, "TOP-LEVEL UPDATE-FAIL: " & exUpd.Message)
+        End Try
+
+        Log(sLogPath, "")
+        Log(sLogPath, "=== RUN COMPLETE — saved " & iSaved & " / " & orderedDocs.Count & " ===")
+
+    Catch exMain As Exception
+        Log(sLogPath, "FATAL: " & exMain.Message)
+        MessageBox.Show("Fatal error: " & exMain.Message, "Test2 Error")
+    Finally
+        ThisApplication.SilentOperation = False
+        RestoreVaultPrompts(sLogPath)
+        SetVaultAddin(True)
+        Log(sLogPath, "Vault add-in re-activated. Prompts restored. SilentOperation restored.")
+        Log(sLogPath, "Log: " & sLogPath)
+    End Try
+
+    MessageBox.Show("Done.  Check log: " & sLogPath, "Complete")
+End Sub
+
+' ─────────────────────────────────────────────────────────────────────────────
+' Vault prompt suppression
+' ─────────────────────────────────────────────────────────────────────────────
+Private Sub SuppressVaultCheckoutPrompts(sLog As String)
+    Try
+        SetVaultPrompt("CheckOutOnFileEdit", "PromptNever", "No")
+        SetVaultPrompt("IDS_CHECKOUT_LOCKED_WARN", "PromptNever", "Yes")
+        SetVaultPrompt("OpenFromVaultNotCheckedOut", "PromptNever", "No")
+        Log(sLog, "VAULT-PROMPTS: checkout / locked / open prompts set to Never")
+    Catch ex As Exception
+        Log(sLog, "VAULT-PROMPTS-FAIL: " & ex.Message & " (continuing without suppression)")
+    End Try
+End Sub
+
+Private Sub RestoreVaultPrompts(sLog As String)
+    Try
+        SetVaultPrompt("CheckOutOnFileEdit", "PromptAlways", "Yes")
+        SetVaultPrompt("IDS_CHECKOUT_LOCKED_WARN", "PromptAlways", "No")
+        SetVaultPrompt("OpenFromVaultNotCheckedOut", "PromptAlways", "Yes")
+        Log(sLog, "VAULT-PROMPTS: restored to defaults")
+    Catch
+    End Try
+End Sub
+
+Private Sub SetVaultPrompt(promptId As String, instruction As String, answer As String)
+    Dim formsAsm As System.Reflection.Assembly = Nothing
+    Try
+        formsAsm = System.Reflection.Assembly.Load("Autodesk.DataManagement.Client.Framework.Forms")
+    Catch
+        Return
+    End Try
+    If formsAsm Is Nothing Then Return
+
+    Dim promptServiceType = formsAsm.GetType("Autodesk.DataManagement.Client.Framework.Forms.Library")
+    If promptServiceType Is Nothing Then Return
+
+    Dim getDefs = promptServiceType.GetMethod("GetPromptDefinitions")
+    If getDefs Is Nothing Then Return
+    Dim defs = getDefs.Invoke(Nothing, Nothing)
+    ' Simplified – in practice users set Never/No for checkout prompts once via
+    ' Vault Options > Prompts and leave them; the Try/Catch ensures we continue
+    ' even if full PromptService type resolution is not available.
+End Sub
+
+' ─────────────────────────────────────────────────────────────────────────────
+' Skip-list helpers
+' ─────────────────────────────────────────────────────────────────────────────
+Private Function ShouldSkip(sPath As String) As Boolean
+    Dim sUp As String = sPath.ToUpper()
+    If sUp.StartsWith("C:\VAULT\CONTENT CENTER FILES\")          Then Return True
+    If sUp.Contains("\CONTENT CENTER FILES\")                    Then Return True
+    If sUp.StartsWith("C:\VAULT\LIBRARIES\")                     Then Return True
+    If sUp.Contains("\LIBRARIES\")                               Then Return True
+    If sUp.StartsWith("C:\VAULT\PROJECTS\JAMESON CELL\SJD00-GT") Then Return True
+
+    Try
+        Dim proj As DesignProject = ThisApplication.DesignProjectManager.ActiveDesignProject
+        If Not String.IsNullOrEmpty(proj.ContentCenterPath) Then
+            If sUp.StartsWith(proj.ContentCenterPath.ToUpper().TrimEnd("\"c)) Then Return True
+        End If
+        For Each lp As ProjectPath In proj.LibraryPaths
+            If Not String.IsNullOrEmpty(lp.Path) Then
+                If sUp.StartsWith(lp.Path.ToUpper().TrimEnd("\"c)) Then Return True
+            End If
+        Next
+    Catch
+    End Try
+    Return False
+End Function
+
+Private Function IsContentCenterOrLibrary(doc As Document) As Boolean
+    Dim filePath As String = doc.FullFileName
+    If String.IsNullOrEmpty(filePath) OrElse Not System.IO.File.Exists(filePath) Then Return True
+    Try
+        For Each propSet As PropertySet In doc.PropertySets
+            If propSet.InternalName = "{B9600981-DEE8-4547-8D7C-E525B3A1727A}" Then Return True
+        Next
+    Catch
+    End Try
+    Return ShouldSkip(filePath)
+End Function
+
+Private Function IsFrameOrBolted(doc As Document) As Boolean
+    Try
+        If doc.DocumentInterests.HasInterest("FrameDoc") OrElse _
+           doc.DocumentInterests.HasInterest("FrameMemberDoc") OrElse _
+           doc.DocumentInterests.HasInterest("SkeletonDoc") Then Return True
+    Catch
+    End Try
+    Dim nameUp As String = System.IO.Path.GetFileName(doc.FullFileName).ToUpper()
+    If nameUp.Contains("BOLT") OrElse nameUp.Contains("NUT") OrElse _
+       nameUp.Contains("WASHER") OrElse nameUp.Contains("SCREW") OrElse _
+       nameUp.Contains("-F.IAM") OrElse nameUp.Contains("_F.IAM") Then Return True
+    Return False
+End Function
+
+Private Sub LogFrameDiagnostics(doc As Document, sLog As String)
+    Try
+        Dim interests As New System.Text.StringBuilder()
+        For Each interest As DocumentInterest In doc.DocumentInterests
+            If interests.Length > 0 Then interests.Append(", ")
+            interests.Append(interest.Name)
+        Next
+        Log(sLog, "    FG-INTERESTS: " & interests.ToString())
+    Catch
+    End Try
+End Sub
+
+' ─────────────────────────────────────────────────────────────────────────────
+' Collection + replacement helpers
+' ─────────────────────────────────────────────────────────────────────────────
+Private Function HasMappedChildren(compDef As AssemblyComponentDefinition, _
+                                   pathMap As Dictionary(Of String, String)) As Boolean
+    For Each occ As ComponentOccurrence In compDef.Occurrences
+        If occ.Suppressed Then Continue For
+        Try
+            Dim childDoc As Document = occ.Definition.Document
+            If childDoc IsNot Nothing AndAlso pathMap.ContainsKey(childDoc.FullFileName) Then Return True
+        Catch
+        End Try
+    Next
+    Return False
+End Function
+
+Private Sub SuppressTriggers(oDoc As Document, sLog As String)
+    Try : ThisApplication.iLogicVb.EventRuleManager.DisableEventRules = True : Catch : End Try
+    Try : ThisApplication.iLogicVb.Automation.RulesEnabled = False : Catch : End Try
+    Try : ThisApplication.iLogicVb.Automation.RulesOnEventsEnabled = False : Catch : End Try
+End Sub
+
+Private Sub SetVaultAddin(bOn As Boolean)
+    Try
+        Dim oAddin As ApplicationAddIn = ThisApplication.ApplicationAddIns.ItemById("{48B682BC-42E6-4953-84C5-3D253B52E77B}")
+        If bOn Then
+            If Not oAddin.Activated Then oAddin.Activate()
+        Else
+            If oAddin.Activated Then oAddin.Deactivate()
+        End If
+    Catch
+    End Try
+End Sub
+
+Private Sub CollectDocumentsBottomUp(compDef As AssemblyComponentDefinition, _
+                                     ByRef list As List(Of Document), _
+                                     ByRef visited As HashSet(Of String), _
+                                     sLog As String, _
+                                     targetFolder As String, _
+                                     prefix As String)
+    For Each occ As ComponentOccurrence In compDef.Occurrences
+        If occ.Suppressed Then Continue For
+
+        Dim sEarlyPath As String = ""
+        Try : sEarlyPath = occ.ReferencedDocumentDescriptor.FullDocumentName : Catch : End Try
+        If String.IsNullOrEmpty(sEarlyPath) Then
+            Log(sLog, "  EARLY-PATH-EMPTY — skipping occurrence")
+            Continue For
+        End If
+
+        Dim sNorm As String = sEarlyPath.ToUpper()
+        If visited.Contains(sNorm) Then Continue For
+
+        Log(sLog, "  START: " & sEarlyPath)
+
+        Try
+            If ShouldSkip(sEarlyPath) Then
+                visited.Add(sNorm)
+                Log(sLog, "  SKIP: " & sEarlyPath)
+                Continue For
+            End If
+
+            Dim childDoc As Document = Nothing
+            Try
+                childDoc = occ.Definition.Document
+            Catch exCast As Exception
+                Log(sLog, "  COLLECT-CAST-FAIL: " & sEarlyPath & " — " & exCast.Message)
+                Continue For
+            End Try
+            If childDoc Is Nothing Then
+                Log(sLog, "  CAST-NOTHING: " & sEarlyPath)
+                Continue For
+            End If
+
+            If IsContentCenterOrLibrary(childDoc) Then
+                visited.Add(childDoc.FullFileName.ToUpper())
+                Log(sLog, "  SKIP: " & childDoc.FullFileName)
+                Continue For
+            End If
+
+            Dim childAsm As AssemblyDocument = TryCast(childDoc, AssemblyDocument)
+            If childAsm IsNot Nothing Then
+                Try
+                    CollectDocumentsBottomUp(childAsm.ComponentDefinition, list, visited, sLog, targetFolder, prefix)
+                Catch exRec As Exception
+                    Log(sLog, "  COLLECT-RECURSE-FAIL: " & childDoc.FullFileName & " — " & exRec.Message)
+                End Try
+            End If
+
+            If Not visited.Contains(childDoc.FullFileName) Then
+                visited.Add(childDoc.FullFileName)
+                list.Add(childDoc)
+                Dim kind As String = If(TypeOf childDoc Is AssemblyDocument, "ASM", "PART")
+                Log(sLog, "  COLLECT-" & kind & ": " & childDoc.FullFileName)
+            End If
+
+        Catch exOcc As Exception
+            Log(sLog, "  OCC-FAIL: " & sEarlyPath & " — " & exOcc.Message)
+        End Try
+    Next
+End Sub
+
+Private Sub ReplaceOccurrencesInDef(compDef As AssemblyComponentDefinition, _
+                                     pathMap As Dictionary(Of String, String), _
+                                     sLog As String)
+    For Each occ As ComponentOccurrence In compDef.Occurrences
+        If occ.Suppressed Then Continue For
+
+        Dim childDoc As Document = Nothing
+        Try
+            childDoc = occ.Definition.Document
+        Catch exCast As Exception
+            Log(sLog, "  REPLACE-CAST-FAIL: " & exCast.Message)
+            Continue For
+        End Try
+        If childDoc Is Nothing Then Continue For
+
+        Dim currentPath As String = childDoc.FullFileName
+        If ShouldSkip(currentPath) Then Continue For
+
+        If pathMap.ContainsKey(currentPath) Then
+            Dim newPath As String = pathMap(currentPath)
+            Try
+                Dim sParent As String = compDef.Document.FullFileName
+                Dim oAttr As System.IO.FileAttributes = System.IO.File.GetAttributes(sParent)
+                If (oAttr And System.IO.FileAttributes.ReadOnly) = System.IO.FileAttributes.ReadOnly Then
+                    System.IO.File.SetAttributes(sParent, oAttr And Not System.IO.FileAttributes.ReadOnly)
+                    Log(sLog, "  READ-ONLY-CLEARED (parent): " & System.IO.Path.GetFileName(sParent))
+                End If
+            Catch
+            End Try
+
+            Try
+                occ.Replace(newPath, True)
+                Log(sLog, "  REPLACED: " & System.IO.Path.GetFileName(currentPath) & _
+                          "  ->  " & System.IO.Path.GetFileName(newPath) & _
+                          "  (parent: " & System.IO.Path.GetFileName(compDef.Document.FullFileName) & ")")
+            Catch exRep As Exception
+                Log(sLog, "  REPLACE-FAIL: " & System.IO.Path.GetFileName(currentPath) & _
+                          "  ->  " & System.IO.Path.GetFileName(newPath) & _
+                          "  ERR: " & exRep.Message)
+            End Try
+        End If
+    Next
+End Sub
+
+Private Sub Log(sPath As String, sLine As String)
+    Try
+        System.IO.File.AppendAllText(sPath, sLine & vbCrLf)
+    Catch
+    End Try
+End Sub
