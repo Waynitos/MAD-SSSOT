@@ -42,3 +42,10 @@
 - 2026-11-14: Initial itinerary baseline created from passenger-supplied Etihad booking. No airline API confirmation, travel bookings or other reservations performed.
 
 - 2026-11-14: Added Aerolíneas Argentinas AR1133/AR1134 from user-supplied booking screenshot. Booking code intentionally omitted. Flight times not independently verified. Note: 8 Jan Madrid transfer involves separate airline bookings; verify baggage, check-in and ticket conditions.
+
+## Madrid two-stage luggage storage (planning; user clarification)
+- **Suit:** Leave in Madrid on 15 Dec 2026 on arrival from Sydney; collect on 23 Dec before Madrid → Buenos Aires flight. Suit must travel to Argentina. Storage provider may differ from suitcase provider; compare staffed garment-friendly options and 8-day terms.
+- **Suitcase:** User plans to collect suitcase in Belgium during European leg; bring it to Madrid and store on 23 Dec before Argentina flight; collect on 8 Jan 2027 after arrival from Buenos Aires, before Etihad departure to Australia. Compare 16-day storage and early 8 Jan collection availability.
+- **Argentina baggage:** Backpack + suit; suitcase stays in Madrid.
+- **Open:** Suit carrier dimensions/hanging requirement, exact Belgium-to-Madrid travel logistics, provider rates and holiday hours, separate-ticket terminal transfers and security conditions.
+- **Status:** PROPOSED storage only; no reservation made. User-provided routing clarified 19 Nov 2026.
