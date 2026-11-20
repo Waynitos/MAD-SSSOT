@@ -1,7 +1,22 @@
 '' =====================================================================
 '' SUPER_CLEAN_SWEEPER.iLogicVb
 '' Copy Design with full provenance architecture
-'' Version: 2.2.127-ORPHAN-CLOSE-SAFE — 2026-11-20
+'' Version: 2.2.128-FG-ALLDIRS-STRINGRULES — 2026-11-20
+''
+'' V2.2.128-FG-ALLDIRS-STRINGRULES  (Google AI audit — 2026-11-20)
+''   Bug 2 fix: oTargetByBase build changed from TopDirectoryOnly → AllDirectories
+''     so files copied into Frame_nn\ subfolders are visible during Phase 3/4 lookups.
+''     Without this fix, Phase 3 could not resolve FG skeleton/member refs and left
+''     Vault asking "which file do you want to use?" for every FG occurrence.
+''   Bug 4 fix: ProcessFrameGeneratorGroup now accepts Optional oStringRules and
+''     applies ApplyStringRules(computed, oStringRules) after ComputeNewName so that
+''     FG skeleton/member copies get correct project-substitution names (e.g. -343- →
+''     -3430-) rather than prefix-only names.  Call site in deferred FG loop updated.
+''   Bugs 1 & 3: assessed as already resolved in v2.2.126 by ApprenticeServer rewrite:
+''     • Bug 1 (SilentOperation reset): ProcessFrameGeneratorGroup never touches
+''       SilentOperation; F1 outer-Finally restores bOrigSilent after FG deferred loop.
+''     • Bug 3 (member .ipt relink): ApprenticeServer loop already iterates every
+''       fgMap entry (inc. .ipt) and calls ReplaceReference + ExecuteSave atomically.
 ''
 '' V2.2.127-ORPHAN-CLOSE-SAFE
 ''   - ORPHAN-PART-START log line added before each .ipt in the orphan provenance
@@ -2412,9 +2427,11 @@ Sub Main()
                     bFrameOpened = True
                 End If
                 If oFrameDoc IsNot Nothing AndAlso IsFrameDoc(oFrameDoc) Then
+                    ' v2.2.128 Bug 4: pass oStringRules so FG skeleton/members get project
+                    ' substitution renames (e.g. -343- → -3430-) not just prefix swaps.
                     Dim bFgOk As Boolean = ProcessFrameGeneratorGroup(oFrameDoc, sTargetFolder, _
                         sOldProjectRoot, sNewPrefix, _
-                        oRenameMap, oActualMap, sLogPath, oCreatedThisRun)
+                        oRenameMap, oActualMap, sLogPath, oCreatedThisRun, oStringRules)
                     If bFgOk Then
                         Try : System.IO.File.AppendAllText(sLogPath, "FG-DEFERRED-OK: " & System.IO.Path.GetFileName(sFramePath) & vbCrLf) : Catch : End Try
                     Else
@@ -2452,13 +2469,14 @@ Sub Main()
     Dim oTargetByBase As New System.Collections.Generic.Dictionary(Of String, String)( _
         StringComparer.OrdinalIgnoreCase)
     Try  ' FIX F: *.iam + *.ipt only — avoids indexing PDFs/DWGs/logs on large targets
+         ' v2.2.128 Bug 2 fix: AllDirectories so Frame_nn\ subfolder copies are visible
         For Each sTF As String In System.IO.Directory.GetFiles(sTargetFolder, "*.iam", _
-                System.IO.SearchOption.TopDirectoryOnly)
+                System.IO.SearchOption.AllDirectories)
             Dim sTFBase As String = System.IO.Path.GetFileName(sTF)
             If Not oTargetByBase.ContainsKey(sTFBase) Then oTargetByBase(sTFBase) = sTF
         Next
         For Each sTF As String In System.IO.Directory.GetFiles(sTargetFolder, "*.ipt", _
-                System.IO.SearchOption.TopDirectoryOnly)
+                System.IO.SearchOption.AllDirectories)
             Dim sTFBase As String = System.IO.Path.GetFileName(sTF)
             If Not oTargetByBase.ContainsKey(sTFBase) Then oTargetByBase(sTFBase) = sTF
         Next
@@ -6341,7 +6359,13 @@ Function ProcessFrameGeneratorGroup(frameAsm As Document, _
                                     oRenameMap As System.Collections.Generic.Dictionary(Of String, String), _
                                     ByRef oActualMap As System.Collections.Generic.Dictionary(Of String, String), _
                                     sLog As String, _
-                                    ByRef oCreatedThisRun As System.Collections.Generic.HashSet(Of String)) As Boolean
+                                    ByRef oCreatedThisRun As System.Collections.Generic.HashSet(Of String), _
+                                    Optional oStringRules As System.Collections.Generic.List(Of String()) = Nothing) As Boolean
+    ' v2.2.128 Bug 4 / Google patch: added Optional oStringRules so skeleton/members
+    ' receive the same project-substitution renames as the rest of the assembly tree.
+    ' v2.2.128 Google patch: save/restore SilentOperation as safety guard.
+    Dim bPrevSilentFG As Boolean = ThisApplication.SilentOperation
+    ThisApplication.SilentOperation = True
     Try
         ' Determine a unique Frame subfolder for this group
         Static frameCounter As Integer = 0
@@ -6380,9 +6404,14 @@ Function ProcessFrameGeneratorGroup(frameAsm As Document, _
                 newName = oRenameMap(origFull)
             Else
                 ' v2.2.124: compute a proper new name (prefix + string rules) for skeleton/members
-                ' that were never walked because of the boundary stop
+                ' that were never walked because of the boundary stop.
+                ' v2.2.128 Bug 4: apply oStringRules after ComputeNewName so project
+                ' substitutions (e.g. -343- → -3430-) are honoured for FG members.
                 Dim computed As String = ComputeNewName(origFull, sOldProjectRoot, sNewPrefix, targetFolder)
                 If computed <> "" Then
+                    If oStringRules IsNot Nothing AndAlso oStringRules.Count > 0 Then
+                        computed = ApplyStringRules(computed, oStringRules)
+                    End If
                     newName = computed
                     ' Also record it so later phases can see it
                     oRenameMap(origFull) = computed
@@ -6479,15 +6508,20 @@ Function ProcessFrameGeneratorGroup(frameAsm As Document, _
         End Try
 
         ' Update main maps
+        ' v2.2.128 Google patch: oCreatedThisRun is case-insensitive HashSet — no .ToUpper() needed
         For Each kvp As System.Collections.Generic.KeyValuePair(Of String, String) In fgMap
             oActualMap(kvp.Key) = kvp.Value
-            oCreatedThisRun.Add(kvp.Value.ToUpper())
+            oCreatedThisRun.Add(kvp.Value)
         Next
 
         Return True
     Catch ex As Exception
         Try : System.IO.File.AppendAllText(sLog, "  FG-SPECIAL-FAIL: " & System.IO.Path.GetFileName(frameAsm.FullFileName) & " — " & ex.Message & vbCrLf) : Catch : End Try
         Return False
+    Finally
+        ' v2.2.128 Google patch: restore SilentOperation to whatever it was before this function.
+        ' Keeps Phase 3/4 running silently if the caller had SilentOperation = True.
+        ThisApplication.SilentOperation = bPrevSilentFG
     End Try
 End Function
 
