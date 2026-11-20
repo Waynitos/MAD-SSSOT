@@ -1,7 +1,19 @@
 '' =====================================================================
 '' SUPER_CLEAN_SWEEPER.iLogicVb
 '' Copy Design with full provenance architecture
-'' Version: 2.2.128-FG-ALLDIRS-STRINGRULES — 2026-11-20
+'' Version: 2.2.129-ORPHAN-ALREADY-OPEN — 2026-11-20
+''
+'' V2.2.129-ORPHAN-ALREADY-OPEN  (2026-11-20)
+''   Freeze fix: orphan .ipt provenance loop now checks whether the target part is
+''   already loaded in Inventor's document graph (e.g. as a sub-component of an
+''   .iam that was just ORPHAN-PROV-SET) before calling Documents.Open.
+''   Previously, calling Open on an already-loaded document triggered Vault's
+''   "Download progress" dialog on the in-memory instance, which hung indefinitely
+''   (confirmed: PJ00204-Stiffener Cap Plate - 100 PFC.ipt, v2.2.127/128 runs).
+''   Fix: scan ThisApplication.Documents first; if found, use existing instance and
+''   skip Close in Finally (never close a doc we didn't open).
+''   New log tag ORPHAN-PROV-SAVED ... (was-open) marks parts stamped via live instance.
+''   New log tag ORPHAN-PROV-SKIP-NULL guards the edge case where Open returns Nothing.
 ''
 '' V2.2.128-FG-ALLDIRS-STRINGRULES  (Google AI audit — 2026-11-20)
 ''   Bug 2 fix: oTargetByBase build changed from TopDirectoryOnly → AllDirectories
@@ -5257,16 +5269,38 @@ Sub ProcessOrphanSubTree(oOrphTopDoc As Document, _
         If System.IO.Path.GetExtension(sOrphProvNew).ToUpper() <> ".IPT" Then Continue For
         ' Log start so a freeze is always identifiable from the last line in the log.
         Try : System.IO.File.AppendAllText(sLogPath, "ORPHAN-PART-START: " & System.IO.Path.GetFileName(sOrphProvNew) & vbCrLf) : Catch : End Try
-        ' Clear ReadOnly flag before open — copied CC parts retain read-only attribute from source.
-        Try : System.IO.File.SetAttributes(sOrphProvNew, IO.FileAttributes.Normal) : Catch : End Try
+        ' v2.2.129 freeze fix: check if the .ipt is already open as a sub-doc of a loaded
+        ' assembly (e.g. a component of an .iam that was just ORPHAN-PROV-SET).
+        ' Calling Documents.Open on an already-loaded document triggers Vault's "Download
+        ' progress" dialog on the existing in-memory instance, which hangs indefinitely.
+        ' If already open: use the live instance and DO NOT close it in Finally (we didn't open it).
+        Dim bOrphWasAlreadyOpen As Boolean = False
         Dim oOrphPartProv As Document = Nothing
         Try
-            oOrphPartProv = ThisApplication.Documents.Open(sOrphProvNew, False)
+            For Each oTestDoc As Document In ThisApplication.Documents
+                If String.Equals(oTestDoc.FullFileName, sOrphProvNew, StringComparison.OrdinalIgnoreCase) Then
+                    oOrphPartProv = oTestDoc
+                    bOrphWasAlreadyOpen = True
+                    Exit For
+                End If
+            Next
+        Catch : End Try
+        If Not bOrphWasAlreadyOpen Then
+            ' Clear ReadOnly flag before open — copied CC parts retain read-only attribute from source.
+            Try : System.IO.File.SetAttributes(sOrphProvNew, IO.FileAttributes.Normal) : Catch : End Try
+        End If
+        Try
+            If Not bOrphWasAlreadyOpen Then
+                oOrphPartProv = ThisApplication.Documents.Open(sOrphProvNew, False)
+            End If
             ' Skip Content Center / library parts: Save2 will E_FAIL and dirtying then
             ' Close(True) would trigger the "save as local copy?" modal, deadlocking the thread.
             ' Belt-and-suspenders: check both GUID-based (IsStandardContentCenter) and
             ' path-based (IsLibraryPartToSkip) detection.  Provenance stamping is best-effort.
-            If IsStandardContentCenter(oOrphPartProv) OrElse IsLibraryPartToSkip(sOrphProvNew) Then
+            If oOrphPartProv Is Nothing Then
+                Try : System.IO.File.AppendAllText(sLogPath, _
+                    "ORPHAN-PROV-SKIP-NULL: " & System.IO.Path.GetFileName(sOrphProvNew) & vbCrLf) : Catch : End Try
+            ElseIf IsStandardContentCenter(oOrphPartProv) OrElse IsLibraryPartToSkip(sOrphProvNew) Then
                 Try : System.IO.File.AppendAllText(sLogPath, _
                     "ORPHAN-PROV-SKIP-CC: " & System.IO.Path.GetFileName(sOrphProvNew) & vbCrLf) : Catch : End Try
             Else
@@ -5275,14 +5309,17 @@ Sub ProcessOrphanSubTree(oOrphTopDoc As Document, _
                 SetSweeperCopyProperty(oOrphPartProv, "CS_CopyDate", Now.ToString("yyyy-MM-dd"))
                 oOrphPartProv.Save2(False)
                 Try : System.IO.File.AppendAllText(sLogPath, _
-                    "ORPHAN-PROV-SAVED: " & System.IO.Path.GetFileName(sOrphProvNew) & vbCrLf) : Catch : End Try
+                    "ORPHAN-PROV-SAVED: " & System.IO.Path.GetFileName(sOrphProvNew) & _
+                    If(bOrphWasAlreadyOpen, " (was-open)", "") & vbCrLf) : Catch : End Try
             End If
         Catch exOrphPartProv As Exception
             Try : System.IO.File.AppendAllText(sLogPath, _
                 "ORPHAN-PROV-FAIL: " & System.IO.Path.GetFileName(sOrphProvNew) & _
                 " — " & exOrphPartProv.Message & vbCrLf) : Catch : End Try
         Finally
-            If oOrphPartProv IsNot Nothing Then
+            ' Only close if WE opened it — never close a doc that was already loaded
+            ' (closing a referenced sub-doc while its parent .iam is still open corrupts state).
+            If oOrphPartProv IsNot Nothing AndAlso Not bOrphWasAlreadyOpen Then
                 ' Use Close(False) — Close(True) on a dirty CC doc shows a modal save dialog,
                 ' deadlocking the iLogic thread.  Provenance is best-effort; discard on failure.
                 Try : oOrphPartProv.Close(False) : Catch : End Try
