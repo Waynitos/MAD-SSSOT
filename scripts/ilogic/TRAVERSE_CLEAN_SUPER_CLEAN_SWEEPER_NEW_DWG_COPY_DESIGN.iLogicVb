@@ -1,7 +1,29 @@
 '' =====================================================================
 '' SUPER_CLEAN_SWEEPER.iLogicVb
 '' Copy Design with full provenance architecture
-'' Version: 2.2.129-ORPHAN-ALREADY-OPEN — 2026-11-20
+'' Version: 2.2.130-FG-LIVE-DEDUP-OLDVER — 2026-11-20
+''
+'' V2.2.130-FG-LIVE-DEDUP-OLDVER  (2026-11-20)
+''   Fix 1 — ProcessFrameGeneratorGroup: replaced ApprenticeServerComponent with
+''     live-isolated Documents.Open approach.  ApprenticeServerComponent throws COM
+''     0x80070057 (E_INVALIDARG) when instantiated from inside a running Inventor
+''     session, causing all FG groups to FG-SPECIAL-FAIL and leaving 91+ old-name
+''     Frame Generator files in the GA.  New approach:
+''       Pass 1: open each copied .ipt invisibly, ReplaceReference skeleton links,
+''               Save2(False), Close(False).
+''       Pass 2: open copied frame .iam, ReplaceReference all group members,
+''               Save2(True), Close(False).
+''     Log tags: FG-PART-RELINK, FG-PART-WARN, FG-RELINK, FG-ISOLATED-OK/FAIL.
+''   Fix 2 — ProcessOrphanSubTree: filter oActualMap keys out of oOrphMap after
+''     WalkTree completes.  Drawing-only assemblies that reference the main GA
+''     (e.g. Cell Support Layout) caused WalkTree to descend the full GA sub-tree
+''     and re-copy all 228 files a second time, producing -V0-12/-V0-22/BC21-BC32
+''     duplicates and leaving -V0-22.iam open in memory (which then caused the
+''     Stiffener Cap Plate freeze).  ORPHAN-SUB-DEDUP log line reports count removed.
+''   Fix 3 — oTargetByBase build: skip \OldVersions\ folders in AllDirectories scan.
+''     Inventor saves backup files (.0001.iam, .0001.ipt) under \OldVersions\ which
+''     polluted the base-name lookup with stale entries, producing P3-SKIP-NOT-CREATED
+''     log noise and potentially wrong Phase 3/4 reference resolution.
 ''
 '' V2.2.129-ORPHAN-ALREADY-OPEN  (2026-11-20)
 ''   Freeze fix: orphan .ipt provenance loop now checks whether the target part is
@@ -2482,13 +2504,17 @@ Sub Main()
         StringComparer.OrdinalIgnoreCase)
     Try  ' FIX F: *.iam + *.ipt only — avoids indexing PDFs/DWGs/logs on large targets
          ' v2.2.128 Bug 2 fix: AllDirectories so Frame_nn\ subfolder copies are visible
+         ' v2.2.130: skip \OldVersions\ — Inventor backup folder produces .0001.iam/.ipt
+         '           ghost entries that cause P3-SKIP-NOT-CREATED log noise and wrong lookups
         For Each sTF As String In System.IO.Directory.GetFiles(sTargetFolder, "*.iam", _
                 System.IO.SearchOption.AllDirectories)
+            If sTF.IndexOf("\OldVersions\", StringComparison.OrdinalIgnoreCase) >= 0 Then Continue For
             Dim sTFBase As String = System.IO.Path.GetFileName(sTF)
             If Not oTargetByBase.ContainsKey(sTFBase) Then oTargetByBase(sTFBase) = sTF
         Next
         For Each sTF As String In System.IO.Directory.GetFiles(sTargetFolder, "*.ipt", _
                 System.IO.SearchOption.AllDirectories)
+            If sTF.IndexOf("\OldVersions\", StringComparison.OrdinalIgnoreCase) >= 0 Then Continue For
             Dim sTFBase As String = System.IO.Path.GetFileName(sTF)
             If Not oTargetByBase.ContainsKey(sTFBase) Then oTargetByBase(sTFBase) = sTF
         Next
@@ -5091,6 +5117,24 @@ Sub ProcessOrphanSubTree(oOrphTopDoc As Document, _
     ' NOTE: oOrphOpened docs are kept open here — Phase 2 lite finds them via
     ' ItemByName so it doesn't need to re-open them. Close them AFTER Phase 3.
 
+    ' v2.2.130 fix: strip out anything already copied by Phase 1-4 (oActualMap).
+    ' Without this, a drawing-only assembly that references the main GA (e.g. a Cell
+    ' Support Layout drawing) causes WalkTree to descend the entire GA sub-tree and
+    ' re-copy all 228+ files a second time, producing -V0-12, -V0-22, BC21-BC32
+    ' duplicates.  Any key in oOrphMap that is already in oActualMap can be reused
+    ' as-is — Phase 1-4 already copied and relinked that sub-assembly.
+    Dim oOrphDupKeys As New System.Collections.Generic.List(Of String)()
+    For Each sOrphDupKey As String In oOrphMap.Keys
+        If oActualMap.ContainsKey(sOrphDupKey) Then oOrphDupKeys.Add(sOrphDupKey)
+    Next
+    For Each sOrphDupKey As String In oOrphDupKeys
+        oOrphMap.Remove(sOrphDupKey)
+    Next
+    If oOrphDupKeys.Count > 0 Then
+        Try : System.IO.File.AppendAllText(sLogPath, _
+            "ORPHAN-SUB-DEDUP: removed " & oOrphDupKeys.Count & " already-copied entries from orphan map" & vbCrLf) : Catch : End Try
+    End If
+
     ' ── Phase 2 lite: copy deepest-first; provenance on destination ONLY ──
     Dim oOrphKeys As New System.Collections.Generic.List(Of String)(oOrphMap.Keys)
     oOrphKeys.Sort(Function(a2, b2) SweeperPathDepth(b2).CompareTo(SweeperPathDepth(a2)))
@@ -6490,50 +6534,66 @@ Function ProcessFrameGeneratorGroup(frameAsm As Document, _
         If fgMap.ContainsKey(frameAsm.FullFileName) Then frameNewPath = fgMap(frameAsm.FullFileName)
         If frameNewPath = "" OrElse Not System.IO.File.Exists(frameNewPath) Then Return False
 
-        ' FIX (v2.2.126): Use ApprenticeServerComponent to relink ALL copied files in one atomic
-        ' batch — both the frame .iam AND each member .ipt (skeleton link inside each member).
-        ' ApprenticeServer runs out-of-process with no FG/CC add-in overhead, so Save2(True)
-        ' inside live Inventor (which wakes the FG engine and freezes) is replaced by
-        ' ApprenticeServerComponent.FileSaveAs.ExecuteSave() which is instant and non-blocking.
-        Dim oApprentice As New ApprenticeServerComponent()
-        Dim openedAppDocs As New System.Collections.Generic.List(Of ApprenticeServerDocument)
-        Try
-            For Each kvp As System.Collections.Generic.KeyValuePair(Of String, String) In fgMap
-                Dim copiedPath As String = kvp.Value
-                Dim ext As String = System.IO.Path.GetExtension(copiedPath).ToLower()
-                If ext <> ".iam" AndAlso ext <> ".ipt" Then Continue For
-                If Not System.IO.File.Exists(copiedPath) Then Continue For
-                System.IO.File.SetAttributes(copiedPath, System.IO.FileAttributes.Normal)
-                Dim appDoc As ApprenticeServerDocument = oApprentice.Open(copiedPath)
-                openedAppDocs.Add(appDoc)
-                Dim isDirty As Boolean = False
-                For Each refDesc As DocumentDescriptor In appDoc.ReferencedDocumentDescriptors
+        ' v2.2.130: ApprenticeServerComponent throws COM 0x80070057 (E_INVALIDARG) when
+        ' instantiated from inside a running Inventor/iLogic session (confirmed in logs).
+        ' Replaced with live-isolated approach: open each copied file invisibly in Inventor
+        ' (Documents.Open(..., False)), relink skeleton references, Save2(True), Close(False).
+        ' Member .ipt parts are relinked FIRST so the frame .iam Save2 finds correct paths.
+        ' Pass 1 — relink each copied member .ipt to the new skeleton
+        For Each kvp As System.Collections.Generic.KeyValuePair(Of String, String) In fgMap
+            Dim copiedPart As String = kvp.Value
+            If Not System.IO.Path.GetExtension(copiedPart).Equals(".ipt", StringComparison.OrdinalIgnoreCase) Then Continue For
+            If Not System.IO.File.Exists(copiedPart) Then Continue For
+            Dim oFgPart As Document = Nothing
+            Try
+                System.IO.File.SetAttributes(copiedPart, System.IO.FileAttributes.Normal)
+                oFgPart = ThisApplication.Documents.Open(copiedPart, False)
+                Dim bPartDirty As Boolean = False
+                For Each pRefDesc As Object In oFgPart.ReferencedDocumentDescriptors
                     Try
-                        Dim origRef As String = refDesc.ReferencedFileDescriptor.FullFileName
-                        If fgMap.ContainsKey(origRef) Then
-                            refDesc.ReferencedFileDescriptor.ReplaceReference(fgMap(origRef))
-                            isDirty = True
-                            Try : System.IO.File.AppendAllText(sLog, "    FG-RELINK (" & System.IO.Path.GetFileName(copiedPath) & "): " & System.IO.Path.GetFileName(origRef) & " -> " & System.IO.Path.GetFileName(fgMap(origRef)) & vbCrLf) : Catch : End Try
+                        Dim origSkelRef As String = pRefDesc.ReferencedFileDescriptor.FullFileName
+                        If fgMap.ContainsKey(origSkelRef) Then
+                            pRefDesc.ReferencedFileDescriptor.ReplaceReference(fgMap(origSkelRef))
+                            bPartDirty = True
+                            Try : System.IO.File.AppendAllText(sLog, "    FG-PART-RELINK (" & System.IO.Path.GetFileName(copiedPart) & "): " & System.IO.Path.GetFileName(origSkelRef) & " -> " & System.IO.Path.GetFileName(fgMap(origSkelRef)) & vbCrLf) : Catch : End Try
                         End If
                     Catch
                     End Try
                 Next
-                If isDirty Then
-                    oApprentice.FileSaveAs.AddFileToSave(appDoc, copiedPath)
-                End If
+                If bPartDirty Then oFgPart.Save2(False)
+            Catch exPart As Exception
+                Try : System.IO.File.AppendAllText(sLog, "    FG-PART-WARN: " & System.IO.Path.GetFileName(copiedPart) & " — " & exPart.Message & vbCrLf) : Catch : End Try
+            Finally
+                If oFgPart IsNot Nothing Then Try : oFgPart.Close(False) : Catch : End Try
+                Try : System.IO.File.SetAttributes(copiedPart, System.IO.FileAttributes.Normal) : Catch : End Try
+            End Try
+        Next
+
+        ' Pass 2 — relink the copied frame .iam (references now point at new skeleton/members)
+        Dim oFgDoc As Document = Nothing
+        Try
+            System.IO.File.SetAttributes(frameNewPath, System.IO.FileAttributes.Normal)
+            oFgDoc = ThisApplication.Documents.Open(frameNewPath, False)
+            Dim bFgDocDirty As Boolean = False
+            For Each fgRefDesc As Object In oFgDoc.ReferencedDocumentDescriptors
+                Try
+                    Dim origFgRef As String = fgRefDesc.ReferencedFileDescriptor.FullFileName
+                    If fgMap.ContainsKey(origFgRef) Then
+                        fgRefDesc.ReferencedFileDescriptor.ReplaceReference(fgMap(origFgRef))
+                        bFgDocDirty = True
+                        Try : System.IO.File.AppendAllText(sLog, "    FG-RELINK (" & System.IO.Path.GetFileName(frameNewPath) & "): " & System.IO.Path.GetFileName(origFgRef) & " -> " & System.IO.Path.GetFileName(fgMap(origFgRef)) & vbCrLf) : Catch : End Try
+                    End If
+                Catch
+                End Try
             Next
-            ' Atomic batch save: writes frame .iam + skeleton .ipt + all member .ipt simultaneously
-            oApprentice.FileSaveAs.ExecuteSave()
+            If bFgDocDirty Then oFgDoc.Save2(True)
             Try : System.IO.File.AppendAllText(sLog, "    FG-ISOLATED-OK: " & System.IO.Path.GetFileName(frameNewPath) & vbCrLf) : Catch : End Try
-        Catch exApp As Exception
-            Try : System.IO.File.AppendAllText(sLog, "    FG-ISOLATED-FAIL: " & System.IO.Path.GetFileName(frameNewPath) & " — " & exApp.Message & vbCrLf) : Catch : End Try
+        Catch exFgDoc As Exception
+            Try : System.IO.File.AppendAllText(sLog, "    FG-ISOLATED-FAIL: " & System.IO.Path.GetFileName(frameNewPath) & " — " & exFgDoc.Message & vbCrLf) : Catch : End Try
             Return False
         Finally
-            For Each dApp As ApprenticeServerDocument In openedAppDocs
-                Try : dApp.Close() : Catch : End Try
-            Next
-            Try : oApprentice.Close() : Catch : End Try
-            ' Ensure all copied files remain Normal attributes after Apprentice save
+            If oFgDoc IsNot Nothing Then Try : oFgDoc.Close(False) : Catch : End Try
+            ' Ensure all copied files remain Normal attributes
             For Each kvp As System.Collections.Generic.KeyValuePair(Of String, String) In fgMap
                 Try
                     If System.IO.File.Exists(kvp.Value) Then
