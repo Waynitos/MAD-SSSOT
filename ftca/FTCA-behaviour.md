@@ -64,3 +64,17 @@ alerts-fired: GAP/Claude Design artifact (3+ weeks, HIGH relevance); GAP/Morning
 tools-used: mcp__github__get_file_contents, WebSearch, Artifact (HTML publish), mcp__github__push_files
 ai-apps-active: Claude (primary)
 notes: Weekly digest auto-fired by Scheduled Task. Digest artifact published at https://claude.ai/artifact/CAbLdkavhreijsdZTLiBZV using PLU branding tokens. Champion calls: FTCA+PLU shipped in one session; first RMAD in Spanish confirmed language-agnostic pipeline; Scheduled Tasks confirmed live (this session is proof). Enhancement recommendations: PHONICSPlus + Design artifact together next session; automate project setup paste step; Sheets artifact for MAD verdict tables. AI advancements sourced this week: Claude Meetings (launched Nov 10 2026), Claude shared spreadsheets/whiteboards (office suite expansion), AI CAD agents for Autodesk parametric design. Push notification sent to Waynito.
+
+## 2026-11-20 | Project: FTCAgent PROJECT (FTCA) | Session: Weekly FTCA Review (auto — Scheduled Task)
+features-used: GitHub file read (mcp__github__get_file_contents), GitHub file update (mcp__github__create_or_update_file), Artifact (HTML popup publish), PHONICSPlus tokens applied, Scheduled Tasks (session triggered by schedule)
+features-observed-unused: Claude Design artifact, Artifact database (db), Claude in Chrome, Morning brief skill, Sheets artifact
+patterns-flagged: Claude Design artifact unused 5 consecutive weeks (HIGH); Morning brief skill unused 5 consecutive weeks (HIGH); Artifact db capability unused 5 consecutive weeks (MED); Manual project setup step still unautomated (MED); PHONICSPlus recommendation from 2026-11-13 not actioned in intervening sessions
+alerts-fired: GAP/Claude Design artifact (5 weeks, HIGH — ESCALATED); GAP/Morning brief skill (5 weeks, HIGH — ESCALATED); GAP/Artifact database capability (5 weeks, MED); GAP/PHONICSPlus+Design combo (carry-over recommendation, now week 2)
+tools-used: mcp__github__get_file_contents, mcp__github__create_or_update_file, Artifact (HTML publish), TaskCreate, TaskUpdate
+ai-apps-active: Claude (primary)
+notes: Weekly FTCA auto-fired by Scheduled Task. Branded popup report published as Artifact using PHONICSPlus tokens. Trend assessed as plateauing — core pipeline solid but feature adoption stalled. Push notification sent to Waynito.
+
+## OBSERVATION 2026-11-20
+- Patterns flagged: Claude Design artifact unused (5 weeks, HIGH — ESCALATED from last week); Morning brief skill never triggered (5 weeks, HIGH — ESCALATED); Artifact database capability unused (5 weeks, MED); Manual project setup step unautomated (ongoing); PHONICSPlus + Design combo recommendation carried over for second consecutive week without action
+- Wins noted: Scheduled Tasks auto-fired correctly two consecutive weeks; RMAD pipeline confirmed language-agnostic; PHONICSPlus tokens correctly applied to both Nov 13 and Nov 20 artifacts; GitHub push pipeline stable; PLU v1.2 three-layer routing live
+- Recommendation issued: This week use PHONICSPlus + Claude Design artifact in one real task (any visual output) to close two HIGH-priority gaps in a single session — if Design artifact type is not listed, raise as feedback
