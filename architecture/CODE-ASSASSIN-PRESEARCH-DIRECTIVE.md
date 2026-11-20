@@ -4,6 +4,10 @@
 **Authority:** MAD-SSSOT for Inventor/CLEAN SWEEPER development. BEEXCITED-AI remains authority for any future platform-wide agent protocol.  
 **Scope:** All Inventor/iLogic/Vault rule compilation, debugging, changes, and API usage, including CLEAN SWEEPER and Frame Generator.
 
+## Governing platform principle — JUST USE PENCIL
+
+**APPROVED:** [BEEXCITED-AI — JUST USE PENCIL](https://github.com/Waynitos/BEEXCITED-AI/blob/main/architecture/JUST-USE-PENCIL.md) is the platform authority. Before creating or rewriting iLogic code, find a functional existing implementation and test whether it meets the minimum requirement. **Working first; enhancement only for a documented gap or measured benefit.** If audits and patches repeatedly fail to deliver functionality, stop speculative rewrites and return to external and historical search. Preserve source attribution, licence, version compatibility and safety. The NASA pencil anecdote is a metaphor, not historical evidence.
+
 ## Mandatory gate: Phase 0 — Web Recon, BEFORE code edits or compilation
 
 1. Identify exact Inventor version, rule, failing API, document types, error message/HRESULT, and current known-working baseline.
