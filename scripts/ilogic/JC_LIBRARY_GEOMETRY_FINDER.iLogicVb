@@ -1,0 +1,315 @@
+' =====================================================================
+' iLogic Rule: JC Library Geometry Finder
+' Run from an ACTIVE PART (.ipt) or ASSEMBLY (.iam) document.
+'
+' Reads the geometry signature (Mass, Volume, Surface Area, Centre of
+' Mass) of the active document and searches the JC Library for any
+' file with identical geometry within tolerance.
+'
+' Output: a scrollable report showing the item name and full folder
+' path for every match found. No files are changed.
+'
+' Fast path: uses JC_Library_Catalogue.txt if present (zero file opens).
+' Slow path: live-scans the library folder if no catalogue exists.
+'
+' Tolerances: 0.1% relative on Mass/Volume/Area, 0.01 mm absolute on CoM.
+'
+' Version: 2026-11-20
+' =====================================================================
+
+
+' ── Tolerance helpers ──────────────────────────────────────────────────────
+Function RelClose(x As Double, y As Double) As Boolean
+    Dim dDenom As Double = Math.Max(Math.Abs(x), Math.Abs(y))
+    If dDenom < 0.0000001 Then Return True
+    Return (Math.Abs(x - y) / dDenom) <= 0.001
+End Function
+
+Function AbsClose(x As Double, y As Double) As Boolean
+    Return Math.Abs(x - y) <= 0.01
+End Function
+
+
+' ── Read geometry signature from any open document ─────────────────────────
+Function GetGeoSig(oDoc As Document, ByRef sDocType As String) As GeoSig
+    Try
+        Dim oMP As MassProperties = Nothing
+        sDocType = ""
+        If oDoc.DocumentType = kPartDocumentObject Then
+            oMP = CType(oDoc, PartDocument).ComponentDefinition.MassProperties
+            sDocType = "PART"
+        ElseIf oDoc.DocumentType = kAssemblyDocumentObject Then
+            oMP = CType(oDoc, AssemblyDocument).ComponentDefinition.MassProperties
+            sDocType = "ASM"
+        Else
+            Return Nothing
+        End If
+        If oMP Is Nothing Then Return Nothing
+        Dim oSig As New GeoSig()
+        oSig.dMass   = oMP.Mass
+        oSig.dVolume = oMP.Volume
+        oSig.dArea   = oMP.Area
+        Dim oCom As Point = oMP.CenterOfMass
+        oSig.dCX = oCom.X : oSig.dCY = oCom.Y : oSig.dCZ = oCom.Z
+        Return oSig
+    Catch
+        Return Nothing
+    End Try
+End Function
+
+
+' ── Load catalogue tab-delimited lines (skips comment/blank lines) ──────────
+Sub LoadCatLines(sCatFile As String, ByRef oLines As List(Of String()))
+    Try
+        For Each sLine As String In System.IO.File.ReadAllLines(sCatFile)
+            If sLine.StartsWith("#") Then Continue For
+            If Trim(sLine) = "" Then Continue For
+            Dim oParts As String() = sLine.Split(Chr(9))
+            If oParts.Length < 10 Then Continue For
+            oLines.Add(oParts)
+        Next
+    Catch
+    End Try
+End Sub
+
+
+' ── Relative-path label under the JC Library root ──────────────────────────
+Function RelativeFolder(sFullFolder As String, sLibRoot As String) As String
+    If sFullFolder.ToUpper().StartsWith(sLibRoot.ToUpper()) Then
+        Dim s As String = sFullFolder.Substring(sLibRoot.Length).TrimStart("\"c)
+        Return If(s = "", "(library root)", s)
+    End If
+    Return sFullFolder
+End Function
+
+
+' ── Results form ───────────────────────────────────────────────────────────
+Sub ShowResultsForm(oLines As List(Of String), iMatchCount As Integer, sActiveFile As String)
+    Dim oForm As New Form()
+    oForm.Text = "JC Library Geometry Finder"
+    oForm.StartPosition = FormStartPosition.CenterScreen
+    oForm.TopMost = True
+    oForm.Width = 820 : oForm.Height = 540
+    oForm.FormBorderStyle = FormBorderStyle.Sizable
+    oForm.MinimumSize = New System.Drawing.Size(540, 300)
+
+    Dim oHeader As New Label()
+    oHeader.Text = "Active:  " & System.IO.Path.GetFileName(sActiveFile)
+    oHeader.Left = 12 : oHeader.Top = 10 : oHeader.Width = 780
+    oHeader.AutoEllipsis = True
+    oForm.Controls.Add(oHeader)
+
+    Dim oSub As New Label()
+    If iMatchCount = 0 Then
+        oSub.Text = "No identical geometry match found in the JC Library."
+    ElseIf iMatchCount = 1 Then
+        oSub.Text = "1 identical match found in the JC Library:"
+    Else
+        oSub.Text = iMatchCount & " identical matches found in the JC Library:"
+    End If
+    oSub.Left = 12 : oSub.Top = 30 : oSub.Width = 780
+    oForm.Controls.Add(oSub)
+
+    Dim oList As New ListBox()
+    oList.Left = 12 : oList.Top = 55
+    oList.Anchor = AnchorStyles.Top Or AnchorStyles.Bottom Or AnchorStyles.Left Or AnchorStyles.Right
+    oList.Width = 780 : oList.Height = 420
+    oList.HorizontalScrollbar = True
+    oList.Font = New System.Drawing.Font("Consolas", 9)
+    For Each s As String In oLines
+        oList.Items.Add(s)
+    Next
+    oForm.Controls.Add(oList)
+
+    Dim oClose As New Button()
+    oClose.Text = "Close"
+    oClose.Anchor = AnchorStyles.Bottom Or AnchorStyles.Right
+    oClose.Left = oForm.Width - 115 : oClose.Top = oForm.Height - 72
+    oClose.Width = 90
+    oClose.DialogResult = DialogResult.OK
+    oForm.Controls.Add(oClose) : oForm.AcceptButton = oClose
+
+    oForm.ShowDialog()
+End Sub
+
+
+' ── MAIN ───────────────────────────────────────────────────────────────────
+Sub Main()
+
+    ' ── Config ────────────────────────────────────────────────────────────
+    Dim sLibraryFolder As String = "C:\Vault\Libraries\JC Library"
+    Dim sCatalogueFile As String = System.IO.Path.Combine(sLibraryFolder, "JC_Library_Catalogue.txt")
+
+    ' ── Active document check ─────────────────────────────────────────────
+    Dim oDoc As Document = Nothing
+    Try
+        oDoc = ThisApplication.ActiveDocument
+    Catch
+        MessageBox.Show("Could not get the active document.", "Error")
+        Exit Sub
+    End Try
+
+    If oDoc.DocumentType <> kPartDocumentObject AndAlso oDoc.DocumentType <> kAssemblyDocumentObject Then
+        MessageBox.Show("Open a part (.ipt) or assembly (.iam) first.", "Wrong Document Type")
+        Exit Sub
+    End If
+
+    Dim sActiveFile As String = ""
+    Try : sActiveFile = oDoc.FullFileName : Catch : End Try
+    If sActiveFile = "" OrElse sActiveFile.Contains("*") Then
+        MessageBox.Show("Active document has not been saved. Save it first.", "Unsaved Document")
+        Exit Sub
+    End If
+
+    ' ── Read geometry signature ───────────────────────────────────────────
+    Dim sDocType As String = ""
+    Dim oActiveSig As GeoSig = GetGeoSig(oDoc, sDocType)
+    If oActiveSig Is Nothing Then
+        MessageBox.Show("Could not read geometry (Mass Properties) from the active document." & vbCrLf & _
+            "Make sure the model is fully resolved.", "No Geometry")
+        Exit Sub
+    End If
+
+    If Not System.IO.Directory.Exists(sLibraryFolder) Then
+        MessageBox.Show("JC Library folder not found:" & vbCrLf & sLibraryFolder, "Folder Not Found")
+        Exit Sub
+    End If
+
+    Dim oDisplayLines As New List(Of String)
+    Dim iMatchCount   As Integer = 0
+
+    ' ═══════════════════════════════════════════════════════════════════════
+    ' FAST PATH — catalogue
+    ' ═══════════════════════════════════════════════════════════════════════
+    If System.IO.File.Exists(sCatalogueFile) Then
+
+        Dim oCatLines As New List(Of String())
+        LoadCatLines(sCatalogueFile, oCatLines)
+
+        ' Catalogue columns:
+        '   0=Token  1=DisplayName  2=FullPath  3=MassKg  4=SurfaceArea
+        '   5=Volume  6=COMx  7=COMy  8=COMz  9=DocType
+        For Each oParts As String() In oCatLines
+            Dim sEntryPath As String = oParts(2).Trim()
+            Dim sEntryType As String = If(oParts.Length > 9, oParts(9).Trim().ToUpper(), "")
+
+            If String.Compare(sEntryPath, sActiveFile, True) = 0 Then Continue For  ' skip self
+            If sEntryType <> "" AndAlso sEntryType <> sDocType Then Continue For    ' type mismatch
+
+            Dim dM As Double = 0, dA As Double = 0, dV As Double = 0
+            Dim dX As Double = 0, dY As Double = 0, dZ As Double = 0
+            If Not Double.TryParse(oParts(3), dM) Then Continue For
+            Double.TryParse(oParts(4), dA)
+            Double.TryParse(oParts(5), dV)
+            Double.TryParse(oParts(6), dX)
+            Double.TryParse(oParts(7), dY)
+            Double.TryParse(oParts(8), dZ)
+
+            If Not RelClose(oActiveSig.dMass,   dM) Then Continue For
+            If Not RelClose(oActiveSig.dVolume, dV) Then Continue For
+            If Not RelClose(oActiveSig.dArea,   dA) Then Continue For
+            If Not AbsClose(oActiveSig.dCX,     dX) Then Continue For
+            If Not AbsClose(oActiveSig.dCY,     dY) Then Continue For
+            If Not AbsClose(oActiveSig.dCZ,     dZ) Then Continue For
+
+            ' ── Match confirmed ──────────────────────────────────────────
+            iMatchCount += 1
+            Dim sName      As String = System.IO.Path.GetFileName(sEntryPath)
+            Dim sFolder    As String = System.IO.Path.GetDirectoryName(sEntryPath)
+            Dim sRelFolder As String = RelativeFolder(sFolder, sLibraryFolder)
+
+            oDisplayLines.Add(iMatchCount & ".  " & sName)
+            oDisplayLines.Add("    Path  : " & sEntryPath)
+            oDisplayLines.Add("    Folder: " & sRelFolder)
+            oDisplayLines.Add("")
+        Next
+
+        ShowResultsForm(oDisplayLines, iMatchCount, sActiveFile)
+        Exit Sub
+    End If
+
+    ' ═══════════════════════════════════════════════════════════════════════
+    ' SLOW PATH — live scan (no catalogue present)
+    ' ═══════════════════════════════════════════════════════════════════════
+    Dim oAsk As DialogResult = MessageBox.Show( _
+        "No JC Library catalogue found." & vbCrLf & sCatalogueFile & vbCrLf & vbCrLf & _
+        "Run a live scan instead? Inventor will open each library file to compare geometry." & vbCrLf & _
+        "This may take several minutes." & vbCrLf & vbCrLf & _
+        "Tip: build the catalogue once using the full Duplicate Check rule so future" & vbCrLf & _
+        "searches are instant (zero file opens).", _
+        "No Catalogue — Live Scan?", MessageBoxButtons.YesNo, MessageBoxIcon.Question)
+    If oAsk <> DialogResult.Yes Then Exit Sub
+
+    Dim oAllFiles As New List(Of String)
+    Try
+        For Each sF As String In System.IO.Directory.GetFiles(sLibraryFolder, "*.ipt", System.IO.SearchOption.AllDirectories)
+            If sF.ToUpper().Contains("\OLDVERSIONS\") OrElse sF.ToUpper().Contains("\OLD VERSIONS\") Then Continue For
+            If String.Compare(sF, sActiveFile, True) <> 0 Then oAllFiles.Add(sF)
+        Next
+        If sDocType = "ASM" Then
+            For Each sF As String In System.IO.Directory.GetFiles(sLibraryFolder, "*.iam", System.IO.SearchOption.AllDirectories)
+                If sF.ToUpper().Contains("\OLDVERSIONS\") OrElse sF.ToUpper().Contains("\OLD VERSIONS\") Then Continue For
+                If String.Compare(sF, sActiveFile, True) <> 0 Then oAllFiles.Add(sF)
+            Next
+        End If
+    Catch ex As Exception
+        MessageBox.Show("Error scanning library: " & ex.Message, "Scan Error")
+        Exit Sub
+    End Try
+
+    For Each sCandPath As String In oAllFiles
+        Dim oCandDoc As Document = Nothing
+        Dim bWeOpened As Boolean = False
+        Try
+            Try : oCandDoc = ThisApplication.Documents.ItemByName(sCandPath) : Catch : oCandDoc = Nothing : End Try
+            If oCandDoc Is Nothing Then
+                oCandDoc = ThisApplication.Documents.Open(sCandPath, False)
+                bWeOpened = True
+            End If
+
+            Dim sCandType As String = ""
+            Dim oCandSig As GeoSig = GetGeoSig(oCandDoc, sCandType)
+            If oCandSig Is Nothing Then Continue For
+            If sCandType <> sDocType Then Continue For
+
+            If Not RelClose(oActiveSig.dMass,   oCandSig.dMass)   Then Continue For
+            If Not RelClose(oActiveSig.dVolume, oCandSig.dVolume) Then Continue For
+            If Not RelClose(oActiveSig.dArea,   oCandSig.dArea)   Then Continue For
+            If Not AbsClose(oActiveSig.dCX,     oCandSig.dCX)    Then Continue For
+            If Not AbsClose(oActiveSig.dCY,     oCandSig.dCY)    Then Continue For
+            If Not AbsClose(oActiveSig.dCZ,     oCandSig.dCZ)    Then Continue For
+
+            ' ── Match confirmed ──────────────────────────────────────────
+            iMatchCount += 1
+            Dim sName      As String = System.IO.Path.GetFileName(sCandPath)
+            Dim sFolder    As String = System.IO.Path.GetDirectoryName(sCandPath)
+            Dim sRelFolder As String = RelativeFolder(sFolder, sLibraryFolder)
+
+            oDisplayLines.Add(iMatchCount & ".  " & sName)
+            oDisplayLines.Add("    Path  : " & sCandPath)
+            oDisplayLines.Add("    Folder: " & sRelFolder)
+            oDisplayLines.Add("")
+        Catch
+        Finally
+            If bWeOpened AndAlso oCandDoc IsNot Nothing Then
+                Try : oCandDoc.Close(False) : Catch : End Try
+            End If
+        End Try
+    Next
+
+    ShowResultsForm(oDisplayLines, iMatchCount, sActiveFile)
+
+End Sub
+
+
+' =====================================================================
+' DATA CLASS  (must come AFTER all Subs/Functions in iLogic)
+' =====================================================================
+Public Class GeoSig
+    Public dMass   As Double
+    Public dVolume As Double
+    Public dArea   As Double
+    Public dCX     As Double
+    Public dCY     As Double
+    Public dCZ     As Double
+End Class
