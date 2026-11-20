@@ -1,7 +1,20 @@
 '' =====================================================================
 '' SUPER_CLEAN_SWEEPER.iLogicVb
 '' Copy Design with full provenance architecture
-'' Version: 2.2.126-FG-APPRENTICE — 2026-11-20
+'' Version: 2.2.127-ORPHAN-CLOSE-SAFE — 2026-11-20
+''
+'' V2.2.127-ORPHAN-CLOSE-SAFE
+''   - ORPHAN-PART-START log line added before each .ipt in the orphan provenance
+''     loop — matches Waynito/Grok v2.2.125 diagnostics so freeze victims are
+''     always identifiable from the last log line.
+''   - IsLibraryPartToSkip added alongside IsStandardContentCenter in the CC guard:
+''     belt-and-suspenders so path-based library detection (Content Center Files\)
+''     also skips provenance-write without dirtying the doc.
+''   - NOTE: Grok (v2.2.127-FG-LIVE-SAFE) claims ApprenticeServerComponent cannot
+''     be created from inside a live Inventor session and reverts FG to invisible
+''     Documents.Open + Save2(True).  This needs field testing.  v2.2.126 kept as
+''     the ApprenticeServer path pending confirmation; if ExecuteSave throws
+''     "class not registered" or similar, switch to Grok's isolated-open approach.
 ''
 '' V2.2.126-FG-APPRENTICE
 ''   - ProcessFrameGeneratorGroup now uses ApprenticeServerComponent for all relinking
@@ -5224,14 +5237,18 @@ Sub ProcessOrphanSubTree(oOrphTopDoc As Document, _
     ' Write provenance to newly copied orphan parts (no child references).
     For Each sOrphProvNew As String In oOrphNeedsProv.Keys
         If System.IO.Path.GetExtension(sOrphProvNew).ToUpper() <> ".IPT" Then Continue For
+        ' Log start so a freeze is always identifiable from the last line in the log.
+        Try : System.IO.File.AppendAllText(sLogPath, "ORPHAN-PART-START: " & System.IO.Path.GetFileName(sOrphProvNew) & vbCrLf) : Catch : End Try
         ' Clear ReadOnly flag before open — copied CC parts retain read-only attribute from source.
         Try : System.IO.File.SetAttributes(sOrphProvNew, IO.FileAttributes.Normal) : Catch : End Try
         Dim oOrphPartProv As Document = Nothing
         Try
             oOrphPartProv = ThisApplication.Documents.Open(sOrphProvNew, False)
-            ' Skip Content Center parts: Save2 will E_FAIL and Close(True) would then deadlock
-            ' on the "save as local copy?" dialog.  Provenance stamping is best-effort only.
-            If IsStandardContentCenter(oOrphPartProv) Then
+            ' Skip Content Center / library parts: Save2 will E_FAIL and dirtying then
+            ' Close(True) would trigger the "save as local copy?" modal, deadlocking the thread.
+            ' Belt-and-suspenders: check both GUID-based (IsStandardContentCenter) and
+            ' path-based (IsLibraryPartToSkip) detection.  Provenance stamping is best-effort.
+            If IsStandardContentCenter(oOrphPartProv) OrElse IsLibraryPartToSkip(sOrphProvNew) Then
                 Try : System.IO.File.AppendAllText(sLogPath, _
                     "ORPHAN-PROV-SKIP-CC: " & System.IO.Path.GetFileName(sOrphProvNew) & vbCrLf) : Catch : End Try
             Else
