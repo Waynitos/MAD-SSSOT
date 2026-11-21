@@ -34,7 +34,7 @@ Candidate future legs (not approved commitments): BEEXCITED rollout, advertising
 - **HR Agent (proposed):** Detect unmet capability needs, inspect agent registry and job descriptions, assess reuse vs recruitment, initiate specialist creation/assignment when authorised.
 - **Agent development/training/validation function (name not confirmed):** Define competence criteria, test proposed agents, verify before deployment; creating an agent is not proof of competence.
 - **Project Manager:** Plan, coordinate, track milestones and flight legs, maintain closure evidence, identify gaps.
-- **PTP / ROUTE-001 (naming to verify):** Select task-appropriate route and initial workflow/roster.
+- **PTP / PETROFSKI (MU named 2026-11-21):** Existing PTP task-path/intake stage, now canonically **Prompt the Prompter — Petrofski**. Mandate: [As the Crow Flies](https://github.com/Waynitos/BEEXCITED-AI/blob/main/agents/PTP-PETROFSKI-AS-THE-CROW-FLIES.md) — identify the MU's immediate human need, ask only truly blocking questions, select the shortest safe existing route and return usable results first. Historic ROUTE-001 label is not a separate commissioned agent. Documentation only; autonomous routing not verified.
 - **Slayer (historically discussed; remit unverified):** Possible process-efficiency/oversight function; do not assign final authority without source reconciliation.
 - **Thrasher / Prince of Projects (historically discussed; remit unverified):** Reconcile before activation.
 - **MAD AA / DA / SSA:** Advocacy, independent challenge, synthesis.
