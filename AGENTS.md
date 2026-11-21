@@ -1,5 +1,11 @@
 # Rules for AI agents working in MAD-SSSOT
 
+## BEEXCITED HIVE ACTIVE PRINCIPLES (MU approved, 2026-11-21)
+- Read/reconcile applicable active platform operating rules from [BEEXCITED-AI Hive live directives](https://github.com/Waynitos/BEEXCITED-AI/blob/main/governance/HIVE-LIVE-DIRECTIVES.md) when access is authorised; that platform repo is PRIVATE, while this engineering repo is PUBLIC. Do not copy confidential or personal material into this repo.
+- Apply NOW, not just as incubator proposals: **the MU's immediate human result first (“As the Crow Flies”)**; **find an existing working solution before proposing custom code/agents/infrastructure (“Just Use Pencil”)**; preserve verified project baselines and safety. Petrofski/PTP routes tasks, existing Mission Guardian/Opportunity Scout challenge needless creation, HR checks role duplication; these are not claims of active autonomous services.
+- When the MU establishes a new general rule, apply it in the current task and link/update the existing approved records. No duplicate role or committee. Cross-chat/agent auto-propagation remains unverified; do not claim it happened.
+
+
 This repo (https://github.com/Waynitos/MAD-SSSOT, branch `main`) is the single
 source of truth for iLogic scripts, Python scripts, prompts, and project
 instructions. Every AI agent (Claude, Grok Bot, Cursor, others) follows these rules.
