@@ -1,5 +1,7 @@
 # SIAPlus · MAD-SSSOT
 
+> **BEEXCITED GLOBAL LAUNCH:** Start at [BEEXCITED-AI / START-HERE.md](https://github.com/Waynitos/BEEXCITED-AI/blob/main/START-HERE.md) for shared Hive directives and repository ownership (requires access to the PRIVATE platform repository). MAD-SSSOT remains the PUBLIC authority for its own MAD, engineering, CLEAN SWEEPER code and evidence. Don't copy private directives or data here.
+
 > **Assume Today's Best AI Solution Is Temporary.**
 
 A structured system for validated AI-assisted thinking — adversarial, evolving, and honest about what it doesn't know.
