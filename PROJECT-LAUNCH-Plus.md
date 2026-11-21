@@ -1,4 +1,8 @@
 # PROJECT-LAUNCH-Plus v1.6
+
+## HIVE LIVE BOOTSTRAP (approved operating guidance — 2026-11-21)
+**Effective for agents and chats that actually receive/load it:** Before substantial BEEXCITED work, reconcile the latest [platform Hive Live Directives](https://github.com/Waynitos/BEEXCITED-AI/blob/main/governance/HIVE-LIVE-DIRECTIVES.md), if authorised to access that PRIVATE repository, plus the current project's authoritative evidence. **Apply** MU-approved general rules to today's task immediately; do not merely file them in the incubator. **As the Crow Flies:** deliver today's human result first. **Just Use Pencil:** find and use an existing functional mechanism before building. Don't duplicate existing agents or processes. Maintain permission/privacy gates and truthful evidence states. This is a lightweight addition to existing PLU/Hive processes, not a second launch system. ChatGPT global/project instruction and memory boundaries remain; no automatic cross-chat propagation claimed.
+
 ## BEEXCITED HIVE MIND — CROSS-PROJECT SYNC (2026-11-12)
 For BEEXCITED project starts, session resumes and material architecture decisions, read [architecture/BEEXCITED-HIVE-MIND-SYNC.md](architecture/BEEXCITED-HIVE-MIND-SYNC.md) together with this launch protocol and the specific project's SSSOT. It contains current MU-directed principles, PWTP/flight-leg planning, Path-Aligned Autonomy, HR/agent roster proposals, evidence statuses and a lightweight session-sync protocol. This is a **working design record**, not a claim that autonomous propagation, agent recruitment or project orchestration are implemented. Reconcile conflicts with existing protocols and verified project baselines; do not silently overwrite them.
 
