@@ -8,7 +8,7 @@ from pathlib import Path
 import re
 import sys
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[4]
 BASE = ROOT / "scripts/ilogic/experiments"
 FILES = {
     "pure": "BEEXCITED_PropertyRefreshPure.iLogicVb",
