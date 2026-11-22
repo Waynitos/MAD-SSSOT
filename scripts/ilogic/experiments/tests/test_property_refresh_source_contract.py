@@ -14,6 +14,9 @@ FILES = {
     "pure": "BEEXCITED_PropertyRefreshPure.iLogicVb",
     "eligibility": "BEEXCITED_PropertyRefreshEligibility.iLogicVb",
     "readback": "BEEXCITED_PropertyRefreshReadback.iLogicVb",
+    "identity": "BEEXCITED_PropertyRefreshIdentity.iLogicVb",
+    "discovery": "BEEXCITED_PropertyRefreshDiscovery.iLogicVb",
+    "roots": "BEEXCITED_PropertyRefreshRoots.iLogicVb",
 }
 def check(name, condition):
     print(("PASS" if condition else "FAIL") + " " + name)
@@ -28,6 +31,7 @@ def main():
             return 1
         src[key] = path.read_text(encoding="utf-8-sig")
     pure, eligibility, readback = (src[k] for k in ("pure", "eligibility", "readback"))
+    identity, discovery, roots = (src[k] for k in ("identity", "discovery", "roots"))
     checks = [
         ("pure has exactly five public functions", len(re.findall(r"^\s*Public Function\b", pure, re.M)) == 5),
         ("pure does not call Inventor API", re.search(r"\bInventor\.", pure, re.I) is None),
@@ -43,6 +47,17 @@ def main():
         ("readback is open-document only", "doc.PropertySets.Item(setName).Item(propertyName).Value" in readback),
         ("readback does not save", re.search(r"\b(?:doc\.)?Save(?:As|2)?\s*\(", readback, re.I) is None),
         ("readback acknowledges persistence blocker", "persisted verification must reopen" in readback),
+        ("identity denies unresolved filesystem evidence", "Not evidence.ResolutionSucceeded" in identity),
+        ("identity denies reparse ambiguity", "evidence.IsReparseAmbiguous" in identity),
+        ("identity denies changed file IDs", "IdentityReason.DenyChangedIdentity" in identity),
+        ("identity denies source/target overlap", "IsUnder(target, source)" in identity and "IsUnder(source, target)" in identity),
+        ("identity never grants APPLY", "EligibleIdentityOnly" in identity),
+        ("discovery traverses all referenced models", "active.AllReferencedDocuments" in discovery),
+        ("discovery includes active GA", "AddModelPath(active.FullFileName" in discovery),
+        ("drawing discovery limited to same folder", "SearchOption.TopDirectoryOnly" in discovery),
+        ("drawing discovery accepts idw and dwg", 'extension <> ".idw" AndAlso extension <> ".dwg"' in discovery),
+        ("root classification protects external libraries", roots.find("For Each raw As String In protectedRoots") < roots.find("Return RootDecision.PreviewCandidateRequiresOwnershipVerification")),
+        ("root classification remains preview-only", "PreviewCandidateRequiresOwnershipVerification" in roots),
     ]
     passed = sum(check(name, result) for name, result in checks)
     print(f"{passed}/{len(checks)} source-contract checks passed")
