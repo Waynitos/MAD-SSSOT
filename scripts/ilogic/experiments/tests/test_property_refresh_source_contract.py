@@ -32,6 +32,7 @@ def main():
         src[key] = path.read_text(encoding="utf-8-sig")
     pure, eligibility, readback = (src[k] for k in ("pure", "eligibility", "readback"))
     identity, discovery, roots = (src[k] for k in ("identity", "discovery", "roots"))
+    forbidden_mutation = re.compile(r"\b(?:SaveAs|Save2|Save|Delete|CheckOut|File\.WriteAllText)\s*\(", re.I)
     checks = [
         ("pure has exactly five public functions", len(re.findall(r"^\s*Public Function\b", pure, re.M)) == 5),
         ("pure does not call Inventor API", re.search(r"\bInventor\.", pure, re.I) is None),
@@ -58,6 +59,11 @@ def main():
         ("drawing discovery accepts idw and dwg", 'extension <> ".idw" AndAlso extension <> ".dwg"' in discovery),
         ("root classification protects external libraries", roots.find("For Each raw As String In protectedRoots") < roots.find("Return RootDecision.PreviewCandidateRequiresOwnershipVerification")),
         ("root classification remains preview-only", "PreviewCandidateRequiresOwnershipVerification" in roots),
+        ("discovery contains no save or checkout invocation", forbidden_mutation.search(discovery) is None),
+        ("eligibility contains no save or checkout invocation", forbidden_mutation.search(eligibility) is None),
+        ("readback contains no save or checkout invocation", forbidden_mutation.search(readback) is None),
+        ("discovery and readback have no UI prompts", all(re.search(r"\b(?:InputBox|MessageBox|MsgBox)\s*\(", module, re.I) is None for module in (discovery, readback))),
+        ("pure planner contains no revision reset", re.search(r"\b(?:Revision Number|1st REV|REVISION)\b", pure, re.I) is None),
     ]
     passed = sum(check(name, result) for name, result in checks)
     print(f"{passed}/{len(checks)} source-contract checks passed")
