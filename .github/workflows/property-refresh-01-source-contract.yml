@@ -1,0 +1,20 @@
+name: Property Refresh 01 offline source contracts
+on:
+  push:
+    branches:
+      - feature/sweeper-v2.2.34-existing-target-repair
+    paths:
+      - 'scripts/ilogic/experiments/BEEXCITED_PropertyRefresh*.iLogicVb'
+      - 'scripts/ilogic/experiments/tests/test_property_refresh_source_contract.py'
+      - '.github/workflows/property-refresh-01-source-contract.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run existing offline source-contract harness
+        run: python3 scripts/ilogic/experiments/tests/test_property_refresh_source_contract.py
