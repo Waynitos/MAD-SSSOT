@@ -41,7 +41,7 @@ def main():
         ("existing prefix anchored", '"^PJ[0-9]{5}-"' in pure),
         ("prefix suffix retained", "original.Substring(7)" in pure),
         ("drawing planner requires filename identity", "fileBaseName.Substring(0, 7)" in pure),
-        ("drawing mapping remains hardcoded (qualification blocker)", '.PropertyName = "DRAWING_NUMBER"' in pure),
+        ("drawing mapping is explicit and fails closed when missing", "verifiedPropertySetName As String" in pure and "verifiedPropertyName As String" in pure and "String.IsNullOrWhiteSpace(verifiedPropertySetName)" in pure and "String.IsNullOrWhiteSpace(verifiedPropertyName)" in pure and ".PropertyName = verifiedPropertyName.Trim()" in pure and '.PropertyName = "DRAWING_NUMBER"' not in pure),
         ("eligibility rejects absent protected roots", "protectedList.Count = 0" in eligibility),
         ("eligibility blocks read-only", "FileAttributes.ReadOnly" in eligibility),
         ("eligibility explicitly preview-only", "PreviewCandidateRequiresVaultOwnershipAndDirtyChecks" in eligibility),
