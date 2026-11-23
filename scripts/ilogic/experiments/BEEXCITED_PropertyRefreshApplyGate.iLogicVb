@@ -1,0 +1,60 @@
+' BEEXCITED Property Refresh 01 — shared APPLY authorization gate v0.1.0-candidate
+' Fail-closed, pure policy evaluation. No Inventor calls, file writes, UI or Copy Design.
+' A PASS is only a necessary condition, NEVER permission to mutate by itself.
+' The caller must supply independently verified evidence for every field.
+Imports System
+
+Public Module BEEXCITED_PropertyRefreshApplyGate
+    Public Const ApplyGateVersion As String = "0.1.0-candidate"
+
+    Public Class ApplyEvidence
+        Public Property ExplicitApplyConfirmed As Boolean
+        Public Property ImmutablePlanMatches As Boolean
+        Public Property SavedDocument As Boolean
+        Public Property DocumentClean As Boolean
+        Public Property CanonicalPhysicalIdentityVerified As Boolean
+        Public Property ApprovedProjectRootVerified As Boolean
+        Public Property NotExternalProtectedLibrary As Boolean
+        Public Property FileWritable As Boolean
+        Public Property VaultCheckoutOwnedVerified As Boolean
+        Public Property PropertyMappingVerified As Boolean
+        Public Property OriginalValuesMatchSnapshot As Boolean
+        Public Property ApprovedPopulatedFieldsOnly As Boolean
+        Public Property ExternalComSupervisorReady As Boolean
+        Public Property IndependentPersistedReadbackReady As Boolean
+    End Class
+
+    Public Class GateDecision
+        Public Property AllowedToProceedToRevalidation As Boolean
+        Public Property Reason As String
+    End Class
+
+    Public Function EvaluateApplyEvidence(ByVal evidence As ApplyEvidence) As GateDecision
+        If evidence Is Nothing Then Return Deny("Missing evidence")
+        If Not evidence.ExplicitApplyConfirmed Then Return Deny("APPLY not explicitly confirmed")
+        If Not evidence.ImmutablePlanMatches Then Return Deny("Immutable plan missing or stale")
+        If Not evidence.SavedDocument Then Return Deny("Unsaved document")
+        If Not evidence.DocumentClean Then Return Deny("Dirty document")
+        If Not evidence.CanonicalPhysicalIdentityVerified Then Return Deny("Physical identity unverified")
+        If Not evidence.ApprovedProjectRootVerified Then Return Deny("Project root unverified")
+        If Not evidence.NotExternalProtectedLibrary Then Return Deny("Protected library status uncertain")
+        If Not evidence.FileWritable Then Return Deny("Read-only or write access uncertain")
+        If Not evidence.VaultCheckoutOwnedVerified Then Return Deny("Vault ownership unverified")
+        If Not evidence.PropertyMappingVerified Then Return Deny("Property mapping unverified")
+        If Not evidence.OriginalValuesMatchSnapshot Then Return Deny("Stale property snapshot")
+        If Not evidence.ApprovedPopulatedFieldsOnly Then Return Deny("Unapproved or empty field")
+        If Not evidence.ExternalComSupervisorReady Then Return Deny("COM supervision absent")
+        If Not evidence.IndependentPersistedReadbackReady Then Return Deny("Persisted readback absent")
+        Return New GateDecision With {
+            .AllowedToProceedToRevalidation = True,
+            .Reason = "Evidence accepted for immediate independent revalidation only; NOT write authorization"
+        }
+    End Function
+
+    Private Function Deny(ByVal reason As String) As GateDecision
+        Return New GateDecision With {
+            .AllowedToProceedToRevalidation = False,
+            .Reason = reason
+        }
+    End Function
+End Module
