@@ -66,13 +66,18 @@ Public Module BEEXCITED_PropertyRefreshPure
     ' Typed drawing planner: explicitly named inputs prevent the historical
     ' filename/existing-value positional swap in the standalone candidate.
     ' Nothing is returned when identity is unverified or value is unchanged.
-    Public Function PlanExistingDrawingProperty(ByVal filePath As String, ByVal filenameStem As String, ByVal existingDrawingNumber As String, ByVal targetProjectPrefix As String) As PropertyChange
+    Public Function PlanExistingDrawingProperty(ByVal filePath As String, ByVal filenameStem As String, ByVal existingDrawingNumber As String, ByVal targetProjectPrefix As String, ByVal verifiedPropertySetName As String, ByVal verifiedPropertyName As String) As PropertyChange
+        ' Mapping must be verified externally against actual drawings before planning.
+        ' No default DRAWING_NUMBER assumption and no implicit field creation.
+        If String.IsNullOrWhiteSpace(verifiedPropertySetName) OrElse String.IsNullOrWhiteSpace(verifiedPropertyName) Then
+            Throw New ArgumentException("Verified drawing property set and name are required.")
+        End If
         Dim nextValue As String = PlanDrawingNumber(existingValue:=existingDrawingNumber, fileBaseName:=filenameStem, proposed:=targetProjectPrefix)
         If String.Equals(existingDrawingNumber, nextValue, StringComparison.Ordinal) Then Return Nothing
         Return New PropertyChange With {
             .FilePath = filePath,
-            .PropertySetName = "Inventor User Defined Properties",
-            .PropertyName = "DRAWING_NUMBER",
+            .PropertySetName = verifiedPropertySetName.Trim(),
+            .PropertyName = verifiedPropertyName.Trim(),
             .OldValue = existingDrawingNumber,
             .NewValue = nextValue,
             .Reason = "Verified drawing identity and leading project prefix only"
