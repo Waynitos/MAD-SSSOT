@@ -49,3 +49,8 @@
 - **Argentina baggage:** Backpack + suit; suitcase stays in Madrid.
 - **Open:** Suit carrier dimensions/hanging requirement, exact Belgium-to-Madrid travel logistics, provider rates and holiday hours, separate-ticket terminal transfers and security conditions.
 - **Status:** PROPOSED storage only; no reservation made. User-provided routing clarified 19 Nov 2026.
+
+## 2026-11-24 — Revised positioning and mobile data research
+- User-selected one-way Avis/Budget car rental replaces preferred Brisbane–Sydney flight: Brisbane CBD pickup 10 Dec 2026 16:00; Newcastle return by 11 Dec 10:00; AUD 53 quoted by user, booking evidence not inspected. Confirm one-way fee, kilometres, fuel, tolls, after-hours terms and safe rested driving schedule. Qantas points retained. Newcastle–Sydney airport transfer still open.
+- Mobile data: retain Australian SIM; use unlocked dual-SIM/eSIM compatible phone. Proposed budget option: MobiMatter NextLink Europe 12GB/30 days US$10.99 (https://mobimatter.com/esim-europe), Jetpac Argentina 15GB/30 days US$29.99 or 5GB US$15 (https://www.jetpacglobal.com/product-details/argentina-esim). Approx AUD 62 or 39 respectively at illustrative 1.50 AUD/USD. Global alternative Airalo Discover 10GB/30 days US$35.99 listed by MobiMatter; verify all destinations and actual checkout. Roamless non-expiring PAYG backup (https://roamless.com/). No plans purchased; verify device, coverage, activation validity, home SIM roaming/SMS rules. Research dated 24 Nov 2026.
+- Europe visits proposed: Valencia, Granada, Paris, Germany (cities TBD), Austria (city TBD), Temse Belgium; return Madrid 22 or 23 Dec. Schedule feasibility unresolved. Avoid publishing private addresses and friend identifiers.
