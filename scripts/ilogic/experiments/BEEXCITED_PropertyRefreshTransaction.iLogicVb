@@ -1,0 +1,90 @@
+' BEEXCITED Property Refresh 01 — shared transaction coordinator v0.1.0-preview
+' The ONLY orchestration entry point for standalone wrappers and future Clean Sweeper adapter.
+' No UI, Copy Design, traversal, Inventor references or implicit APPLY. No production qualification.
+Imports System
+Imports System.Collections.Generic
+
+Public Module BEEXCITED_PropertyRefreshTransaction
+    Public Const TransactionVersion As String = "0.1.0-preview"
+
+    ' Adapters must independently implement these checks; returning True without evidence is prohibited.
+    Public Interface IPropertyRefreshPort
+        Function Revalidate(ByVal planId As String, ByVal path As String) As BEEXCITED_PropertyRefreshApplyGate.ApplyEvidence
+        Function ReadOriginal(ByVal path As String, ByVal propertyKey As String) As String
+        Sub SetValue(ByVal path As String, ByVal propertyKey As String, ByVal newValue As String)
+        Sub SaveDocument(ByVal path As String)
+        Function ReadPersistedIndependent(ByVal path As String, ByVal propertyKey As String) As String
+        Sub Audit(ByVal path As String, ByVal stage As String, ByVal detail As String)
+    End Interface
+
+    Public Class PropertyChange
+        Public Property PropertyKey As String
+        Public Property ExpectedOriginal As String
+        Public Property ProposedValue As String
+    End Class
+
+    Public Class TransactionResult
+        Public Property Succeeded As Boolean
+        Public Property Reason As String
+    End Class
+
+    ' One file per invocation; caller must build immutable plans and ensure physical path identity.
+    ' Fail closed on any uncertainty; never automatically retry or roll back a partially saved file.
+    Public Function ApplyOneFile(ByVal port As IPropertyRefreshPort,
+                                 ByVal planId As String,
+                                 ByVal path As String,
+                                 ByVal changes As IList(Of PropertyChange),
+                                 ByVal applyRequested As Boolean) As TransactionResult
+        If port Is Nothing Then Return Failure("Missing port")
+        If String.IsNullOrWhiteSpace(planId) OrElse String.IsNullOrWhiteSpace(path) Then Return Failure("Missing immutable plan or path")
+        If changes Is Nothing OrElse changes.Count = 0 Then Return Failure("Empty change set")
+        If Not applyRequested Then
+            port.Audit(path, "DRY_RUN", "No mutation performed")
+            Return Failure("DRY_RUN: APPLY not requested")
+        End If
+
+        Dim mutationStarted As Boolean = False
+        Try
+            Dim evidence = port.Revalidate(planId, path)
+            Dim gate = BEEXCITED_PropertyRefreshApplyGate.EvaluateApplyEvidence(evidence)
+            If Not gate.AllowedToProceedToRevalidation Then
+                port.Audit(path, "DENIED", gate.Reason)
+                Return Failure(gate.Reason)
+            End If
+
+            ' Duplicate keys and stale snapshots are hard failures, before any writes.
+            Dim seen As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+            For Each change In changes
+                If change Is Nothing OrElse String.IsNullOrWhiteSpace(change.PropertyKey) OrElse
+                   String.IsNullOrEmpty(change.ExpectedOriginal) OrElse String.IsNullOrEmpty(change.ProposedValue) Then
+                    Return Failure("Invalid or empty property change")
+                End If
+                If Not seen.Add(change.PropertyKey) Then Return Failure("Duplicate property key")
+                If Not String.Equals(port.ReadOriginal(path, change.PropertyKey),
+                                     change.ExpectedOriginal, StringComparison.Ordinal) Then
+                    Return Failure("Original property changed since plan")
+                End If
+            Next
+
+            ' Revalidate once more immediately before first mutation. Adapter must inspect live state.
+            Dim finalEvidence = port.Revalidate(planId, path)
+            Dim finalGate = BEEXCITED_PropertyRefreshApplyGate.EvaluateApplyEvidence(finalEvidence)
+            If Not finalGate.AllowedToProceedToRevalidation Then Return Failure("Final revalidation denied: " & finalGate.Reason)
+
+            ' IMPORTANT: adapter must guarantee all-or-nothing staged property mutation.
+            ' This preview is NOT safe to enable for APPLY until that contract is proven.
+            port.Audit(path, "BLOCKED", "Transaction preview: staged mutation/rollback contract not qualified")
+            Return Failure("APPLY disabled pending atomic mutation and independent persisted readback qualification")
+        Catch ex As Exception
+            Try
+                port.Audit(path, "ERROR", ex.GetType().Name & ": " & ex.Message)
+            Catch
+            End Try
+            Return Failure(If(mutationStarted, "Mutation interrupted; manual reconciliation required", "Preflight failed: " & ex.GetType().Name))
+        End Try
+    End Function
+
+    Private Function Failure(ByVal reason As String) As TransactionResult
+        Return New TransactionResult With {.Succeeded = False, .Reason = reason}
+    End Function
+End Module
