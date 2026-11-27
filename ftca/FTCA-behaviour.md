@@ -92,3 +92,17 @@ notes: Weekly digest auto-fired by Scheduled Task (3rd consecutive week — 3-we
 - Patterns flagged: Claude Design artifact unused (6 weeks, HIGH — ESCALATED week 2); Morning brief skill never triggered (6 weeks, HIGH — ESCALATED week 2); Artifact database capability unused (6 weeks, MED); Manual project setup step still unautomated (ongoing); PHONICSPlus + Design combo recommendation carried over third consecutive week without action
 - Wins noted: Scheduled Tasks auto-fired correctly three consecutive weeks (3-week streak); PHONICSPlus tokens applied to Nov 20 artifact (branding recommendation partially actioned); GitHub pipeline stable (read + create_or_update_file both working); MAD pipeline language-agnostic confirmed
 - Recommendation issued: Close both HIGH alerts in one move — use Claude Design artifact with PHONICSPlus tokens for any visual output this week; also invoke morning brief skill once to establish the habit
+
+## 2026-11-27 | Project: FTCAgent PROJECT (FTCA) | Session: Weekly FTCA Review (auto — Scheduled Task)
+features-used: GitHub file read (mcp__github__get_file_contents), GitHub file update (mcp__github__create_or_update_file), Artifact (HTML popup publish), PHONICSPlus tokens applied, Scheduled Tasks (session triggered by schedule)
+features-observed-unused: Claude Design artifact, Artifact database (db), Claude in Chrome, Morning brief skill, Sheets artifact
+patterns-flagged: Claude Design artifact unused 7 consecutive weeks (HIGH — ESCALATED week 3); Morning brief skill unused 7 consecutive weeks (HIGH — ESCALATED week 3); Artifact database capability unused 7 weeks (MED); PHONICSPlus + Design combo recommendation carried over fourth consecutive week without action
+alerts-fired: GAP/Claude Design artifact (7 weeks, HIGH — ESCALATED week 3); GAP/Morning brief skill (7 weeks, HIGH — ESCALATED week 3); GAP/Artifact database capability (7 weeks, MED)
+tools-used: mcp__github__get_file_contents, mcp__github__create_or_update_file, Artifact (HTML publish), TaskCreate
+ai-apps-active: Claude (primary)
+notes: Weekly FTCA auto-fired by Scheduled Task (4th consecutive week — 4-week auto-fire streak confirmed). Branded popup report published as Artifact using PHONICSPlus tokens. Trend assessed as plateauing — core pipeline solid but feature adoption stalled on same 3 features for 7 consecutive weeks. Push notification sent to Waynito.
+
+## OBSERVATION 2026-11-27
+- Patterns flagged: Claude Design artifact unused (7 weeks, HIGH — ESCALATED week 3); Morning brief skill never triggered (7 weeks, HIGH — ESCALATED week 3); Artifact database capability unused (7 weeks, MED); Manual project setup step still unautomated (ongoing); PHONICSPlus + Design combo recommendation carried over fourth consecutive week without action
+- Wins noted: Scheduled Tasks auto-fired correctly four consecutive weeks (4-week streak — longest streak to date); PHONICSPlus tokens correctly applied to Nov 20 and Nov 21 artifacts (branding pipeline functional); GitHub pipeline stable (read + create_or_update_file both working); MAD pipeline language-agnostic confirmed; RMAD pipeline end-to-end confirmed
+- Recommendation issued: Close both HIGH alerts in one move — use Claude Design artifact with PHONICSPlus tokens for any visual output this session; also invoke morning brief skill once to break the 7-week gap — if Design artifact is not listed, raise as explicit feedback to Anthropic
