@@ -73,3 +73,7 @@
 - Confirm Madrid suit storage and pickup before AR1133 departs on 23 Dec. Carry suit and accessories to Argentina.
 - **Buenos Aires → Necochea:** Travel by bus with friends. Allow around 8 hours on the bus. [Central de Pasajes](https://www.centraldepasajes.com.ar/cdp/pasajes-micro/retiro-buenos-aires/necochea) lists about 7 h 36 min from Retiro as a general route estimate. Group departure date and time, terminal and ticket status are unverified. Coordinate the meeting point and transfer from EZE or accommodation. If practical, aim to arrive in Necochea by 25 Dec.
 - Pre-book the local remis both ways, including the 05:30 Sunday pickup. Coordinate accommodation and onward travel with the overnight reception.
+
+## Valencia → Granada — working plan
+- Tue 15 Dec: Land in Madrid at 07:25, drop off the wedding suit, and travel to Valencia during the day. The Valencia visit is after work. Exact meeting time and travel bookings pending.
+- Compare onward travel late on 15 Dec after the visit with a Valencia overnight stay and departure on Wed 16 Dec. Choose based on total transport and accommodation cost, and avoid cutting the visit short. Aim to reach Granada on 16 Dec for a full day on 17 Dec. Paris nights of 18–19 Dec remain pencilled in.
