@@ -63,7 +63,7 @@
 - **Invitation:** [BODA A&J](https://horse-3x9cfm.my.canva.site/boda-a-j). RSVP before 17 Dec 2026 using “Confirmar asistencia” on the invitation. RSVP status unverified.
 - **Venue:** Chez Guegnon Salón de Eventos, Calle 105 N°1947, Necochea, Buenos Aires Province. Use “Ver mapa” on the invitation for the venue pin. [Venue listing](https://salones.ar/buenos-aires/necochea/chez-guegnon/).
 - **Schedule (Argentina local time):** Sat 26 Dec, guests arrive 19:45, ceremony 20:15, party starts 21:00. Sun 27 Dec, departure at 05:30. The hosts ask guests to be punctual.
-- **Dress code:** Formal. White and beige tones are reserved for the bride. Planned outfit: charcoal suit, lighter grey waistcoat, white shirt and Argentine sky-blue tie. Confirm with the hosts if unsure how the white-shirt choice fits the dress guidance.
+- **Dress code:** Formal. White and beige tones are reserved for the bride. Planned outfit: charcoal suit, lighter grey waistcoat, white shirt and Argentine sky-blue tie. White shirt confirmed for this outfit by the traveller.
 - **Children and transport:** Adults-only celebration. The hosts recommend leaving the car at home and using a remis (pre-booked car).
 - **Optional:** The invitation links to a Spotify playlist for song suggestions. Gifts are optional and transfer details are available in the invitation.
 
