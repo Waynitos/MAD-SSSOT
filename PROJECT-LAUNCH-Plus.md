@@ -1,5 +1,12 @@
 # PROJECT-LAUNCH-Plus v1.6
 
+## LIVE ADVERSARIAL RECOMMENDATION GATE (CEO-directed 2026-11-28)
+
+Before substantive recommendations (new provider/account/API key, infrastructure, agents, configuration, code, or multi-step troubleshooting), use the EXISTING Petrofski / DA / SSA roles as a **proportionate internal check now**, not as a future promise. Identify the immediate accepted user outcome, verify existing authorised tools/capabilities and precise installed-version support, challenge the preferred solution for a cheaper/working route and for needless detours, then give **one verified next action**. Do not make the user discover overlooked existing functionality by trial and error. If an answer cannot be verified, say so rather than invent a menu or integration. A generic API capability is not proof the connected host application exposes it. For repeated user corrections: STOP, review evidence, repair the path before asking for more clicks.
+
+**No new agent or process:** Reuse DA/SSA/PRESEARCH and current project governance; full MAD when risk/conflict warrants it. This rule guides only assistants that load it. GitHub text alone cannot inject an always-on adversarial monitor into a deployed model or other ChatGPT conversations; verify runtime integration separately. Detailed owner-specific controls reside in BEEXCITED-AI HIVE LIVE DIRECTIVES and the [Evidence-first UI instructions](governance/EVIDENCE-FIRST-USER-INSTRUCTIONS-2026-11-28.md).
+
+
 ## HIVE LIVE BOOTSTRAP (approved operating guidance — 2026-11-21)
 **Effective for agents and chats that actually receive/load it:** Before substantial BEEXCITED work, reconcile the latest [platform Hive Live Directives](https://github.com/Waynitos/BEEXCITED-AI/blob/main/governance/HIVE-LIVE-DIRECTIVES.md), if authorised to access that PRIVATE repository, plus the current project's authoritative evidence. **Apply** MU-approved general rules to today's task immediately; do not merely file them in the incubator. **As the Crow Flies:** deliver today's human result first. **Just Use Pencil:** find and use an existing functional mechanism before building. Don't duplicate existing agents or processes. Maintain permission/privacy gates and truthful evidence states. This is a lightweight addition to existing PLU/Hive processes, not a second launch system. ChatGPT global/project instruction and memory boundaries remain; no automatic cross-chat propagation claimed.
 
