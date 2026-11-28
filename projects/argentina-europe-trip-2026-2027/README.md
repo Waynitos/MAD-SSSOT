@@ -20,6 +20,7 @@
 | 15–23 Dec 2026 | Europe | PLANNING | 8 nights before Argentina departure; destinations TBD |
 | 23–24 Dec 2026 | Madrid MAD → Buenos Aires EZE | CONFIRMED | AR1133, 19:05 Wed → 04:10 Thu, direct 13h05m, Economy Plus fare |
 | 24 Dec 2026–7 Jan 2027 | Argentina | PLANNING | 14 nights; internal itinerary TBD |
+| Sat 26 Dec → Sun 27 Dec 2026 | Necochea, Buenos Aires Province | CONFIRMED EVENT / RSVP OPEN | Wedding at Chez Guegnon. Guests arrive at 19:45. Local transport and accommodation pending. See wedding section. |
 | 7–8 Jan 2027 | Buenos Aires EZE → Madrid MAD | CONFIRMED | AR1134, 15:05 Thu → 07:20 Fri, direct 12h15m, Economy Plus fare |
 | 8 Jan 2027 | Madrid | CONFIRMED CONNECTION / PLANNING | Arrive 07:20; Etihad departs 21:10; allow for separate-ticket baggage/check-in requirements |
 | 8–10 Jan 2027 | Madrid → Abu Dhabi → Sydney | CONFIRMED | Depart Madrid Fri 8 Jan 21:10; Sydney Sun 10 Jan 06:30 |
@@ -43,6 +44,8 @@
 
 - 2026-11-14: Added Aerolíneas Argentinas AR1133/AR1134 from user-supplied booking screenshot. Booking code intentionally omitted. Flight times not independently verified. Note: 8 Jan Madrid transfer involves separate airline bookings; verify baggage, check-in and ticket conditions.
 
+- 2026-11-28: Added wedding invitation details, RSVP deadline and travel dependencies.
+
 ## Madrid two-stage luggage storage (planning; user clarification)
 - **Suit:** Leave in Madrid on 15 Dec 2026 on arrival from Sydney; collect on 23 Dec before Madrid → Buenos Aires flight. Suit must travel to Argentina. Storage provider may differ from suitcase provider; compare staffed garment-friendly options and 8-day terms.
 - **Suitcase:** User plans to collect suitcase in Belgium during European leg; bring it to Madrid and store on 23 Dec before Argentina flight; collect on 8 Jan 2027 after arrival from Buenos Aires, before Etihad departure to Australia. Compare 16-day storage and early 8 Jan collection availability.
@@ -54,3 +57,19 @@
 - User-selected one-way Avis/Budget car rental replaces preferred Brisbane–Sydney flight: Brisbane CBD pickup 10 Dec 2026 16:00; Newcastle return by 11 Dec 10:00; AUD 53 quoted by user, booking evidence not inspected. Confirm one-way fee, kilometres, fuel, tolls, after-hours terms and safe rested driving schedule. Qantas points retained. Newcastle–Sydney airport transfer still open.
 - Mobile data: retain Australian SIM; use unlocked dual-SIM/eSIM compatible phone. Proposed budget option: MobiMatter NextLink Europe 12GB/30 days US$10.99 (https://mobimatter.com/esim-europe), Jetpac Argentina 15GB/30 days US$29.99 or 5GB US$15 (https://www.jetpacglobal.com/product-details/argentina-esim). Approx AUD 62 or 39 respectively at illustrative 1.50 AUD/USD. Global alternative Airalo Discover 10GB/30 days US$35.99 listed by MobiMatter; verify all destinations and actual checkout. Roamless non-expiring PAYG backup (https://roamless.com/). No plans purchased; verify device, coverage, activation validity, home SIM roaming/SMS rules. Research dated 24 Nov 2026.
 - Europe visits proposed: Valencia, Granada, Paris, Germany (cities TBD), Austria (city TBD), Temse Belgium; return Madrid 22 or 23 Dec. Schedule feasibility unresolved. Avoid publishing private addresses and friend identifiers.
+
+## Wedding — 26 December 2026
+
+- **Invitation:** [BODA A&J](https://horse-3x9cfm.my.canva.site/boda-a-j). RSVP before 17 Dec 2026 using “Confirmar asistencia” on the invitation. RSVP status unverified.
+- **Venue:** Chez Guegnon Salón de Eventos, Calle 105 N°1947, Necochea, Buenos Aires Province. Use “Ver mapa” on the invitation for the venue pin. [Venue listing](https://salones.ar/buenos-aires/necochea/chez-guegnon/).
+- **Schedule (Argentina local time):** Sat 26 Dec, guests arrive 19:45, ceremony 20:15, party starts 21:00. Sun 27 Dec, departure at 05:30. The hosts ask guests to be punctual.
+- **Dress code:** Formal. White and beige tones are reserved for the bride. Planned outfit: charcoal suit, lighter grey waistcoat, white shirt and Argentine sky-blue tie. Confirm with the hosts if unsure how the white-shirt choice fits the dress guidance.
+- **Children and transport:** Adults-only celebration. The hosts recommend leaving the car at home and using a remis (pre-booked car).
+- **Optional:** The invitation links to a Spotify playlist for song suggestions. Gifts are optional and transfer details are available in the invitation.
+
+### Before the wedding
+
+- Submit RSVP by 16 Dec to meet the invitation’s “before 17 Dec” wording.
+- Confirm Madrid suit storage and pickup before AR1133 departs on 23 Dec. Carry suit and accessories to Argentina.
+- Arrange onward travel and accommodation in or near Necochea after the scheduled 04:10 EZE arrival on 24 Dec. Confirm Christmas-period availability and aim to get to Necochea by 25 Dec if practical.
+- Pre-book the local remis both ways, including the 05:30 Sunday pickup. Coordinate accommodation and onward travel with the overnight reception.
