@@ -20,7 +20,7 @@
 | 15–23 Dec 2026 | Europe | PLANNING | 8 nights before Argentina departure; destinations TBD |
 | 23–24 Dec 2026 | Madrid MAD → Buenos Aires EZE | CONFIRMED | AR1133, 19:05 Wed → 04:10 Thu, direct 13h05m, Economy Plus fare |
 | 24 Dec 2026–7 Jan 2027 | Argentina | PLANNING | 14 nights; internal itinerary TBD |
-| Sat 26 Dec → Sun 27 Dec 2026 | Necochea, Buenos Aires Province | CONFIRMED EVENT / RSVP OPEN | Wedding at Chez Guegnon. Guests arrive at 19:45. Local transport and accommodation pending. See wedding section. |
+| Sat 26 Dec → Sun 27 Dec 2026 | Necochea, Buenos Aires Province | CONFIRMED EVENT / RSVP OPEN | Wedding at Chez Guegnon. Guests arrive at 19:45. Bus from Buenos Aires with friends planned. Local transport and accommodation pending. See wedding section. |
 | 7–8 Jan 2027 | Buenos Aires EZE → Madrid MAD | CONFIRMED | AR1134, 15:05 Thu → 07:20 Fri, direct 12h15m, Economy Plus fare |
 | 8 Jan 2027 | Madrid | CONFIRMED CONNECTION / PLANNING | Arrive 07:20; Etihad departs 21:10; allow for separate-ticket baggage/check-in requirements |
 | 8–10 Jan 2027 | Madrid → Abu Dhabi → Sydney | CONFIRMED | Depart Madrid Fri 8 Jan 21:10; Sydney Sun 10 Jan 06:30 |
@@ -71,5 +71,5 @@
 
 - Submit RSVP by 16 Dec to meet the invitation’s “before 17 Dec” wording.
 - Confirm Madrid suit storage and pickup before AR1133 departs on 23 Dec. Carry suit and accessories to Argentina.
-- Arrange onward travel and accommodation in or near Necochea after the scheduled 04:10 EZE arrival on 24 Dec. Confirm Christmas-period availability and aim to get to Necochea by 25 Dec if practical.
+- **Buenos Aires → Necochea:** Travel by bus with friends. Allow around 8 hours on the bus. [Central de Pasajes](https://www.centraldepasajes.com.ar/cdp/pasajes-micro/retiro-buenos-aires/necochea) lists about 7 h 36 min from Retiro as a general route estimate. Group departure date and time, terminal and ticket status are unverified. Coordinate the meeting point and transfer from EZE or accommodation. If practical, aim to arrive in Necochea by 25 Dec.
 - Pre-book the local remis both ways, including the 05:30 Sunday pickup. Coordinate accommodation and onward travel with the overnight reception.
